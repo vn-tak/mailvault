@@ -167,6 +167,35 @@ time and the judgement is stored (`messages.auth_verdict` + `auth_json`).
 - Messages over `MAX_MESSAGE_BYTES` are rejected; the configured ceiling is clamped to
   Cloudflare's ~25 MiB inbound limit (`env.ts`).
 
+## 8.1 Notifications (Web Push) — `apps/worker/src/push.ts`, `apps/web/public/sw.js`
+
+- **The notification is payload-free by design.** The server sends a bodyless POST, and
+  the service worker shows a fixed string ("New mail arrived"). Sender, subject, codes,
+  links and attachment names never leave the authenticated app — a stolen or shared device
+  learns only that mail exists, and reading it requires Cloudflare Access.
+  `test/unit/push.test.ts` asserts the outgoing request has no body.
+- **A push endpoint is a bearer credential**, so it is stored only in D1, never returned by
+  any API response, never logged, and never cached by the service worker. `/api/push/status`
+  reports a count, not the endpoints; the integration test asserts the response body does not
+  contain the stored URL.
+- **Validation + self-healing.** Only HTTPS endpoints of bounded length are accepted
+  (`isUsableEndpoint`), re-subscribing the same endpoint updates keys and clears the failure
+  counter rather than duplicating rows, a `404/410` prunes immediately, and a repeated
+  failure prunes after 5 attempts so dead endpoints cannot accumulate.
+- **Push can never break delivery.** Notification is fired with `ctx.waitUntil` after the
+  message is durable, and `pushToAll` never throws — an unreachable push provider cannot
+  reject or duplicate a real email.
+- **The VAPID private key is a Worker secret** (`VAPID_PRIVATE_KEY`, a P-256 JWK). The public
+  half is derived from it, so the two can never disagree, and the derivation is checked
+  against `crypto.subtle`'s own `raw` export.
+- **A subscription is owner-supplied, and that is the whole trust model.** Only a signed-in
+  owner can register an endpoint, so the Worker will POST a bodyless request to an HTTPS URL
+  they chose. There is no payload to leak, the VAPID assertion is audience-scoped to that
+  origin, and the response is never returned to a caller — so the reachability an attacker
+  would want here is already limited to the owner's own account.
+- The service worker never caches `/api/*` and never proxies a cross-origin request, so the
+  offline shell cannot become an unaccessed copy of private mail.
+
 ## 9. Domain provisioning safety (the highest-risk feature)
 
 `apps/worker/src/provisioning/` + `apps/worker/src/routes/domains.ts`:

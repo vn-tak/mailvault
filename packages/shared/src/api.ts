@@ -76,3 +76,12 @@ export const HealthSchema = z.object({
     .partial(),
 });
 export type Health = z.infer<typeof HealthSchema>;
+
+/** Result of one push sweep. Deliberately carries no message content. */
+export const PushOutcomeSchema = z.object({
+  sent: z.number().int().nonnegative(),
+  pruned: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  skipped: z.enum(["not-configured", "no-subscribers"]).optional(),
+});
+export type PushOutcome = z.infer<typeof PushOutcomeSchema>;

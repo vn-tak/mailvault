@@ -4,6 +4,7 @@ import { createCloudflareClient } from "./cf/api-client";
 import { createApp } from "./app";
 import { decorateResponse } from "./security/headers";
 import { ingestEmail } from "./mail/ingest";
+import { pushToAll } from "./push";
 import { log } from "./lib/logging";
 import { runWatchdog } from "./provisioning/watchdog";
 
@@ -33,9 +34,13 @@ export default {
    * ingestion is dedupe-safe. Startup/deploy performs no domain mutation (section 9).
    */
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
-    void ctx;
     try {
-      await ingestEmail(message, env, env.DB, env.MAIL_BUCKET);
+      const result = await ingestEmail(message, env, env.DB, env.MAIL_BUCKET);
+      if (result.status === "stored") {
+        // Notify only after the mail is durable, and detached: a slow or dead push
+        // endpoint must never affect delivery or make the message retry.
+        ctx.waitUntil(pushToAll(env, env.DB).then(() => undefined));
+      }
     } catch (err) {
       // Rejected for retry; log without body/token (section 34). The throw is deliberate.
       log.error("email_handler_failed", { error: err instanceof Error ? err.message : "error" });

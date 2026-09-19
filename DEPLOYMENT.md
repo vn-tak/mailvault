@@ -135,6 +135,13 @@ pnpm --filter @mailvault/worker deploy              # wrangler deploy
 
 # Secrets (never committed, never in vars):
 wrangler secret put CLOUDFLARE_API_TOKEN            # least-privilege token, see below
+wrangler secret put VAPID_PRIVATE_KEY               # optional: enables notifications
+
+# VAPID key pair (only if you want push notifications). The Worker derives the public
+# half from this JWK, so there is one value to keep and no way for them to disagree:
+node -e 'const{generateKeyPairSync}=require("node:crypto");const{privateKey}=generateKeyPairSync("ec",{namedCurve:"prime256v1"});console.log(JSON.stringify(privateKey.export({format:"jwk"})))' \
+  | pbcopy                      # then: wrangler secret put VAPID_PRIVATE_KEY  (paste)
+# and set VAPID_SUBJECT (a var, not a secret) to a contact, e.g. mailto:you@example.com
 
 # Put the deployed Worker behind Cloudflare Access:
 #   - Zero Trust → Access → Applications → Self-hosted

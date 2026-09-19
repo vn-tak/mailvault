@@ -18,7 +18,8 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Worker (API + inbound email) | ✅ Implemented |
 | Shared types/validation (`packages/shared`) | ✅ Implemented |
 | D1 schema + migration | ✅ Implemented (`apps/worker/migrations/0001_init.sql`) |
-| React SPA (Dashboard / Domains / Aliases / Alias detail / Inbox / Message) | ✅ Implemented |
+| React SPA (Dashboard / Domains / Aliases / Alias detail / Inbox / Message / Settings) | ✅ Implemented |
+| Installable PWA + payload-free new-mail notifications | ✅ Implemented |
 | Unit + integration tests (71 passing: worker 49, web 22) | ✅ Green |
 | Playwright E2E (5 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 3 owner-enabled domains | ✅ Live |
@@ -82,7 +83,7 @@ apps/
     migrations/      D1 SQL
     test/            unit + integration + .eml fixtures
   web/               React 18 + Vite SPA (custom hash router, no UI framework)
-    src/pages/       Dashboard, Domains, Aliases, AliasDetail, Inbox, MessageDetail
+    src/pages/       Dashboard, Domains, Aliases, AliasDetail, Inbox, MessageDetail, Settings
     src/components/  ui primitives, sandboxed MessageHtml
     e2e/             Playwright specs (against same-origin wrangler dev)
 packages/
@@ -152,6 +153,8 @@ state-changing methods, the `x-mailvault: 1` header + same-origin (CSRF).
 | PATCH | `/api/messages/:id/read` | Set read flag |
 | DELETE | `/api/messages/:id` | Delete a message (+ its R2 objects) |
 | GET | `/api/messages/:mid/attachments/:aid` | Authenticated attachment download (`Content-Disposition`, `nosniff`) |
+| GET | `/api/push/public-key` \| `/status` | VAPID public key + subscription count (never the endpoints) |
+| POST | `/api/push/subscribe` \| `/unsubscribe` \| `/test` | Register / drop a browser subscription; owner test send |
 
 ## Security posture (summary)
 

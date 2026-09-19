@@ -12,6 +12,7 @@ import type {
   Paginated,
   PreflightResult,
   ProvisionOutcome,
+  PushOutcome,
   MessageSummary,
   UpdateAliasInput,
 } from "@mailvault/shared";
@@ -118,6 +119,13 @@ export const api = {
       method: "DELETE",
       headers: { "x-mailvault": "1" },
     }),
+
+  pushPublicKey: () => request<{ key: string | null }>("/push/public-key"),
+  pushStatus: () => request<{ enabled: boolean; subscriptions: number }>("/push/status"),
+  pushSubscribe: (input: { endpoint: string; p256dh: string; auth: string; userAgent?: string }) =>
+    request<{ id: string }>("/push/subscribe", mutation(input)),
+  pushUnsubscribe: (endpoint: string) => request<{ removed: number }>("/push/unsubscribe", mutation({ endpoint })),
+  pushTest: () => request<PushOutcome>("/push/test", mutation()),
 };
 
 /** Authenticated, same-origin download URL for an attachment (never a public URL). */

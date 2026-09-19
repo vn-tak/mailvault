@@ -3,6 +3,8 @@
  * Boundings come from wrangler.jsonc; secrets are injected via `wrangler secret put`
  * (production) or `.dev.vars` (local). Nothing secret is ever read into a response.
  */
+import { log } from "./lib/logging";
+
 export interface Env {
   DB: D1Database;
   MAIL_BUCKET: R2Bucket;
@@ -21,6 +23,9 @@ export interface Env {
 
   // Secrets
   CLOUDFLARE_API_TOKEN?: string;
+  /** JSON private JWK (P-256) used to sign VAPID assertions. */
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string; // contact for the VAPID JWT `sub` claim
 }
 
 export const DEFAULT_MAX_MESSAGE_BYTES = 20 * 1024 * 1024; // 20 MiB safety ceiling
@@ -55,4 +60,33 @@ export function allowedEmails(env: Env): string[] {
 
 export function appOrigin(env: Env): string {
   return (env.APP_ORIGIN ?? "").replace(/\/+$/, "");
+}
+
+/**
+ * VAPID configuration, or null when push is not configured (the feature stays off).
+ * The secret is the whole private JWK, because `x`/`y` are needed to sign and to derive
+ * the public key the browser subscribes with — one secret cannot then disagree with itself.
+ */
+export function vapidConfig(env: Env): { jwk: JsonWebKey; subject: string } | null {
+  const raw = env.VAPID_PRIVATE_KEY?.trim();
+  if (!raw) return null;
+  let jwk: JsonWebKey;
+  try {
+    jwk = JSON.parse(raw) as JsonWebKey;
+  } catch {
+    log.warn("vapid_secret_unparseable");
+    return null;
+  }
+  if (jwk.kty !== "EC" || jwk.crv !== "P-256" || !jwk.d || !jwk.x || !jwk.y) {
+    log.warn("vapid_secret_invalid", { kty: jwk.kty ?? null, crv: jwk.crv ?? null });
+    return null;
+  }
+  // RFC 8292 allows either a mailto: contact or an https: origin in the JWT `sub`.
+  const configured = env.VAPID_SUBJECT?.trim();
+  const subject = configured
+    ? configured.includes(":")
+      ? configured
+      : `mailto:${configured}`
+    : appOrigin(env) || "https://localhost";
+  return { jwk, subject };
 }

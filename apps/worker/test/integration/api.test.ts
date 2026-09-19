@@ -239,3 +239,43 @@ describe("alias lifecycle: notes, pin, archive and timeline", () => {
     expect(detail.stats.senders[0]?.name).toContain("GitHub");
   });
 });
+
+describe("push subscription API", () => {
+  const good = { endpoint: "https://push.example/s/secret-token", p256dh: "BFakeKeyForTests", auth: "fakeauth" };
+
+  it("refuses to subscribe when VAPID is not configured", async () => {
+    const key = await j(await worker.fetch(req("/api/push/public-key"), TEST_ENV, CTX));
+    expect(key.key).toBeNull();
+    const res = await worker.fetch(req("/api/push/subscribe", { method: "POST", headers: mutationHeaders, body: JSON.stringify(good) }), TEST_ENV, CTX);
+    expect(res.status).toBe(503);
+    expect((await j(res)).error.code).toBe("PUSH_NOT_CONFIGURED");
+  });
+
+  it("validates the endpoint, upserts it, and never echoes the secret URL back", async () => {
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])) as CryptoKeyPair;
+    const jwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
+    const env = { ...TEST_ENV, VAPID_PRIVATE_KEY: JSON.stringify(jwk) } as unknown as typeof TEST_ENV;
+
+    const bad = await worker.fetch(
+      req("/api/push/subscribe", { method: "POST", headers: mutationHeaders, body: JSON.stringify({ ...good, endpoint: "http://push.example/s/x" }) }),
+      env,
+      CTX,
+    );
+    expect(bad.status).toBe(400);
+
+    const created = await worker.fetch(req("/api/push/subscribe", { method: "POST", headers: mutationHeaders, body: JSON.stringify(good) }), env, CTX);
+    expect(created.status).toBe(201);
+    await worker.fetch(req("/api/push/subscribe", { method: "POST", headers: mutationHeaders, body: JSON.stringify({ ...good, p256dh: "rotated" }) }), env, CTX);
+
+    const status = await worker.fetch(req("/api/push/status"), env, CTX);
+    const body = await status.text();
+    expect(JSON.parse(body)).toEqual({ enabled: true, subscriptions: 1 });
+    expect(body).not.toContain("secret-token"); // the endpoint is a bearer credential
+
+    const pub = await j(await worker.fetch(req("/api/push/public-key"), env, CTX));
+    expect(pub.key).toMatch(/^B/);
+
+    const off = await worker.fetch(req("/api/push/unsubscribe", { method: "POST", headers: mutationHeaders, body: JSON.stringify({ endpoint: good.endpoint }) }), env, CTX);
+    expect((await j(off)).removed).toBe(1);
+  });
+});

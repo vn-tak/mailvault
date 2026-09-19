@@ -7,12 +7,14 @@ import { Aliases } from "./pages/Aliases";
 import { AliasDetail } from "./pages/AliasDetail";
 import { Inbox } from "./pages/Inbox";
 import { MessageDetail } from "./pages/MessageDetail";
+import { Settings } from "./pages/Settings";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
   { to: "/domains", label: "Domains" },
   { to: "/aliases", label: "Aliases" },
   { to: "/inbox", label: "Inbox" },
+  { to: "/settings", label: "Settings" },
 ];
 
 function isActive(path: string, to: string): boolean {
@@ -29,6 +31,7 @@ function Route() {
   if (path === "/domains") return <Domains />;
   if (path === "/aliases") return <Aliases openNew={query.get("new") === "1"} />;
   if (path === "/inbox") return <Inbox aliasId={query.get("alias") ?? undefined} domainId={query.get("domain") ?? undefined} />;
+  if (path === "/settings") return <Settings />;
   if (path === "/" || path === "") return <Dashboard />;
   return (
     <div className="page">
