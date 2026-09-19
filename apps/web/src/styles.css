@@ -118,6 +118,9 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 textarea { resize: vertical; }
 label { display: block; font-size: var(--text-xs); color: var(--muted); margin-bottom: 4px; }
+/* Why a name was refused, next to the field rather than in a banner after the click. */
+.field-problem { font-size: var(--text-xs); color: var(--danger); margin-top: 5px; }
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--danger); }
 
 /* ── Shell ─────────────────────────────────────────────────────────────── */
 

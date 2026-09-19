@@ -3,6 +3,8 @@ import { api, ApiClientError } from "../lib/api";
 import {
   LocalPartMode,
   MailStatus,
+  localPartProblem,
+  normalizeLocalPartInput,
   type Alias,
   type CreateAliasInput,
   type Domain,
@@ -12,6 +14,15 @@ import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
 import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Menu, Modal } from "../components/ui";
+
+function describeError(e: unknown): string {
+  if (!(e instanceof ApiClientError)) return "Could not create alias";
+  // The API already says which rule failed and why; showing only `message` gave the owner
+  // "Validation failed" with nothing to act on.
+  const details = e.details as Record<string, unknown> | undefined;
+  const reasons = Object.values(details ?? {}).flatMap((v) => (Array.isArray(v) ? v.map(String) : []));
+  return reasons.length ? reasons.join(" · ") : e.message;
+}
 
 function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreated: (a: Alias) => void }) {
   const { data: domains } = useAsync(() => api.listDomains(), []);
@@ -30,15 +41,19 @@ function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreat
   }, [ready, domainId]);
 
   const domain: Domain | undefined = ready.find((d) => d.id === domainId);
+  const problem = mode === LocalPartMode.Custom && localPart.trim() ? localPartProblem(localPart) : null;
+  const missingName = mode === LocalPartMode.Custom && !localPart.trim();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setErr(null);
     const base = { domainId, label: label.trim() || null };
+    // Sent as typed: the API normalizes, so what the owner sees in the preview is exactly
+    // what the server will store.
     const input: CreateAliasInput =
       mode === LocalPartMode.Custom
-        ? { ...base, mode: LocalPartMode.Custom, localPart: localPart.trim() }
+        ? { ...base, mode: LocalPartMode.Custom, localPart }
         : mode === LocalPartMode.ServiceRandom
           ? { ...base, mode: LocalPartMode.ServiceRandom, service: service.trim() }
           : { ...base, mode: LocalPartMode.Random };
@@ -47,7 +62,7 @@ function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreat
       onCreated(created);
       onClose();
     } catch (e2) {
-      setErr(e2 instanceof ApiClientError ? e2.message : "Could not create alias");
+      setErr(describeError(e2));
     } finally {
       setBusy(false);
     }
@@ -105,16 +120,31 @@ function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreat
           {mode === LocalPartMode.Random && domain && <Preview local="x7k29p" domain={domain.name} />}
           {mode === LocalPartMode.Custom && (
             <div className="field">
-              <label>Custom local part</label>
-              <input value={localPart} onChange={(e) => setLocalPart(e.target.value)} placeholder="github03" maxLength={64} />
-              {domain && <Preview local={localPart || "…"} domain={domain.name} />}
+              <label htmlFor="alias-local-part">Custom local part</label>
+              <input
+                id="alias-local-part"
+                value={localPart}
+                onChange={(e) => setLocalPart(e.target.value)}
+                placeholder="github03"
+                maxLength={64}
+                aria-invalid={!!problem}
+                aria-describedby={problem ? "alias-local-part-problem" : undefined}
+              />
+              {/* The reason appears while typing, not after a failed submit, and the preview
+                  shows the address the server will actually store (`Tung` → `tung`). */}
+              {problem && (
+                <div className="field-problem" id="alias-local-part-problem" role="alert">
+                  {problem}
+                </div>
+              )}
+              {domain && <Preview local={normalizeLocalPartInput(localPart) || "…"} domain={domain.name} />}
             </div>
           )}
           <div className="row-end" style={{ marginTop: 8 }}>
             <button type="button" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="primary" disabled={busy || !domainId}>
+            <button type="submit" className="primary" disabled={busy || !domainId || !!problem || missingName}>
               {busy ? "Creating…" : "Create alias"}
             </button>
           </div>

@@ -136,6 +136,40 @@ describe("HTTP API", () => {
     expect(dup.status).toBe(409);
   });
 
+  it("stores a custom name lowercased, so inbound mail can actually match it", async () => {
+    const domainId = await seedDomain();
+    const created = await worker.fetch(
+      req("/api/aliases", { method: "POST", headers: mutationHeaders, body: JSON.stringify({ domainId, mode: "custom", localPart: "  Shop01  " }) }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(created.status).toBe(201);
+    const alias = await j(created);
+    expect(alias.address).toBe("shop01@notify.example");
+    expect(alias.localPart).toBe("shop01");
+
+    // Case is not a second mailbox: the same name in another casing must collide.
+    const clash = await worker.fetch(
+      req("/api/aliases", { method: "POST", headers: mutationHeaders, body: JSON.stringify({ domainId, mode: "custom", localPart: "SHOP01" }) }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(clash.status).toBe(409);
+  });
+
+  it("answers a rejected custom name with the rule it broke, per field", async () => {
+    const domainId = await seedDomain();
+    const res = await worker.fetch(
+      req("/api/aliases", { method: "POST", headers: mutationHeaders, body: JSON.stringify({ domainId, mode: "custom", localPart: "postmaster" }) }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(res.status).toBe(400);
+    const body = await j(res);
+    expect(body.error.message).toBe("Validation failed");
+    expect(body.error.details.localPart.join(" ")).toMatch(/reserved for system addresses/i);
+  });
+
   it("stores a message via ingest, renders sanitized HTML, serves attachment, marks read, then deletes", async () => {
     const domainId = await seedDomain();
     await DB.prepare(

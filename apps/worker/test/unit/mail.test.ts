@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CreateAliasSchema, LocalPartMode, localPartProblem, normalizeLocalPartInput } from "@mailvault/shared";
 import { extractOtp } from "../../src/mail/otp";
 import { extractLinks } from "../../src/mail/links";
 import { normalizeDomain, normalizeLookupAddress, splitAddress } from "../../src/mail/normalize";
@@ -172,5 +173,44 @@ describe("email HTML sanitization (section 19)", () => {
     expect(out).toContain("&lt;b&gt;");
     expect(out).toContain("<b>bold</b>");
     expect(out).toContain("&amp; d");
+  });
+});
+
+/*
+ * A custom alias name is the one place the owner types an address by hand, so the rules
+ * have to be both forgiving (case is not a mistake) and specific (one message per rule).
+ * The previous behaviour was a single "Invalid local part" for six different causes, which
+ * read as "the feature is broken".
+ */
+describe("custom alias names", () => {
+  it("normalizes instead of rejecting", () => {
+    expect(localPartProblem("Tung")).toBeNull();
+    expect(normalizeLocalPartInput("  Tung JP  ")).toBe("tung jp");
+    const parsed = CreateAliasSchema.safeParse({ domainId: "d1", mode: LocalPartMode.Custom, localPart: "Tung" });
+    expect(parsed.success).toBe(true);
+    expect((parsed.data as { localPart: string }).localPart).toBe("tung");
+  });
+
+  it("accepts the punctuation an address may legitimately contain", () => {
+    for (const ok of ["github03", "a.b-c_1", "notify-85c7i9", "x"]) expect(localPartProblem(ok)).toBeNull();
+  });
+
+  it("names the one rule each rejection breaks", () => {
+    expect(localPartProblem("")).toMatch(/enter the name/i);
+    expect(localPartProblem("tùng")).toMatch(/“ù” is not allowed/);
+    expect(localPartProblem("two words")).toMatch(/“\s” is not allowed|is not allowed/);
+    expect(localPartProblem("a..b")).toMatch(/two dots/i);
+    expect(localPartProblem("-lead")).toMatch(/cannot start/i);
+    expect(localPartProblem("trail.")).toMatch(/cannot end/i);
+    expect(localPartProblem("postmaster")).toMatch(/reserved/i);
+    expect(localPartProblem("z".repeat(65))).toMatch(/at most 64/i);
+  });
+
+  it("returns the specific reason through the API schema, not a generic one", () => {
+    const parsed = CreateAliasSchema.safeParse({ domainId: "d1", mode: LocalPartMode.Custom, localPart: "postmaster" });
+    if (parsed.success) throw new Error("expected the reserved name to be rejected");
+    const message = parsed.error.issues.map((i) => i.message).join(" ");
+    expect(message).toMatch(/reserved for system addresses/i);
+    expect(message).not.toContain("Invalid local part");
   });
 });

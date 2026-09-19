@@ -44,6 +44,32 @@ export function normalizeLocalPartInput(input: string): string {
   return input.trim().toLowerCase();
 }
 
+/**
+ * Why a name typed by a person will not work, phrased so they can fix it. Null means the
+ * normalized name is acceptable.
+ *
+ * The input is normalized first, so `Tung` is not an error — it becomes `tung`. Everything
+ * else the old single "Invalid local part" message hid is named separately here, because
+ * the previous behaviour was a 400 with no way to know what to change.
+ */
+export function localPartProblem(raw: string): string | null {
+  const value = normalizeLocalPartInput(raw);
+  if (!value) return "Enter the name you want before the @";
+  if (value.length > LOCAL_PART_MAX_LENGTH) return `At most ${LOCAL_PART_MAX_LENGTH} characters (this is ${value.length})`;
+  const bad = value.match(/[^a-z0-9._-]/);
+  if (bad) return `“${bad[0]}” is not allowed — use letters a-z, numbers, dot, dash or underscore`;
+  if (value.includes("..")) return "No two dots in a row";
+  if (/^[._-]/.test(value)) return "Cannot start with a dot, dash or underscore";
+  if (/[._-]$/.test(value)) return "Cannot end with a dot, dash or underscore";
+  if (RESERVED_LOCAL_PARTS.includes(value)) return `“${value}” is reserved for system addresses`;
+  return null;
+}
+
+/** True when the normalized name is usable. */
+export function isUsableLocalPartInput(raw: string): boolean {
+  return localPartProblem(raw) === null;
+}
+
 /** Turn an arbitrary service name (e.g. "GitHub HQ!") into a safe prefix ("github-hq"). */
 export function sanitizeServicePrefix(input: string): string {
   return input
@@ -73,11 +99,18 @@ export const AliasSchema = z.object({
 });
 export type Alias = z.infer<typeof AliasSchema>;
 
+/**
+ * A person's input, normalized before it is judged: `Tung` is not a mistake to be rejected,
+ * it is `tung`. The reason that comes back is the one they can act on, and the route stores
+ * the normalized value so the address can never be unreachable because of its case.
+ */
 const customLocalPart = z
   .string()
-  .min(1)
-  .max(LOCAL_PART_MAX_LENGTH)
-  .refine((v) => isValidLocalPart(v), { message: "Invalid local part" });
+  .transform(normalizeLocalPartInput)
+  .superRefine((value, ctx) => {
+    const problem = localPartProblem(value);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
 
 const servicePrefix = z
   .string()
