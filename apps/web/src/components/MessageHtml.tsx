@@ -6,6 +6,9 @@ import { useEffect, useMemo, useState } from "react";
  * plus the empty sandbox attribute are defense-in-depth on top of the server-side
  * sanitizer. Blob URLs are used (not srcdoc) so the Worker's `frame-src 'self' blob:`
  * policy allows the frame.
+ *
+ * The injected `<meta viewport>` is not decoration: a frame document without one is laid
+ * out at ~980px on a handset, which pushes an ordinary email off the right edge.
  */
 export function MessageHtml({ html }: { html: string }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -21,8 +24,22 @@ export function MessageHtml({ html }: { html: string }) {
     return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <base target="_blank">
-<style>body{font:14px/1.5 system-ui,sans-serif;color:#111;margin:14px;word-break:break-word}a{color:#0a58ca}img{max-width:100%}</style>
+<style>
+html{color-scheme:light}
+body{font:14px/1.55 system-ui,sans-serif;color:#111;background:#fff;margin:14px;overflow-wrap:break-word}
+img,table,pre,video{max-width:100%}
+img{height:auto}
+table{border-collapse:collapse}
+/* Legacy mail layout is a table of cells with width="300" attributes. A table's used width
+   is at least its preferred width, so those hints make a 700px mail overflow a 360px frame
+   even with wrapping on — the attribute has to go, not just be capped. */
+table[width],td[width],th[width]{width:auto}
+td,th{overflow-wrap:anywhere;word-break:normal}
+pre{white-space:pre-wrap;overflow-wrap:anywhere}
+a{color:#0a58ca;overflow-wrap:break-word}
+</style>
 </head><body>${html}</body></html>`;
   }, [html]);
 

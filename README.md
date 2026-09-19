@@ -21,8 +21,9 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | React SPA (Dashboard / Domains / Aliases / Alias detail / Inbox / Message / Settings) | ✅ Implemented |
 | Installable PWA + payload-free new-mail notifications | ✅ Implemented |
 | Phone layout: bottom tab bar, card lists, safe-area insets, 44px targets | ✅ Mobile-first (E2E at 412px) |
-| Unit + integration tests (103 passing: worker 81, web 22) | ✅ Green |
-| Playwright E2E (5 passing, live workerd + local D1/R2) | ✅ Green |
+| Reading view: re-flowed plain text, folded magic links, tracking-wrapper destinations, HTML frame that fits the screen | ✅ Fixture + E2E covered |
+| Unit + integration tests (136 passing: worker 101, web 35) | ✅ Green |
+| Playwright E2E (13 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 3 owner-enabled domains | ✅ Live |
 
 See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at

@@ -68,7 +68,7 @@ of this system, so this addendum records the difference.
 - **Gates at this writing:** 103 tests (worker 81, web 22), 5 E2E; lint and typecheck clean.
   The five later slices — sender authentication, drift watchdog, FTS5 search, alias
   lifecycle, PWA + payload-free push — were each built, tested and deployed on
-  `feat/mailvault-v1`; see `git log` and `SECURITY.md` §6.1/§8.1/§9 for their contracts.
+  `feat/mailvault-v1`; see `git log` and `SECURITY.md` §6.2/§8.1/§9 for their contracts.
 
 ## Why it was `DEPLOYMENT_BLOCKED_CREDENTIALS`
 

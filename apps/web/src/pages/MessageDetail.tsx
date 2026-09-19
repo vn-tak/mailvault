@@ -5,6 +5,7 @@ import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { formatBytes, fullTime, senderName } from "../lib/format";
 import { MessageHtml } from "../components/MessageHtml";
+import { TextBody } from "../components/TextBody";
 import { ConfirmDialog, CopyButton, ErrorBanner, Loading } from "../components/ui";
 import { AuthVerdict, type ExtractedCode, type MessageAuth, type VerificationLink } from "@mailvault/shared";
 
@@ -30,25 +31,50 @@ function CodeCard({ code }: { code: ExtractedCode }) {
   );
 }
 
+function displayHost(link: VerificationLink): string {
+  try {
+    return new URL(link.destination ?? link.url).hostname;
+  } catch {
+    return link.hostname;
+  }
+}
+
 function LinkCard({ link }: { link: VerificationLink }) {
+  const target = link.destination ?? link.url;
+  const wrapped = !!link.destination && link.destination !== link.url;
   return (
     <div className="link-card">
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {link.label || "Verification link"}
-        </div>
-        <div className="host">{link.hostname}</div>
+      <div className="link-card-head">
+        <span className="link-title">{link.label || "Verification link"}</span>
+        <span className="link-host">{displayHost(link)}</span>
       </div>
-      {/* Explicit user action only: never auto-followed, never prefetched. */}
-      <a
-        className="small"
-        href={link.url}
-        target="_blank"
-        rel="noopener noreferrer nofollow"
-        style={{ textDecoration: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "4px 10px" }}
-      >
-        Open ↗
-      </a>
+      {wrapped && (
+        <div className="link-via">
+          The message shows a tracking host (<span className="addr">{link.hostname}</span>). This is where the link actually
+          goes:
+        </div>
+      )}
+      {/* The whole address, readable and selectable: a 400-char magic link behind an "Open"
+          button tells the owner nothing about where their token is going. */}
+      <div className="link-url">{target}</div>
+      <div className="row wrap" style={{ gap: 8 }}>
+        <CopyButton text={target} label="Copy link" />
+        {/* Explicit user action only: never auto-followed, never prefetched. */}
+        <a
+          className="small"
+          href={target}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          aria-label={`Open ${displayHost(link)} in a new tab`}
+        >
+          Open ↗
+        </a>
+        {wrapped && (
+          <a className="small ghost" href={link.url} target="_blank" rel="noopener noreferrer nofollow">
+            Open as sent
+          </a>
+        )}
+      </div>
     </div>
   );
 }
@@ -272,21 +298,7 @@ export function MessageDetail({ id }: { id: string }) {
 
             {showText || !data.htmlBody ? (
               data.textBody ? (
-                <pre
-                  style={{
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    background: "var(--bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--radius)",
-                    padding: 16,
-                    margin: 0,
-                    fontFamily: "inherit",
-                    fontSize: 14,
-                  }}
-                >
-                  {data.textBody}
-                </pre>
+                <TextBody text={data.textBody} />
               ) : (
                 <p className="muted">This message has no readable body.</p>
               )

@@ -78,7 +78,7 @@ async function openInbox(page: Page) {
     }
   }, SEEDED_UNREAD);
   await page.reload();
-  await expect(page.locator(".msg")).toHaveCount(4);
+  await expect(page.locator(".msg")).toHaveCount(5);
 }
 
 /*
@@ -139,15 +139,14 @@ test("phone: text controls are 16px so iOS never zooms on focus @mobile", async 
 
 test("phone: the inbox is a card list, searchable, and never shows a forged code @mobile", async ({ page }) => {
   await openInbox(page);
-  await expect(page.locator(".msg")).toHaveCount(4);
+  await expect(page.locator(".msg")).toHaveCount(5);
   await expect(page.locator(".msg.unread")).toHaveCount(2);
 
   const list = page.locator(".card--flush");
   // Trusted mail may surface its code; a spoofed row must show a warning instead of a
   // code the owner would paste somewhere.
-  const codeBadges = list.locator(".badge.mono");
-  await expect(codeBadges).toHaveCount(1);
-  await expect(codeBadges.first()).toHaveText("55905149");
+  await expect(list.locator(".badge.mono")).toHaveCount(2);
+  await expect(list.locator(".msg", { hasText: "verification code" }).locator(".badge.mono")).toHaveText("55905149");
   await expect(list.locator(".msg", { hasText: "Urgent" }).locator(".badge.mono")).toHaveCount(0);
   await expect(list.getByText("unverified sender")).toBeVisible();
 
@@ -171,9 +170,52 @@ test("phone: opening spoofed mail explains it before showing anything clickable 
   await expect(page.locator(".code-card")).toHaveCount(1);
 });
 
+const STRESS_MSG = "00000000-0000-4000-8000-0000000000m5";
+
+test("phone: a folded magic link, a tracking wrapper and an ASCII table all read cleanly @mobile", async ({ page }) => {
+  await page.goto(`/#/messages/${STRESS_MSG}`);
+  const cards = page.locator(".link-card");
+  await expect(cards).toHaveCount(4);
+
+  // The token was broken across a line break in the mail; the UI must show it whole.
+  const magic = cards.filter({ hasText: "intent=device&token=eyJ" });
+  await expect(magic.locator(".link-url")).toContainText("OiJVNThTTEoiLCJleHAi");
+  await expect(magic.locator(".link-url")).toContainText("next=%2Fsettings%2Fsecurity");
+
+  // A wrapped link shows where it really goes, says the message carried it behind a
+  // tracking host, and still offers the address as sent.
+  const wrapped = cards.filter({ hasText: "Confirm your device" });
+  await expect(wrapped.locator(".link-host")).toHaveText("console.cloud.example");
+  await expect(wrapped.getByText(/tracking host/)).toBeVisible();
+  await expect(wrapped.getByRole("link", { name: /Open as sent/ })).toBeVisible();
+
+  await fitsViewport(page, "stress message");
+  // The sanitized HTML has to actually paint: a blank sandboxed frame would leave every
+  // other assertion here green.
+  const frame = page.frameLocator("iframe.email-frame");
+  await expect(frame.getByText("A new sign-in reached Example Cloud.")).toBeVisible();
+  await expect(frame.locator("script")).toHaveCount(0);
+  // Real mail is built from tables with width="300" cells; inside a 360px frame that has to
+  // shrink rather than pan, because a frame you scroll sideways is unreadable on a phone.
+  await expect
+    .poll(() => frame.locator("body").evaluate((b) => (b.ownerDocument ?? document).documentElement.scrollWidth - window.innerWidth))
+    .toBeLessThanOrEqual(1);
+  await page.locator("iframe.email-frame").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "e2e-screens/message-stress-html.png" });
+
+  // Plain text: paragraphs flow, and the indented summary keeps its columns in a box that
+  // scrolls by itself instead of widening the page.
+  await page.getByRole("button", { name: "Show plain text" }).click();
+  await expect(page.locator("pre.text-plain").first()).toContainText("  device     Chrome 129 on macOS 15.6");
+  await expect(page.locator(".text-body a").first()).toHaveAttribute("rel", "noopener noreferrer nofollow");
+  await page.locator(".text-body").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "e2e-screens/message-stress-text.png" });
+  await fitsViewport(page, "stress message as plain text");
+});
+
 test("desktop: the same inbox markup grids into a two-line mail row", async ({ page }) => {
   await openInbox(page);
-  await expect(page.locator(".msg")).toHaveCount(4);
+  await expect(page.locator(".msg")).toHaveCount(5);
   const columns = await page
     .locator(".msg")
     .first()

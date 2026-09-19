@@ -18,8 +18,14 @@ const ALLOWED_TAGS = new Set([
   "hr", "img", "figure", "figcaption",
 ]);
 
-// Tags whose entire subtree (including text) is discarded.
-const DROP_WITH_CONTENT = /<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|option|svg|math|link|meta|base|noscript|template|applet|marquee|frame|frameset)\b[\s\S]*?(?:<\/\s*\1\s*>|>)/gi;
+// Tags whose entire subtree (including text) is discarded. The opening tag is consumed up
+// to its own ">" first: an earlier pattern allowed ">" alone to close the match, which left
+// a script's source visible as text after the tag was removed.
+const NEVER_RENDER = "script|style|iframe|object|embed|form|input|button|textarea|select|option|svg|math|link|meta|base|noscript|template|applet|marquee|frame|frameset";
+const DROP_WITH_CONTENT = new RegExp(`<\\s*(${NEVER_RENDER})\\b[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>`, "gi");
+// Raw-text elements swallow the rest of the document when never closed, which is also what
+// a browser would do — so dropping it here cannot hide real content.
+const DROP_UNCLOSED_RAW = new RegExp(`<\\s*(?:script|style)\\b[^>]*>[\\s\\S]*$`, "gi");
 
 const SAFE_HREF = /^(?:https?:|mailto:|tel:)/i;
 
@@ -102,7 +108,7 @@ export function sanitizeEmailHtml(input: string, opts: SanitizeOptions = {}): st
   if (!input) return "";
 
   let html = input.replace(/<!--[\s\S]*?-->/g, "");
-  html = html.replace(DROP_WITH_CONTENT, "");
+  html = html.replace(DROP_WITH_CONTENT, "").replace(DROP_UNCLOSED_RAW, "");
 
   let out = "";
   let last = 0;

@@ -19,8 +19,15 @@ export const ExtractedCodeSchema = z.object({
 export type ExtractedCode = z.infer<typeof ExtractedCodeSchema>;
 
 export const VerificationLinkSchema = z.object({
+  /** The address exactly as the message carried it — what "open as sent" uses. */
   url: z.string().url(),
   hostname: z.string(),
+  /**
+   * Where the link actually goes when a click-through wrapper (`/CL0/https:%2F%2F…`) was
+   * standing in front of it. Absent when `url` is already the destination, so rows stored
+   * before this existed keep parsing.
+   */
+  destination: z.string().url().optional(),
   /** Human label derived from nearby anchor text / context, e.g. "Verify account". */
   label: z.string().max(160).default(""),
   /** 0..1 ranking from contextual keywords. */

@@ -127,6 +127,18 @@ describe("email HTML sanitization (section 19)", () => {
     expect(out).not.toContain("onerror");
     expect(out).toContain("Hello");
   });
+  it("removes a dropped element's text, not just its tag", () => {
+    const out = sanitizeEmailHtml(
+      '<p>Hi</p><script>alert("debris")</script><style>a{color:red}</style><iframe>fallback</iframe><p>Bye</p>',
+    );
+    expect(out).not.toContain("debris");
+    expect(out).not.toContain("fallback");
+    expect(out).not.toContain("color:red");
+    expect(out).toContain("Hi");
+    expect(out).toContain("Bye");
+    // An unclosed raw-text element swallows the rest, exactly as a browser would.
+    expect(sanitizeEmailHtml("<p>Hi</p><script>alert(1)")).not.toContain("alert");
+  });
   it("blocks remote images by default, allows when opted in", () => {
     const blocked = sanitizeEmailHtml('<img src="https://track.example/o.gif">');
     expect(blocked).not.toContain("track.example");

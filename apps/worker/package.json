@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "dev:e2e": "wrangler d1 migrations apply mail-vault-db --local --config wrangler.dev.jsonc && wrangler d1 execute mail-vault-db --local --config wrangler.dev.jsonc --file ./scripts/seed.sql && wrangler dev --config wrangler.dev.jsonc --port 8787",
+    "dev:e2e": "wrangler d1 migrations apply mail-vault-db --local --config wrangler.dev.jsonc && wrangler d1 execute mail-vault-db --local --config wrangler.dev.jsonc --file ./scripts/seed.sql && wrangler r2 object put mail-vault-storage/parsed/seed-body-stress.json --file ./test/fixtures/parsed-body-stress.json --local --config wrangler.dev.jsonc && wrangler dev --config wrangler.dev.jsonc --port 8787",
     "types": "wrangler types",
     "build": "wrangler deploy --dry-run --outdir=dist",
     "deploy": "wrangler deploy",

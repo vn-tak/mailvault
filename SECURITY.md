@@ -100,9 +100,10 @@ kept in R2 so nothing is lost even on degraded parses (`parseDegraded`).
 
 Sanitization: `apps/worker/src/security/sanitize-html.ts` (`sanitizeEmailHtml`):
 
-- Drops `<script>`, `<style>`-with-content, event-handler attributes (`on*`),
-  `<iframe>/<object>/<embed>/<form>`, and disallowed tags — unknown tags are removed
-  while their inner text is HTML-escaped, so leftover text can never execute.
+- Drops `<script>`, `<style>`, `<iframe>/<object>/<embed>/<form>` and similar **together
+  with their contents** — the element's text is discarded, not escaped, so a stripped
+  script cannot leave its source visible in the message. Unknown tags are removed while
+  their inner text is HTML-escaped, so leftover text can never execute.
 - `javascript:`/`data:`/`vbscript:` and other unsafe URLs are stripped from `href`.
 - Remote images are **blocked by default**; they render only when the owner opts in
   per-message (`?remoteImages=1`), because loading them discloses the reader's IP and
@@ -113,9 +114,37 @@ Rendering: the SPA's `MessageHtml.tsx` injects the sanitized HTML into an
 `iframe` with `sandbox=""` (no scripts, no same-origin, no forms) loaded from a
 Blob URL with its own `<meta http-equiv="Content-Security-Policy">` and
 `<base target="_blank">`. Email markup is never added to the top-level document.
-A plain-text fallback (`<pre>`) is always available.
+The frame document also gets a `<meta viewport>` and a rule neutralising
+`width="…"` on tables and cells: mail layout is built from fixed-width tables, and
+without that a 700px mail overflows a 360px phone frame and has to be panned.
 
-## 6.1 Sender authentication (`apps/worker/src/mail/auth.ts`)
+Plain text is rendered by `TextBody.tsx`, never as markup: blocks are split on blank
+lines, indented blocks (ASCII tables, signatures) stay verbatim in a box that scrolls by
+itself, and other lines are re-flowed with the mailer's incidental hard breaks removed.
+Bare `http(s)` addresses become links with `rel="noopener noreferrer nofollow"`; nothing
+else in the body is ever interpreted as HTML.
+
+## 6.1 Verification links (`apps/worker/src/mail/links.ts`)
+
+The owner is being asked to hand a token to whatever they tap, so extraction is
+conservative and the UI shows the whole address:
+
+- **Folded addresses are re-joined** only when the fragment stops at a character that
+  cannot end a URL, or the continuation carries query syntax. Guessing on mid-word breaks
+  would glue the next prose line onto a complete address — a visibly truncated link is
+  safer than a silently wrong one.
+- **Click-through wrappers are unwrapped** (`/CL0/https:%2F%2F…`, `?url=…`). The address as
+  sent stays the link that is opened, while `destination` records where it leads; the card
+  names the destination host and says it arrived behind a tracking host, and offers
+  "Open as sent" separately.
+- A wrapped link and its direct twin **collapse into one entry**.
+- Entities (`&amp;`, `&#38;`) are decoded before use, and sentence punctuation is trimmed
+  with balanced-bracket awareness, so `…/compare(a,b)` keeps its `)` and `…/verify.` loses
+  its period.
+- Nothing is ever fetched or preflighted server-side; a link opens only on an explicit
+  click.
+
+## 6.2 Sender authentication (`apps/worker/src/mail/auth.ts`)
 
 An OTP inbox is a phishing target: the whole product is "show the owner a code and a
 verification link". Anyone who learns an alias address can therefore try to deliver a

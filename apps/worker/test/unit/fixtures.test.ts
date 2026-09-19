@@ -62,3 +62,61 @@ describe("email fixtures parse end-to-end", () => {
     expect(values).not.toContain("4155550134");
   });
 });
+
+/*
+ * One fixture that packs the ways a real provider breaks a reading view: a JWT token cut in
+ * half by a hard line break, a click-tracking wrapper standing in front of the address, an
+ * indented summary table, and an HTML part with an unbreakable 150-char URL.
+ */
+describe("body stress fixture", () => {
+  it("recovers a magic link the mailer folded across a line break", async () => {
+    const parsed = await parseMime(load("body-stress.eml"));
+    const foldedLine = (parsed.text ?? "").split(/\r?\n/).find((l) => l.includes("eyJhbGci")) ?? "";
+    expect(foldedLine.endsWith("OiJVNT")).toBe(true); // the token really is split
+
+    const links = extractLinks(parsed.text ?? "", parsed.html);
+    const magic = links.find((l) => l.url.includes("token=eyJ"));
+    expect(magic?.url).toBe(
+      "https://console.cloud.example/verify?intent=device&token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9" +
+        ".eyJzdWIiOiJVNThTTEoiLCJleHAiOjE3OTAwMDAwMDAwfQ&sig=MEUCIQDT%2B7kc0V3nKqZ8&next=%2Fsettings%2Fsecurity",
+    );
+    expect(magic?.url).not.toContain("\n");
+  });
+
+  it("names the destination behind a click-through wrapper, and lists that link once", async () => {
+    const parsed = await parseMime(load("body-stress.eml"));
+    const links = extractLinks(parsed.text ?? "", parsed.html);
+    const target = "https://console.cloud.example/verify?intent=device&token=short&sig=MEUCIQDT";
+
+    const wrapped = links.find((l) => l.hostname === "59.email.cloud.example");
+    expect(wrapped?.destination).toBe(target);
+    // Collapsing the wrapper with the honest anchor keeps the anchor's readable label.
+    expect(wrapped?.label).toBe("Confirm your device");
+    expect(links.filter((l) => (l.destination ?? l.url) === target)).toHaveLength(1);
+  });
+
+  it("keeps the OTP, the indented block and the sanitization guarantees", async () => {
+    const parsed = await parseMime(load("body-stress.eml"));
+    expect(extractOtp(`${parsed.subject ?? ""}\n${parsed.text ?? ""}`).map((c) => c.value)).toContain("441702");
+    expect(parsed.text).toContain("  device     Chrome 129 on macOS 15.6");
+    expect(parsed.text).toContain("  location   Hanoi, VN");
+
+    const safe = sanitizeEmailHtml(parsed.html ?? "");
+    expect(safe.toLowerCase()).not.toContain("<script");
+    // The stripped script's source survives as inert escaped text (like the other
+    // fixtures), so assert what matters: nothing loads or links to it.
+    expect(safe).not.toMatch(/(href|src)="[^"]*evil\.example/);
+    expect(safe).not.toContain("track.cloud.example"); // remote pixel blocked by default
+    expect(safe).toContain("docs.cloud.example/handbook"); // the long reference link survives
+    expect(safe).toContain("intent=device&amp;token=short"); // entity kept as one entity, not doubled
+  });
+
+  it("keeps the E2E body artifact in step with the .eml it came from", async () => {
+    const parsed = await parseMime(load("body-stress.eml"));
+    const committed = JSON.parse(
+      readFileSync(fileURLToPath(new URL("../fixtures/parsed-body-stress.json", import.meta.url)), "utf8"),
+    ) as { text: string; html: string };
+    expect(committed.text).toBe(parsed.text);
+    expect(committed.html).toBe(parsed.html);
+  });
+});
