@@ -79,7 +79,8 @@ export async function preflightZone(
     if (routingRes.ok) {
       routingReady = routingRes.value.enabled === true || /ready/i.test(routingRes.value.status ?? "");
     } else if (isDenied(routingRes.err)) {
-      // The routing "enabled" flag has no API-token permission group in some accounts.
+      // Re-measured after widening the token's Zone Resources: `POST .../enable` then
+      // works, but this settings read still 403s — no API-token permission covers it.
       // Fall back to the observable truth in DNS: Cloudflare only publishes
       // route*.mx.cloudflare.net records once Email Routing is on for the zone.
       log.warn("preflight_routing_settings_unreadable", { zoneId: zone.zoneId, fallback: "mx" });

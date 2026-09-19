@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { CatchAllStatus, ConflictType, MailStatus, RoutingStatus } from "@mailvault/shared";
+import {
+  CatchAllStatus,
+  ConflictType,
+  MailStatus,
+  PreflightClassification,
+  RoutingStatus,
+} from "@mailvault/shared";
 import { CloudflareApiError, type CloudflareClient } from "../../src/cf/api-client";
 import type { DomainRow } from "../../src/db/rows";
-import { provisionDomain } from "../../src/provisioning/provisioner";
+import { preflightMany, provisionDomain } from "../../src/provisioning/provisioner";
 
 const row: DomainRow = {
   id: "d1",
@@ -22,16 +28,20 @@ const row: DomainRow = {
 };
 
 function stubDb(found = true) {
-  const writes: string[] = [];
+  const writes: { sql: string; binds: unknown[] }[] = [];
   const db = {
     prepare(sql: string) {
       const isSelect = /^\s*SELECT/i.test(sql);
+      let binds: unknown[] = [];
       const api: Record<string, unknown> = {
-        bind: () => api,
+        bind: (...args: unknown[]) => {
+          binds = args;
+          return api;
+        },
         first: async () => (isSelect ? (found ? row : null) : null),
         all: async () => [],
         run: async () => {
-          writes.push(sql.trim().slice(0, 48));
+          writes.push({ sql: sql.replace(/\s+/g, " ").trim(), binds });
           return { success: true, meta: {} };
         },
       };
@@ -125,7 +135,7 @@ describe("provisionDomain allow-list gate (section 7/9)", () => {
     expect(out.steps.map((s) => s.step)).toContain("email_routing_dns");
   });
 
-  it("tells the owner what to do when only the dashboard can enable routing", async () => {
+  it("points at the token's zone scope when routing cannot be enabled", async () => {
     const { client } = stubClient({
       enableEmailRouting: async () => {
         throw new CloudflareApiError(
@@ -142,7 +152,8 @@ describe("provisionDomain allow-list gate (section 7/9)", () => {
     const out = await provisionDomain(db, client, "z1", "mail-vault", {});
 
     expect(out.ok).toBe(false);
-    expect(out.error).toContain("Enable Email Routing once");
+    expect(out.error).toContain("Email Routing is not enabled for this domain");
+    expect(out.error).toContain("Zone Resources");
     expect(out.error).toContain("click Retry");
     expect(out.error).not.toContain("Authentication error");
   });
@@ -171,5 +182,35 @@ describe("provisionDomain allow-list gate (section 7/9)", () => {
     expect(out.error).toContain("Domain not synced yet");
     expect(mutations).toEqual([]);
     expect(writes).toEqual([]);
+  });
+});
+
+describe("preflightMany remembers its verdict locally, never in Cloudflare", () => {
+  it("stores a foreign-MX conflict so the Domains table still shows it after a reload", async () => {
+    const { client, mutations } = stubClient({
+      listDnsRecords: async () => [{ content: "aspmx.l.google.com", priority: 1 }],
+    });
+    const { db, writes } = stubDb();
+
+    const [res] = await preflightMany(db, client, ["z1"], "mail-vault");
+    const upd = writes.find((w) => /UPDATE domains/.test(w.sql));
+
+    expect(res?.classification).toBe(PreflightClassification.MxConflict);
+    expect(mutations).toEqual([]); // Cloudflare untouched
+    expect(upd?.sql).toContain("mail_status");
+    expect(upd?.binds).toContain(MailStatus.Conflict);
+    expect(upd?.binds).toContain(ConflictType.Mx);
+  });
+
+  it("only stamps last_checked_at when Cloudflare refused the read", async () => {
+    const { client } = stubClient({ listDnsRecords: deniedRead });
+    const { db, writes } = stubDb();
+
+    const [res] = await preflightMany(db, client, ["z1"], "mail-vault");
+    const upd = writes.find((w) => /UPDATE domains/.test(w.sql));
+
+    expect(res?.classification).toBe(PreflightClassification.ApiPermissionError);
+    expect(upd?.sql).not.toContain("mail_status");
+    expect(upd?.sql).toContain("last_checked_at");
   });
 });

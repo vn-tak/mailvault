@@ -4,7 +4,7 @@ import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
 import { ConfirmDialog, ErrorBanner, Loading, Modal, StatusPill } from "../components/ui";
-import { FILTERS, bucketOf, isRoutingNotEnabledReceipt, needsOwnerEnable, routingConsoleUrl, type Bucket } from "../lib/domains";
+import { FILTERS, bucketOf, isRoutingNotEnabledReceipt, routingConsoleUrl, type Bucket } from "../lib/domains";
 import {
   ConflictType,
   MailStatus,
@@ -81,7 +81,9 @@ function Receipt({ o, d }: { o: ProvisionOutcome; d: Domain }) {
       {isRoutingNotEnabledReceipt(o) ? (
         <div className="row" style={{ marginTop: 8 }}>
           <RoutingHint d={d} />
-          <span className="faint" style={{ fontSize: 12 }}>then come back and press Retry.</span>
+          <span className="faint" style={{ fontSize: 12 }}>
+            or check the token&apos;s Zone Resources, then press Retry.
+          </span>
         </div>
       ) : null}
       <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12 }}>
@@ -409,7 +411,6 @@ export function Domains() {
                           </td>
                           <td>
                             <div className="row" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
-                              {needsOwnerEnable(d, pf) ? <RoutingHint d={d} /> : null}
                               {d.mailStatus === MailStatus.Ready && (
                                 <button className="small" onClick={() => navigate(`/inbox?domain=${d.id}`)}>
                                   Inbox

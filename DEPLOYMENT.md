@@ -47,10 +47,30 @@ REAL DOMAIN MUTATIONS:    NONE
 STATUS:                   DEPLOYMENT_BLOCKED_CREDENTIALS
 ```
 
-## Why `DEPLOYMENT_BLOCKED_CREDENTIALS`
+### Addendum — what actually shipped (2026-09-19)
 
-The build could not be deployed here because the required, secret, account-specific
-inputs are **not present** (and must not be fabricated):
+The receipt above is kept exactly as it was written at implementation time, including its
+`DEPLOYMENT_BLOCKED_CREDENTIALS` line: no credentials existed in that environment and
+fabricating a deployed state was the correct thing to refuse. That is no longer the state
+of this system, so this addendum records the difference.
+
+- **Deployed:** D1 `mail-vault-db`, R2 `mail-vault-storage`, Worker `mail-vault` + SPA on
+  `https://mail.omnipos.tech` behind Cloudflare Access with a single owner address in
+  `ALLOWED_EMAILS`. `workers_dev` is off, so the Worker is reachable only through that
+  Access-protected route. The Cloudflare API token exists only as a Worker secret.
+- **Real domain mutations: 3 zones, each one an explicit owner click in the app** —
+  `omnipos.tech`, `datlichngay.com`, `tung.codes`. Email Routing was enabled by MailVault's
+  own token, the catch-all points at the MailVault Worker, and `READY` was recorded only
+  after re-reading both. Public DNS confirms `route1-3.mx.cloudflare.net` on the enabled
+  zones. The remaining 35 zones were classified as conflicts and left untouched.
+- **Inbound proven with real mail**, including a live provider email whose 8-digit OTP was
+  extracted at 0.85 confidence while a postal code in the same message was demoted to 0.47.
+- **Gates at this writing:** 71 tests (worker 49, web 22); lint and typecheck clean.
+
+## Why it was `DEPLOYMENT_BLOCKED_CREDENTIALS`
+
+At implementation time the build could not be deployed here because the required, secret,
+account-specific inputs were **not present** (and must not be fabricated):
 
 - A Cloudflare **account id** and a **least-privilege API token** (`wrangler secret put
   CLOUDFLARE_API_TOKEN`).
@@ -60,8 +80,9 @@ inputs are **not present** (and must not be fabricated):
 - A **custom hostname** + DNS for the app origin.
 - Wrangler login for `wrangler deploy` / `d1 migrations apply --remote`.
 
-Per the project rules, deployment was **not** faked. Everything that does not require a
-live account is complete, green and committed to the tree.
+Per the project rules, deployment was **not** faked. Everything that did not require a
+live account was complete, green and committed to the tree — and each item above was
+supplied by the owner afterwards, which is what the addendum records.
 
 ## How the E2E suite runs
 
@@ -136,16 +157,15 @@ Do **not** use a Global API Key, and do not grant `Zone / DNS / Edit`: it was te
 does **not** unlock anything MailVault needs (see the constraint below).
 
 Set *Zone Resources* to **All zones from an account**. A per-zone list was tried first
-and rejected: it forces a dashboard edit before MailVault can even *see* a new domain, so
-"add a domain" stops being one in-app action. The wider resource scope buys nothing in
-capability — it changes which zones the *existing four* permissions apply to, so judge it
-by what those permissions can do on a zone MailVault has no business touching:
+and rejected: it forces a dashboard edit before MailVault can even *see* a new domain, and
+it makes `email/routing/enable` fail with an error that looks like a missing permission
+(next section). The scope changes which zones the *existing four* permissions apply to, so
+judge it by what they can do on a zone MailVault has no business touching:
 
 - `Zone:Read` + `DNS:Read` are read-only on the owner's own zones.
-- `Email Routing Rules:Edit` can rewrite a catch-all rule, but only on a zone where
-  Email Routing is already on, and only where MailVault *needs* the catch-all for itself.
-- Nothing else is writable. Enabling Email Routing and editing MX are not token-grantable
-  at all (next section), so no resource scope makes them possible.
+- `Email Routing Addresses:Read` is read-only.
+- `Email Routing Rules:Edit` is the single write: it sets the catch-all rule and, through
+  the same permission, enables Email Routing. Both are bounded in code, not by the token.
 
 What actually limits the blast radius is the code path: an HTTP route can only name zones
 the owner selected, each must already be a row in MailVault's own `domains` table, the
@@ -153,31 +173,32 @@ preflight **allow-list** refuses mutation unless the classification is `Ready to
 `Already configured`, or `Catch-all conflict` *with* the owner's explicit take-over tick,
 foreign MX is never overwritten, and none of this runs on startup.
 
-### Constraint: an API token cannot enable Email Routing
+### Constraint: what an API token can and cannot do for Email Routing
 
-Measured against a live account, not inferred:
+Measured against a live account — and an earlier reading of the same measurement was wrong
+in a way worth recording, because the failure mode is genuinely misleading:
 
-| Call with a scoped API token | Result |
+| Call with the runtime API token | Result |
 |---|---|
 | `GET /zones/{id}/dns_records?type=MX` | ✅ 200 |
 | `GET /zones/{id}/email/routing/rules/catch_all` | ✅ 200 |
 | `PUT /zones/{id}/email/routing/rules/catch_all` | ✅ 200 |
-| `GET /zones/{id}/email/routing` (settings flag) | ❌ 403 `cfCode 10000` |
-| `POST /zones/{id}/email/routing/enable` | ❌ 403 `cfCode 10000` |
+| `POST /zones/{id}/email/routing/enable` | ✅ 200 — but ❌ 403 `cfCode 10000` when the zone is outside the token's *Zone Resources* |
+| `GET /zones/{id}/email/routing` (settings flag) | ❌ 403 `cfCode 10000`, in every scope and permission combination tried |
 
-The two failures above persist with `Email Routing Rules:Edit`, `Zone:Read`,
-`Email Routing Addresses:Read` **and** `DNS:Edit` granted, and Cloudflare exposes no
-token permission group for them in that account. The same calls succeed with a broader
-dashboard/OAuth credential, so this is a token-permission gap, not a bug in the client.
-
-Two consequences are already built in:
-
-1. **Preflight derives routing state from DNS.** Cloudflare only publishes
-   `route*.mx.cloudflare.net` records once Email Routing is on, so the unreadable
-   `enabled` flag is not needed. If the flag read fails for any *other* reason, the
-   error still propagates — the fallback is deliberately narrow.
-2. **Onboarding a brand-new domain may need one owner click in the dashboard** — and only
-   for a zone that has never had Email Routing.
+- **Enabling Email Routing *is* token-performable.** It was first written down as
+  impossible because `cfCode 10000` ("Authentication error") is also what Cloudflare
+  returns when the *zone* falls outside the token's resources — the two causes are
+  indistinguishable from the response. After `Zone Resources = All zones from an account`,
+  a clean zone went from `Ready to enable` to `READY` entirely inside the app, and public
+  DNS confirms `route1-3.mx.cloudflare.net` was created for it. **Adding a domain now needs
+  no dashboard step at all.**
+- **Reading the routing settings flag is not token-performable**, in either scope: it stays
+  403 with `Email Routing Rules:Edit`, `Zone:Read`, `Email Routing Addresses:Read` and even
+  `DNS:Edit` granted, and Cloudflare exposes no permission group for it. Consequence,
+  already built in: preflight derives routing state from DNS instead, since Cloudflare only
+  publishes `route*.mx.cloudflare.net` once Email Routing is on. If that read fails for any
+  *other* reason the error still propagates — the fallback is deliberately narrow.
 
 ## Enable mail per domain (owner-triggered, in the app)
 
@@ -197,12 +218,10 @@ Two consequences are already built in:
    - points the catch-all rule at the MailVault Worker;
    - **verifies** routing is on *and* the catch-all targets this Worker before marking
      the domain `READY`. A single 200 is never trusted.
-4. **Only when the receipt reports that routing is not enabled:** open Email Routing for
-   that zone in the Cloudflare dashboard (the receipt links straight to it) and enable it
-   once, then press **Retry**. This is the single step an API token is not permitted to
-   perform, and it is a one-time action per zone. MailVault then sets the catch-all and
-   verifies; no MX record is overwritten. The failure is never surfaced as a bare
-   "Authentication error".
+4. **Troubleshooting only:** if a receipt ever says routing could not be enabled, the first
+   thing to check is the token's *Zone Resources* for that zone, not the dashboard —
+   MailVault names both causes in the receipt and links to the Email Routing console.
+   Nothing is ever surfaced as a bare "Authentication error".
 
 `enable mail` performs exactly these steps:
 `email_routing_dns → catch_all_worker → verify`.

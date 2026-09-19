@@ -19,13 +19,14 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Shared types/validation (`packages/shared`) | ✅ Implemented |
 | D1 schema + migration | ✅ Implemented (`apps/worker/migrations/0001_init.sql`) |
 | React SPA (Dashboard / Domains / Aliases / Inbox / Message) | ✅ Implemented |
-| Unit + integration tests (49 passing) | ✅ Green |
+| Unit + integration tests (71 passing: worker 49, web 22) | ✅ Green |
 | Playwright E2E (5 passing, live workerd + local D1/R2) | ✅ Green |
-| Real deploy + live domain provisioning | ⛔ **Blocked: no Cloudflare credentials in this environment** |
+| Deployed + receiving real mail on 3 owner-enabled domains | ✅ Live |
 
-See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for the exact owner actions required to ship,
-and the implementation receipt (including the mandatory
-`REAL DOMAIN MUTATIONS: NONE` statement).
+See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at
+build time (no Cloudflare credentials existed in that environment, so it says
+`REAL DOMAIN MUTATIONS: NONE` and `DEPLOYMENT_BLOCKED_CREDENTIALS` rather than pretending
+otherwise), and its addendum records what has since been deployed and measured live.
 
 ---
 

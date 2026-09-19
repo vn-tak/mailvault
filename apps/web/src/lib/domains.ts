@@ -37,19 +37,10 @@ export function routingConsoleUrl(d: Domain): string | null {
 }
 
 /**
- * Enabling Email Routing is the one onboarding step an API token is not permitted to
- * perform, so the owner has to do it once in the dashboard. Surface that only for a
- * domain that is otherwise ready to be provisioned — never for a conflict (where
- * enabling routing would be exactly the wrong advice).
+ * True when a provision receipt is the "routing could not be enabled" case. Only this
+ * failure benefits from a dashboard link, and the advice there is about the token's
+ * Zone Resources — enabling routing is not an owner-only step.
  */
-export function needsOwnerEnable(d: Domain, pf?: PreflightResult): boolean {
-  if (d.mailStatus === MailStatus.Ready) return false;
-  if (!routingConsoleUrl(d)) return false;
-  if (pf) return pf.classification === PreflightClassification.ReadyToProvision;
-  return d.mailStatus === MailStatus.Discovered || d.mailStatus === MailStatus.Preflight || d.mailStatus === MailStatus.Failed;
-}
-
-/** True when a provision receipt is the "owner must enable routing first" case. */
 export function isRoutingNotEnabledReceipt(o: ProvisionOutcome): boolean {
-  return !!o.error && /not permitted to enable it/i.test(o.error);
+  return !!o.error && /Email Routing is not enabled for this domain/i.test(o.error);
 }

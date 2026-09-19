@@ -1,4 +1,4 @@
-import type { PreflightResult, ProvisionOutcome } from "@mailvault/shared";
+import type { Domain, PreflightResult, ProvisionOutcome } from "@mailvault/shared";
 import { CatchAllStatus, ConflictType, MailStatus, PreflightClassification, RoutingStatus } from "@mailvault/shared";
 import type { CloudflareClient } from "../cf/api-client";
 import { CloudflareApiError } from "../cf/api-client";
@@ -83,8 +83,8 @@ export async function provisionDomain(
     const skipDns = pf.classification === PreflightClassification.AlreadyConfigured;
 
     // ensureEmailRoutingDns — adds+locks CF MX/SPF + enables. Skipped when the zone
-    // already publishes Cloudflare's routing MX: re-enabling is a redundant mutation
-    // (and the enable endpoint is not token-authorizable in every account).
+    // already publishes Cloudflare's routing MX: re-enabling is a redundant mutation and
+    // a needless write against a live zone.
     let routingOn = skipDns;
     if (!routingOn) {
       const mxNow = await client.listDnsRecords(zoneId, "MX");
@@ -159,15 +159,17 @@ export async function provisionDomain(
     await recordProvisioningEvent(db, domain.id, "provision:error", "FAILED", { kind });
     log.error("domain_provision_failed", { zoneId, kind });
 
-    // Cloudflare does not expose an API-token permission for enabling Email Routing,
-    // so this one step has to be done by the owner. Say so instead of surfacing a
-    // bare "Authentication error" that gives the owner nothing to act on.
+    // Measured live: `enable` succeeds with an API token as long as the zone is inside
+    // the token's Zone Resources, and Cloudflare answers 403 / cfCode 10000 — the same
+    // shape as a missing permission — when it is not. Name both causes, in that order.
     const enablePath = err instanceof CloudflareApiError && /\/email\/routing\/(enable|dns)$/.test(err.path ?? "");
     const actionable =
       enablePath && (kind === "permission" || kind === "auth")
-        ? "Email Routing is not enabled for this domain, and MailVault's API token is not permitted to enable it. " +
-          "Enable Email Routing once for this zone in the Cloudflare dashboard, then click Retry — MailVault will set " +
-          "the catch-all and verify. No MX record will be overwritten."
+        ? "Email Routing is not enabled for this domain, and MailVault's API token was refused when it tried. " +
+          "First check the token's Zone Resources — a zone the token does not cover is rejected with this same " +
+          "auth error, so 'All zones from an account' is the setting that works. Then click Retry. Enabling Email " +
+          "Routing once for the zone in the Cloudflare dashboard also works. MailVault will then set the catch-all " +
+          "and verify. No MX record will be overwritten."
         : message;
 
     return outcome(zoneId, domain.name, domain.id, MailStatus.Failed, false, actionable, steps);
@@ -184,6 +186,37 @@ function outcome(
   steps: Step[],
 ): ProvisionOutcome {
   return { domainId: domainId ?? "", zoneId, name, status, ok, error, steps };
+}
+
+/**
+ * Verdicts safe to remember on the domain row. Classifications Cloudflare refused
+ * (inactive zone, unsupported type, permission error) are deliberately absent: an
+ * unreadable zone must not be rewritten into a different state.
+ */
+const PREFLIGHT_VERDICT: Partial<Record<PreflightClassification, { status: MailStatus; conflict: ConflictType }>> = {
+  [PreflightClassification.MxConflict]: { status: MailStatus.Conflict, conflict: ConflictType.Mx },
+  [PreflightClassification.CatchAllConflict]: { status: MailStatus.Conflict, conflict: ConflictType.CatchAll },
+  [PreflightClassification.ReadyToProvision]: { status: MailStatus.Preflight, conflict: ConflictType.None },
+  [PreflightClassification.AlreadyConfigured]: { status: MailStatus.Ready, conflict: ConflictType.None },
+};
+
+/**
+ * Store a read-only verdict on MailVault's own row so the conflict a preflight found
+ * survives a page reload instead of collapsing back to "Not configured". This writes to
+ * D1 only — no Cloudflare mutation.
+ */
+async function rememberVerdict(db: D1Database, domain: Domain, pf: PreflightResult): Promise<void> {
+  const verdict = PREFLIGHT_VERDICT[pf.classification];
+  const zoneId = domain.cloudflareZoneId;
+  if (!verdict) {
+    await patchDomainProvisioning(db, zoneId, {});
+    return;
+  }
+  await patchDomainProvisioning(db, zoneId, {
+    mailStatus: verdict.status,
+    conflictType: verdict.conflict,
+    conflictDetails: pf.conflict ?? null,
+  });
 }
 
 /** Bulk preflight — independent per-domain results (section 32). */
@@ -207,6 +240,7 @@ export async function preflightMany(
       } as PreflightResult;
     }
     const pf = await preflightZone(client, { zoneId, name: domain.name, status: domain.zoneStatus, type: domain.zoneType }, workerName);
+    await rememberVerdict(db, domain, pf);
     return { ...pf, domainId: domain.id };
   });
 }

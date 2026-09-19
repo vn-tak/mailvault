@@ -9,7 +9,7 @@ import {
   type PreflightResult,
   type ProvisionOutcome,
 } from "@mailvault/shared";
-import { bucketOf, isRoutingNotEnabledReceipt, needsOwnerEnable, routingConsoleUrl } from "./domains";
+import { bucketOf, isRoutingNotEnabledReceipt, routingConsoleUrl } from "./domains";
 
 const ACCT = "ef250a88911fd24073cb73d1c07e0218";
 
@@ -59,27 +59,6 @@ describe("routingConsoleUrl", () => {
   });
 });
 
-describe("needsOwnerEnable", () => {
-  it("is false once the domain is READY", () => {
-    expect(needsOwnerEnable(domain({ mailStatus: MailStatus.Ready }))).toBe(false);
-  });
-  it("is true for a fresh zone the owner still has to enable", () => {
-    expect(needsOwnerEnable(domain({ mailStatus: MailStatus.Discovered }))).toBe(true);
-    expect(needsOwnerEnable(domain(), preflight())).toBe(true);
-  });
-  it("is false when there is no account id to link to", () => {
-    expect(needsOwnerEnable(domain({ cloudflareAccountId: null }))).toBe(false);
-  });
-  it("never suggests enabling routing over a foreign MX", () => {
-    expect(
-      needsOwnerEnable(
-        domain({ mailStatus: MailStatus.Conflict, conflictType: ConflictType.Mx }),
-        preflight({ classification: PreflightClassification.MxConflict, safeToProvision: false }),
-      ),
-    ).toBe(false);
-  });
-});
-
 describe("bucketOf", () => {
   it("classifies by the freshest evidence", () => {
     expect(bucketOf(domain())).toBe("unconfigured");
@@ -94,7 +73,13 @@ describe("isRoutingNotEnabledReceipt", () => {
   it("matches the worker's actionable enable message", () => {
     expect(
       isRoutingNotEnabledReceipt(
-        outcome({ ok: false, error: "Email Routing is not enabled for this domain, and MailVault's API token is not permitted to enable it. Enable Email Routing once for this zone in the Cloudflare dashboard, then click Retry." }),
+        outcome({
+          ok: false,
+          error:
+            "Email Routing is not enabled for this domain, and MailVault's API token was refused when it tried. " +
+            "First check the token's Zone Resources — a zone the token does not cover is rejected with this same " +
+            "auth error. Then click Retry.",
+        }),
       ),
     ).toBe(true);
   });

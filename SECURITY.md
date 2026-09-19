@@ -165,22 +165,30 @@ A plain-text fallback (`<pre>`) is always available.
   that cannot *see* a zone is therefore never able to *change* it. This replaced an
   earlier block-list that let an unrecognized classification fall through to mutation,
   found only by exercising the live API.
-- **An API token cannot enable Email Routing.** Measured live: `POST
-  /zones/{id}/email/routing/enable` and `GET /zones/{id}/email/routing` both return 403
-  (`cfCode 10000`) even with `Email Routing Rules:Edit`, `Zone:Read`,
-  `Email Routing Addresses:Read` and `DNS:Edit`. Consequences: routing state is derived
-  from DNS instead of the unreadable flag (narrowly — other failures still propagate),
-  the enable call is skipped when Cloudflare MX already exist, and the owner gets an
-  actionable receipt rather than a raw auth error. See `DEPLOYMENT.md`.
+- **`cfCode 10000` is ambiguous, and provision must not guess.** Measured live: `POST
+  /zones/{id}/email/routing/enable` returns the same 403 `Authentication error` for a zone
+  outside the token's Zone Resources as it would for a missing permission — this is what
+  first masqueraded as "an API token cannot enable Email Routing". It can, and now does:
+  with the zone in scope a clean zone reached `READY` purely through the app. The endpoint
+  that genuinely has no token permission is `GET /zones/{id}/email/routing` (the settings
+  flag), which 403s in every scope and permission set tried. Consequences: routing state is
+  derived from DNS instead of the unreadable flag (narrowly — other failures still
+  propagate), the enable call is skipped when Cloudflare MX already exist, and a refused
+  enable names the token's Zone Resources as the first suspect rather than telling the owner
+  to go click around in the dashboard. See `DEPLOYMENT.md`.
 - **Zone Resources are account-wide on purpose.** The token scopes its zone permissions to
   `All zones from an account`, not a per-zone list, so adding a domain never requires
-  editing the token. Widening a *resource* cannot widen a *capability*: the token holds no
-  MX write and no routing-enable permission at all, and its single write
-  (`Email Routing Rules:Edit`) is reachable only through the allow-list gate above, only
-  for a zone the owner imported and selected (a zone absent from `domains` is refused
-  before any API call — `test/unit/provisioner.test.ts`), and only via an authenticated
-  owner-triggered route. Measured on the owner's account: sync + preflight classified 38/38
-  zones and reported 35 conflicts with zero writes.
+  editing the token. Widening a *resource* does not widen a *capability* — it only changes
+  which zones the same four permissions apply to: `Zone:Read`, `DNS:Read` and
+  `Email Routing Addresses:Read` are read-only, and the one write,
+  `Email Routing Rules:Edit`, reaches the catch-all rule and (through the same permission)
+  `email/routing/enable`. That is exactly the blast radius to reason about, and it is
+  bounded in code, not by the token: mutation happens only behind the allow-list gate
+  above, only for a zone the owner imported and selected (a zone absent from `domains` is
+  refused before any API call — `test/unit/provisioner.test.ts`), only via an
+  authenticated owner-triggered route, and never for foreign MX. Measured on the owner's
+  account: sync + preflight classified 38/38 zones and reported 35 conflicts with zero
+  writes; one clean zone was then enabled deliberately, by the owner, in one click.
 - **No unused write permissions.** `DNS:Edit` was granted during diagnosis, shown by
   measurement to unlock nothing required, and reverted to `DNS:Read`.
 - **Removing a domain** deletes only the local row; the code refuses while aliases
