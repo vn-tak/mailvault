@@ -110,7 +110,7 @@ function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreat
               {domain && <Preview local={localPart || "…"} domain={domain.name} />}
             </div>
           )}
-          <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
+          <div className="row-end" style={{ marginTop: 8 }}>
             <button type="button" onClick={onClose}>
               Cancel
             </button>
@@ -204,68 +204,46 @@ export function Aliases({ openNew }: { openNew: boolean }) {
       )}
 
       {data && data.items.length > 0 && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Label / address</th>
-                <th>Status</th>
-                <th>Messages</th>
-                <th>Created</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((a) => (
-                <tr key={a.id}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>
-                      {a.pinned ? "📌 " : null}
-                      {a.label || <span className="muted">No label</span>}
-                    </div>
-                    <div className="addr muted">{a.address}</div>
-                    {a.notes ? (
-                      <div className="faint" style={{ fontSize: 12, marginTop: 2, maxWidth: 380 }}>
-                        {a.notes.length > 90 ? `${a.notes.slice(0, 90)}…` : a.notes}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td>
-                    <span className={`pill ${a.status === "ACTIVE" ? "ready" : "neutral"}`}>{a.status === "ACTIVE" ? "Active" : "Disabled"}</span>
-                  </td>
-                  <td className="muted">{a.messageCount ?? 0}</td>
-                  <td className="faint">{relativeTime(a.createdAt)}</td>
-                  <td>
-                    <div className="row" style={{ justifyContent: "flex-end" }}>
-                      <CopyButton text={a.address} label="Copy" small />
-                      <button className="small" onClick={() => navigate(`/aliases/${a.id}`)}>
-                        Detail
-                      </button>
-                      <button className="small" onClick={() => patch(a, { pinned: !a.pinned })} title="Keep this one at the top">
-                        {a.pinned ? "Unpin" : "Pin"}
-                      </button>
-                      <button
-                        className="small"
-                        onClick={() => patch(a, { archived: !a.archived })}
-                        title="Archiving only hides it from the active list — it keeps receiving mail"
-                      >
-                        {a.archived ? "Unarchive" : "Archive"}
-                      </button>
-                      <button className="small" onClick={() => navigate(`/inbox?alias=${a.id}`)}>
-                        Inbox
-                      </button>
-                      <button className="small" onClick={() => toggleStatus(a)}>
-                        {a.status === "ACTIVE" ? "Disable" : "Enable"}
-                      </button>
-                      <button className="small danger" onClick={() => setDeleting(a)}>
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="card card--flush">
+          {data.items.map((a) => (
+            <div key={a.id} className="entity">
+              <div className="entity-title">
+                <div className="entity-name">
+                  {a.pinned ? "📌 " : null}
+                  {a.label || <span className="muted">No label</span>}
+                </div>
+                <span className={`pill ${a.status === "ACTIVE" ? "ready" : "neutral"}`}>
+                  {a.status === "ACTIVE" ? "Active" : "Disabled"}
+                </span>
+              </div>
+              <div className="addr entity-addr">{a.address}</div>
+              {a.notes ? <div className="entity-note">{a.notes}</div> : null}
+              <div className="entity-facts">
+                <span>{a.messageCount ?? 0} messages</span>
+                <span>{a.unreadCount ? `${a.unreadCount} unread` : "all read"}</span>
+                <span>created {relativeTime(a.createdAt)}</span>
+                {a.archived ? <span>archived</span> : null}
+              </div>
+              <div className="entity-actions">
+                <CopyButton text={a.address} label="Copy address" />
+                <button onClick={() => navigate(`/aliases/${a.id}`)}>Detail</button>
+                <button onClick={() => navigate(`/inbox?alias=${a.id}`)}>Inbox</button>
+                <button onClick={() => patch(a, { pinned: !a.pinned })} title="Keep this one at the top">
+                  {a.pinned ? "Unpin" : "Pin"}
+                </button>
+                <button
+                  onClick={() => patch(a, { archived: !a.archived })}
+                  title="Archiving only hides it from the active list — it keeps receiving mail"
+                >
+                  {a.archived ? "Unarchive" : "Archive"}
+                </button>
+                <button onClick={() => toggleStatus(a)}>{a.status === "ACTIVE" ? "Disable" : "Enable"}</button>
+                <button className="danger" onClick={() => setDeleting(a)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

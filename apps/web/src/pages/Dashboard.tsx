@@ -1,5 +1,5 @@
 import { api } from "../lib/api";
-import { navigate } from "../lib/router";
+import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
 import { senderName } from "../lib/format";
@@ -7,6 +7,7 @@ import { ErrorBanner, Loading } from "../components/ui";
 
 export function Dashboard() {
   const { data, error, loading } = useAsync(() => api.dashboard(), []);
+  const { data: health } = useAsync(() => api.health(), []);
 
   return (
     <div className="page">
@@ -21,6 +22,17 @@ export function Dashboard() {
 
       {error && <ErrorBanner message={error} />}
       {loading && !data && <Loading />}
+
+      {health && (
+        <div className="banner" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontWeight: 600, color: health.ok ? "var(--ok)" : "var(--warn)" }}>
+            {health.ok ? "● Online" : "● Degraded"}
+          </span>
+          <span className="faint">database {health.checks?.d1 ?? "…"}</span>
+          <span className="faint">storage {health.checks?.r2 ?? "…"}</span>
+          <span className="faint">Cloudflare token {health.checks?.token ?? "…"}</span>
+        </div>
+      )}
 
       {data && (
         <>
@@ -48,9 +60,9 @@ export function Dashboard() {
             </div>
           </div>
 
-          <div className="card mt">
-            <div className="row spread" style={{ marginBottom: 8 }}>
-              <h2>Recent messages</h2>
+          <div className="card card--flush mt">
+            <div className="row spread" style={{ margin: "14px 14px 8px" }}>
+              <h2 style={{ margin: 0 }}>Recent messages</h2>
               <button className="ghost small" onClick={() => navigate("/inbox")}>
                 Open inbox →
               </button>
@@ -58,24 +70,18 @@ export function Dashboard() {
             {data.recentMessages.length === 0 ? (
               <p className="muted">No messages yet. Create an alias and use it on an external site.</p>
             ) : (
-              <table>
-                <tbody>
-                  {data.recentMessages.map((m) => (
-                    <tr key={m.id} className={`clickable ${m.isRead ? "" : "unread"}`} onClick={() => navigate(`/messages/${m.id}`)}>
-                      <td style={{ width: 200 }} className="muted">
-                        {senderName(m.headerFrom, m.envelopeFrom)}
-                      </td>
-                      <td className="subject">{m.subject || "(no subject)"}</td>
-                      <td style={{ width: 120 }} className="muted addr">
-                        {m.aliasLabel || m.aliasAddress}
-                      </td>
-                      <td style={{ width: 90 }} className="faint right">
-                        {relativeTime(m.receivedAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <ul className="msglist">
+                {data.recentMessages.map((m) => (
+                  <li key={m.id} className={`msg ${m.isRead ? "" : "unread"}`}>
+                    <Link to={`/messages/${m.id}`}>
+                      <span className="msg-sender">{senderName(m.headerFrom, m.envelopeFrom)}</span>
+                      <span className="msg-time">{relativeTime(m.receivedAt)}</span>
+                      <span className="msg-subject">{m.subject || "(no subject)"}</span>
+                      <span className="msg-alias">{m.aliasLabel || m.aliasAddress}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </>

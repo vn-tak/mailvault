@@ -115,7 +115,7 @@ export function ConfirmDialog({
   return (
     <Modal title={title} onClose={onClose}>
       <div className="muted" style={{ marginBottom: 18 }}>{description}</div>
-      <div className="row" style={{ justifyContent: "flex-end" }}>
+      <div className="row-end">
         <button onClick={onClose}>Cancel</button>
         <button className={danger ? "danger" : "primary"} onClick={onConfirm}>
           {confirmLabel}

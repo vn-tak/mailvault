@@ -13,7 +13,7 @@ test("lists the seeded alias, then creates and removes one", async ({ page }) =>
   await modal.getByRole("button", { name: "Random" }).click();
   await modal.getByRole("button", { name: /^Create alias$/ }).click();
 
-  const row = page.getByRole("row").filter({ hasText: "E2E alias" });
+  const row = page.locator(".entity").filter({ hasText: "E2E alias" });
   await expect(row).toBeVisible();
 
   // Disable then delete it to keep runs independent.

@@ -19,3 +19,6 @@ apps/web/dist/
 # Local-only Cloudflare API token files (never commit)
 .runtime-token
 .deploy-token
+
+# Playwright visual snapshots (local inspection only)
+apps/web/e2e-screens/

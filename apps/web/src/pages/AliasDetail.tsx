@@ -130,7 +130,7 @@ export function AliasDetail({ id }: { id: string }) {
             />
           </div>
 
-          <div className="row mt" style={{ justifyContent: "flex-end" }}>
+          <div className="row-end mt">
             <button className="primary" disabled={!dirty} onClick={save}>
               Save
             </button>

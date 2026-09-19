@@ -27,7 +27,23 @@ export default defineConfig({
     baseURL: BASE,
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    // Desktop layout. Tests tagged @mobile are handset-only and run once, below.
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, grepInvert: /@mobile/ },
+    {
+      name: "mobile",
+      use: {
+        ...devices["Desktop Chrome"],
+        // Pixel-class handset: Chromium (the only installed browser) with mobile
+        // emulation, so `@media (pointer: coarse)` and touch behaviour apply.
+        viewport: { width: 412, height: 915 },
+        deviceScaleFactor: 2.6,
+        isMobile: true,
+        hasTouch: true,
+      },
+      grep: /@mobile/,
+    },
+  ],
   webServer: {
     command: `pnpm --filter @mailvault/worker dev:e2e`,
     url: `${BASE}/api/health`,

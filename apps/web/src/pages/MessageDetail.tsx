@@ -58,7 +58,11 @@ function outcomeLabel(auth: MessageAuth | null): string {
   const mark = (mech: "spf" | "dkim" | "dmarc", value: string | null) =>
     value ? `${mech}=${value}${auth.alignedPass[mech] ? "*" : ""}` : null;
   const parts = [mark("spf", auth.spf), mark("dkim", auth.dkim), mark("dmarc", auth.dmarc)].filter(Boolean);
-  return parts.length ? `${parts.join("  ")}  (* aligned with the sender domain)` : "no authentication results reached us";
+  if (parts.length === 0) return "no authentication results reached us";
+  const aligned = auth.alignedPass.spf || auth.alignedPass.dkim || auth.alignedPass.dmarc;
+  return aligned
+    ? `${parts.join("  ")}  (* vouches for the sender domain)`
+    : `${parts.join("  ")}  — none of it vouches for the sender domain`;
 }
 
 function AuthBanner({ verdict, auth }: { verdict: AuthVerdict; auth: MessageAuth | null }) {
@@ -134,8 +138,8 @@ export function MessageDetail({ id }: { id: string }) {
 
   return (
     <div className="page">
-      <div style={{ marginBottom: 14 }}>
-        <Link to="/inbox">← Back to inbox</Link>
+      <div className="backrow">
+        <Link className="backlink" to="/inbox">← Inbox</Link>
       </div>
 
       {notice && <div className="banner ok">{notice}</div>}
@@ -145,7 +149,7 @@ export function MessageDetail({ id }: { id: string }) {
       {data && (
         <>
           <div className="card">
-            <div className="row spread wrap" style={{ gap: 12 }}>
+            <div className="detail-head">
               <div style={{ minWidth: 0, flex: 1 }}>
                 <h1 style={{ marginBottom: 6 }}>{data.subject || "(no subject)"}</h1>
                 <div className="row wrap" style={{ gap: "4px 16px", fontSize: 13 }}>
@@ -162,7 +166,7 @@ export function MessageDetail({ id }: { id: string }) {
                   {data.aliasLabel ? ` · ${data.aliasLabel}` : ""} · to {data.aliasAddress}
                 </div>
               </div>
-              <div className="row wrap" style={{ justifyContent: "flex-end" }}>
+              <div className="row wrap actions-cell">
                 <button className="small" onClick={toggleRead}>
                   {data.isRead ? "Mark unread" : "Mark read"}
                 </button>

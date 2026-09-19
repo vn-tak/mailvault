@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import { navigate } from "../lib/router";
+import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime, senderName } from "../lib/format";
 import { ErrorBanner, Loading } from "../components/ui";
@@ -8,40 +8,26 @@ import { AuthVerdict, type MessageSummary } from "@mailvault/shared";
 
 const PAGE = 50;
 
-function Row({ m }: { m: MessageSummary }) {
+function MsgItem({ m }: { m: MessageSummary }) {
   return (
-    <tr className={`clickable ${m.isRead ? "" : "unread"}`} onClick={() => navigate(`/messages/${m.id}`)}>
-      <td style={{ width: 220 }} className="muted">
-        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {senderName(m.headerFrom, m.envelopeFrom)}
-        </div>
-        <div className="addr faint" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>
-          {m.aliasLabel || m.aliasAddress}
-        </div>
-      </td>
-      <td>
-        <div className="subject">{m.subject || "(no subject)"}</div>
-        {m.preview && (
-          <div className="faint" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {m.preview}
-          </div>
-        )}
-      </td>
-      <td style={{ width: 130 }} className="right wrap">
-        <div className="row" style={{ justifyContent: "flex-end", gap: 6 }}>
+    <li className={`msg ${m.isRead ? "" : "unread"}`}>
+      <Link to={`/messages/${m.id}`}>
+        <span className="msg-sender">{senderName(m.headerFrom, m.envelopeFrom)}</span>
+        <span className="msg-time">{relativeTime(m.receivedAt)}</span>
+        <span className="msg-subject">{m.subject || "(no subject)"}</span>
+        <span className="msg-alias">{m.aliasLabel || m.aliasAddress}</span>
+        {m.preview ? <span className="msg-preview">{m.preview}</span> : null}
+        <span className="msg-badges">
           {m.authVerdict === AuthVerdict.Spoofed ? (
             // Never echo a forger's payload in the list — the detail view explains it.
-            <span className="badge" title="Sender authentication failed — open for details">⚠ spoof risk</span>
+            <span className="pill error">⚠ unverified sender</span>
           ) : m.primaryCode ? (
             <span className="badge mono" title="Detected code">{m.primaryCode}</span>
           ) : null}
           {m.attachmentCount > 0 ? <span className="badge" title={`${m.attachmentCount} attachment(s)`}>📎 {m.attachmentCount}</span> : null}
-        </div>
-        <div className="faint right" style={{ fontSize: 12, width: "100%", textAlign: "right", marginTop: 2 }}>
-          {relativeTime(m.receivedAt)}
-        </div>
-      </td>
-    </tr>
+        </span>
+      </Link>
+    </li>
   );
 }
 
@@ -86,7 +72,7 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
       <div className="page-head">
         <h1>Inbox</h1>
         <div className="actions">
-          <button className="small" onClick={reload}>
+          <button onClick={reload}>
             Refresh
           </button>
         </div>
@@ -94,7 +80,7 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
 
       {error && <ErrorBanner message={error} />}
 
-      <form className="toolbar" onSubmit={submitSearch}>
+      <form className="toolbar toolbar--sticky" onSubmit={submitSearch}>
         <div className="tabs">
           <button type="button" className={!unreadOnly ? "active" : ""} onClick={() => setUnreadOnly(false)}>
             All
@@ -128,25 +114,23 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
 
       {data && data.items.length > 0 && (
         <>
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <table>
-              <tbody>
-                {data.items.map((m) => (
-                  <Row key={m.id} m={m} />
-                ))}
-              </tbody>
-            </table>
+          <div className="card card--flush">
+            <ul className="msglist">
+              {data.items.map((m) => (
+                <MsgItem key={m.id} m={m} />
+              ))}
+            </ul>
           </div>
-          <div className="row spread" style={{ marginTop: 12 }}>
+          <div className="pager">
             <span className="faint" style={{ fontSize: 13 }}>
               Showing {offset + 1}–{Math.min(offset + PAGE, total)} of {total}
             </span>
             <div className="row">
-              <button className="small" disabled={!hasPrev} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
-                ← Prev
+              <button disabled={!hasPrev} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
+                ← Newer
               </button>
-              <button className="small" disabled={!hasNext} onClick={() => setOffset(offset + PAGE)}>
-                Next →
+              <button disabled={!hasNext} onClick={() => setOffset(offset + PAGE)}>
+                Older →
               </button>
             </div>
           </div>

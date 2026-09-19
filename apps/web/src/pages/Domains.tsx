@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { api, ApiClientError } from "../lib/api";
 import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
@@ -382,135 +382,108 @@ export function Domains() {
               <div style={{ fontWeight: 600 }}>No domains match “{FILTERS.find((f) => f.id === filter)?.label}”</div>
             </div>
           ) : (
-            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width: 34 }}>
-                      <input
-                        type="checkbox"
-                        style={{ width: "auto" }}
-                        checked={visible.length > 0 && visible.every((d) => selected.has(d.cloudflareZoneId))}
-                        onChange={() => {
-                          const allVis = visible.map((d) => d.cloudflareZoneId);
-                          const every = allVis.every((z) => selected.has(z));
-                          setSelected((prev) => {
-                            const next = new Set(prev);
-                            for (const z of allVis) {
-                              if (every) next.delete(z);
-                              else next.add(z);
-                            }
-                            return next;
-                          });
-                        }}
-                        aria-label="Select all visible"
-                      />
-                    </th>
-                    <th>Domain</th>
-                    <th>Mail status</th>
-                    <th>Checked</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((d) => {
-                    const zoneId = d.cloudflareZoneId;
-                    const pf = preflights[zoneId];
-                    const oc = outcomes[zoneId];
-                    const open = expanded.has(zoneId);
-                    const hasEvidence = !!pf?.conflict || !!oc;
-                    return (
-                      <Fragment key={d.id}>
-                        <tr style={{ verticalAlign: "top" }}>
-                          <td>
-                            <input
-                              type="checkbox"
-                              style={{ width: "auto" }}
-                              checked={selected.has(zoneId)}
-                              onChange={() => toggle(zoneId)}
-                              aria-label={`Select ${d.name}`}
-                            />
-                          </td>
-                          <td>
-                            <div className="row" style={{ gap: 8 }}>
-                              {hasEvidence ? (
-                                <button className="ghost small" onClick={() => toggleExpand(zoneId)} aria-label={open ? "Hide details" : "Show details"}>
-                                  {open ? "▾" : "▸"}
-                                </button>
-                              ) : null}
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontWeight: 600 }}>{d.name}</div>
-                                <div className="faint" style={{ fontSize: 12 }}>
-                                  {d.zoneStatus} · {d.zoneType === "full" ? "Full" : d.zoneType}
-                                </div>
-                              </div>
-                            </div>
-                            {pf && (
-                              <div style={{ marginTop: 4 }}>
-                                <ClassPill c={pf.classification} />
-                              </div>
-                            )}
-                          </td>
-                          <td>
-                            <StatusPill status={d.mailStatus} />
-                          </td>
-                          <td className="faint" style={{ fontSize: 12 }}>
-                            {relativeTime(d.lastCheckedAt)}
-                          </td>
-                          <td>
-                            <div className="row" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
-                              {d.mailStatus === MailStatus.Ready && (
-                                <>
-                                  <button className="small" onClick={() => navigate(`/inbox?domain=${d.id}`)}>
-                                    Inbox
-                                  </button>
-                                  <select
-                                    className="small"
-                                    value={d.authPolicy}
-                                    disabled={busy}
-                                    title="What to do with mail whose sender failed SPF/DKIM/DMARC checks"
-                                    onChange={(e) => void changeAuthPolicy(d, e.target.value as AuthPolicy)}
-                                  >
-                                    <option value={AuthPolicy.Warn}>unverified: flag</option>
-                                    <option value={AuthPolicy.Reject}>unverified: reject</option>
-                                    <option value={AuthPolicy.Off}>unverified: allow</option>
-                                  </select>
-                                </>
-                              )}
-                              {(d.mailStatus === MailStatus.Failed || d.mailStatus === MailStatus.Conflict) && (
-                                <button
-                                  className="small"
-                                  disabled={busy}
-                                  onClick={() => {
-                                    if (d.conflictType === ConflictType.CatchAll) setRetryTakeover(d);
-                                    else void runRetry(d, false);
-                                  }}
-                                >
-                                  Retry
-                                </button>
-                              )}
-                              <button className="small danger" onClick={() => setRemoving(d)} disabled={busy}>
-                                Remove
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                        {open && (pf?.conflict || oc) && (
-                          <tr>
-                            <td></td>
-                            <td colSpan={4} style={{ background: "var(--bg)" }}>
-                              <div className="stack">
-                                {pf?.conflict ? <ConflictDetail result={pf} /> : null}
-                                {oc ? <Receipt o={oc} d={d} /> : null}
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="card card--flush">
+              <div className="list-head">
+                <label className="row" style={{ gap: 10, cursor: "pointer", margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: "auto", minHeight: 0 }}
+                    checked={visible.length > 0 && visible.every((d) => selected.has(d.cloudflareZoneId))}
+                    onChange={() => {
+                      const allVis = visible.map((d) => d.cloudflareZoneId);
+                      const every = allVis.every((z) => selected.has(z));
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        for (const z of allVis) {
+                          if (every) next.delete(z);
+                          else next.add(z);
+                        }
+                        return next;
+                      });
+                    }}
+                    aria-label="Select all visible"
+                  />
+                  <span className="faint" style={{ fontSize: 13 }}>
+                    {selected.size} of {visible.length} selected
+                  </span>
+                </label>
+              </div>
+              {visible.map((d) => {
+                const zoneId = d.cloudflareZoneId;
+                const pf = preflights[zoneId];
+                const oc = outcomes[zoneId];
+                const open = expanded.has(zoneId);
+                const hasEvidence = !!pf?.conflict || !!oc;
+                return (
+                  <div key={d.id} className="entity">
+                    <div className="entity-title">
+                      <div className="row" style={{ gap: 10, minWidth: 0 }}>
+                        <input
+                          type="checkbox"
+                          style={{ width: "auto", minHeight: 0 }}
+                          checked={selected.has(zoneId)}
+                          onChange={() => toggle(zoneId)}
+                          aria-label={`Select ${d.name}`}
+                        />
+                        <span className="entity-name">{d.name}</span>
+                      </div>
+                      <StatusPill status={d.mailStatus} />
+                    </div>
+                    <div className="entity-facts">
+                      <span>
+                        {d.zoneStatus} · {d.zoneType === "full" ? "Full" : d.zoneType}
+                      </span>
+                      {pf ? <ClassPill c={pf.classification} /> : null}
+                      <span>checked {relativeTime(d.lastCheckedAt)}</span>
+                    </div>
+                    <div className="entity-actions">
+                      {hasEvidence ? (
+                        <button onClick={() => toggleExpand(zoneId)} aria-expanded={open}>
+                          {open ? "Hide details" : "Show details"}
+                        </button>
+                      ) : null}
+                      {d.mailStatus === MailStatus.Ready && (
+                        <>
+                          <button onClick={() => navigate(`/inbox?domain=${d.id}`)}>Inbox</button>
+                          <select
+                            value={d.authPolicy}
+                            disabled={busy}
+                            style={{ width: "auto" }}
+                            title="What to do with mail whose sender failed SPF/DKIM/DMARC checks"
+                            onChange={(e) => void changeAuthPolicy(d, e.target.value as AuthPolicy)}
+                          >
+                            <option value={AuthPolicy.Warn}>unverified: flag</option>
+                            <option value={AuthPolicy.Reject}>unverified: reject</option>
+                            <option value={AuthPolicy.Off}>unverified: allow</option>
+                          </select>
+                        </>
+                      )}
+                      {(d.mailStatus === MailStatus.Failed || d.mailStatus === MailStatus.Conflict) && (
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            if (d.conflictType === ConflictType.CatchAll) setRetryTakeover(d);
+                            else void runRetry(d, false);
+                          }}
+                        >
+                          Retry
+                        </button>
+                      )}
+                      <button className="danger" onClick={() => setRemoving(d)} disabled={busy}>
+                        Remove
+                      </button>
+                    </div>
+                    {open && (pf?.conflict || oc) ? (
+                      <div className="entity-details">
+                        <div className="stack">
+                          {pf?.conflict ? <ConflictDetail result={pf} /> : null}
+                          {oc ? <Receipt o={oc} d={d} /> : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           )}
         </>
@@ -553,7 +526,7 @@ export function Domains() {
             </>
           )}
 
-          <div className="row" style={{ justifyContent: "flex-end" }}>
+          <div className="row-end">
             <button onClick={() => setConfirmProvision(false)}>Cancel</button>
             <button className="primary" onClick={runProvision} disabled={busy || (needsTakeover && !takeover)}>
               {busy ? "Enabling…" : "Enable mail"}
@@ -571,7 +544,7 @@ export function Domains() {
           <div className="banner error" style={{ marginBottom: 12 }}>
             This overwrites the current catch-all destination. MX records are still never modified.
           </div>
-          <div className="row" style={{ justifyContent: "flex-end" }}>
+          <div className="row-end">
             <button onClick={() => setRetryTakeover(null)}>Cancel</button>
             <button className="danger" onClick={() => runRetry(retryTakeover, true)} disabled={busy}>
               Take over catch-all

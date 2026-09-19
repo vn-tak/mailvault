@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-import { api } from "./lib/api";
 import { Link, matchRoute, useRoute } from "./lib/router";
 import { Dashboard } from "./pages/Dashboard";
 import { Domains } from "./pages/Domains";
@@ -45,18 +43,6 @@ function Route() {
 
 export function App() {
   const { path } = useRoute();
-  const [health, setHealth] = useState<string>("");
-
-  useEffect(() => {
-    let alive = true;
-    api
-      .health()
-      .then((h) => alive && setHealth(h.ok ? "ok" : "degraded"))
-      .catch(() => alive && setHealth("down"));
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   return (
     <div className="app">
@@ -71,11 +57,6 @@ export function App() {
             </Link>
           ))}
         </nav>
-        <div className="foot">
-          <span className="pill neutral">
-            {health === "ok" ? "● Online" : health === "degraded" ? "● Degraded" : health === "down" ? "● Offline" : "● …"}
-          </span>
-        </div>
       </aside>
       <main className="main">
         <Route />

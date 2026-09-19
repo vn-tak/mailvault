@@ -89,6 +89,12 @@ supplied by the owner afterwards, which is what the addendum records.
 
 ## How the E2E suite runs
 
+Two Playwright projects: `chromium` (desktop) and `mobile` (412×915, touch, coarse
+pointer). `e2e/ui.spec.ts` is the layout contract — no horizontal overflow on any screen,
+the tab bar pinned to the bottom with ≥40px targets, inputs at 16px so iOS does not zoom
+on focus, and a spoofed message that shows no code badge in the list and gates its codes
+and links behind an explicit reveal. Screenshots land in `apps/web/e2e-screens/` (ignored).
+
 `pnpm test:e2e` boots the Worker itself via `webServer` →
 `pnpm --filter @mailvault/worker dev:e2e`, which applies migrations, seeds
 `scripts/seed.sql`, and serves the built SPA **and** `/api/*` from one origin
