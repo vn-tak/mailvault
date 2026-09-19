@@ -4,6 +4,7 @@ import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
 import { ConfirmDialog, ErrorBanner, Loading, Modal, StatusPill } from "../components/ui";
+import { FILTERS, bucketOf, isRoutingNotEnabledReceipt, needsOwnerEnable, routingConsoleUrl, type Bucket } from "../lib/domains";
 import {
   ConflictType,
   MailStatus,
@@ -29,27 +30,21 @@ function ClassPill({ c }: { c: string }) {
   return <span className={`pill ${s.cls}`}>{s.text}</span>;
 }
 
-/** Coarse bucket used for filtering; combines stored status with the latest evidence. */
-type Bucket = "ready" | "conflict" | "error" | "unconfigured" | "other";
-
-function bucketOf(d: Domain, pf?: PreflightResult, oc?: ProvisionOutcome): Bucket {
-  const cls = pf?.classification;
-  if (cls === PreflightClassification.MxConflict || cls === PreflightClassification.CatchAllConflict) return "conflict";
-  if (cls === PreflightClassification.ReadyToProvision) return "ready";
-  if (d.mailStatus === MailStatus.Conflict) return "conflict";
-  if (d.mailStatus === MailStatus.Failed || (oc && !oc.ok)) return "error";
-  if (d.mailStatus === MailStatus.Ready || cls === PreflightClassification.AlreadyConfigured) return "ready";
-  if (d.mailStatus === MailStatus.Discovered || d.mailStatus === MailStatus.Preflight) return "unconfigured";
-  return "other";
+function RoutingHint({ d }: { d: Domain }) {
+  const href = routingConsoleUrl(d);
+  if (!href) return null;
+  return (
+    <a
+      className="small"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ textDecoration: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "4px 8px", whiteSpace: "nowrap" }}
+    >
+      Enable routing ↗
+    </a>
+  );
 }
-
-const FILTERS: Array<{ id: Bucket | "all"; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "ready", label: "Ready" },
-  { id: "conflict", label: "Conflict" },
-  { id: "error", label: "Error" },
-  { id: "unconfigured", label: "Unconfigured" },
-];
 
 function ConflictDetail({ result }: { result: PreflightResult }) {
   const cf = result.conflict;
@@ -76,13 +71,19 @@ function ConflictDetail({ result }: { result: PreflightResult }) {
   );
 }
 
-function Receipt({ o }: { o: ProvisionOutcome }) {
+function Receipt({ o, d }: { o: ProvisionOutcome; d: Domain }) {
   return (
     <div className={`banner ${o.ok ? "ok" : "error"}`} style={{ marginBottom: 0 }}>
       <div style={{ fontWeight: 600 }}>
         {o.ok ? "Mail enabled" : "Provisioning failed"}
         {o.error ? ` — ${o.error}` : ""}
       </div>
+      {isRoutingNotEnabledReceipt(o) ? (
+        <div className="row" style={{ marginTop: 8 }}>
+          <RoutingHint d={d} />
+          <span className="faint" style={{ fontSize: 12 }}>then come back and press Retry.</span>
+        </div>
+      ) : null}
       <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12 }}>
         {o.steps.length === 0 ? <li className="faint">no steps executed</li> : null}
         {o.steps.map((s, i) => (
@@ -408,6 +409,7 @@ export function Domains() {
                           </td>
                           <td>
                             <div className="row" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
+                              {needsOwnerEnable(d, pf) ? <RoutingHint d={d} /> : null}
                               {d.mailStatus === MailStatus.Ready && (
                                 <button className="small" onClick={() => navigate(`/inbox?domain=${d.id}`)}>
                                   Inbox
@@ -437,7 +439,7 @@ export function Domains() {
                             <td colSpan={4} style={{ background: "var(--bg)" }}>
                               <div className="stack">
                                 {pf?.conflict ? <ConflictDetail result={pf} /> : null}
-                                {oc ? <Receipt o={oc} /> : null}
+                                {oc ? <Receipt o={oc} d={d} /> : null}
                               </div>
                             </td>
                           </tr>
