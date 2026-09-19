@@ -7,6 +7,7 @@
   "workers_dev": false,
 
   "routes": [
+    { "pattern": "mail.tungjp.store", "custom_domain": true },
     { "pattern": "mail.omnipos.tech", "custom_domain": true }
   ],
 
@@ -24,7 +25,7 @@
     "ENVIRONMENT": "production",
     "CF_ACCOUNT_ID": "ef250a88911fd24073cb73d1c07e0218",
     "MAIL_WORKER_NAME": "mail-vault",
-    "APP_ORIGIN": "https://mail.omnipos.tech",
+    "APP_ORIGIN": "https://mail.tungjp.store",
     "CF_ACCESS_TEAM_DOMAIN": "https://little-bar-8ffa.cloudflareaccess.com",
     "CF_ACCESS_AUD": "61f4423b34844e1a86c2b4680a77549acab6026bb3a0ed78af75d78ff00d10b4",
     "MAX_MESSAGE_BYTES": "20971520",

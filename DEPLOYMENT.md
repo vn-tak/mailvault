@@ -55,14 +55,25 @@ fabricating a deployed state was the correct thing to refuse. That is no longer 
 of this system, so this addendum records the difference.
 
 - **Deployed:** D1 `mail-vault-db`, R2 `mail-vault-storage`, Worker `mail-vault` + SPA on
-  `https://mail.omnipos.tech` behind Cloudflare Access with a single owner address in
-  `ALLOWED_EMAILS`. `workers_dev` is off, so the Worker is reachable only through that
-  Access-protected route. The Cloudflare API token exists only as a Worker secret.
+  `https://mail.tungjp.store` (canonical, `APP_ORIGIN`) and still on
+  `https://mail.omnipos.tech` during the transition, both behind Cloudflare Access with a
+  single owner address in `ALLOWED_EMAILS`. `workers_dev` is off, so the Worker is reachable
+  only through those Access-protected routes. The Cloudflare API token exists only as a
+  Worker secret.
 - **Real domain mutations: 3 zones, each one an explicit owner click in the app** —
   `omnipos.tech`, `datlichngay.com`, `tung.codes`. Email Routing was enabled by MailVault's
   own token, the catch-all points at the MailVault Worker, and `READY` was recorded only
   after re-reading both. Public DNS confirms `route1-3.mx.cloudflare.net` on the enabled
   zones. The remaining 35 zones were classified as conflicts and left untouched.
+- **2026-09-20, owner-authorized take-over: 23 more zones.** Every domain that was not
+  excluded is now `READY` (32 of 36). Each of those zones previously published another
+  provider's MX — IONOS, Google Workspace, Zoho or Amazon SES — and those MX records were
+  **deleted** at the owner's explicit instruction, with the exact record set shown first and
+  written to `provisioning_events` before removal; `.ops/mx-snapshot-2026-09-20.json` holds
+  the same list for restore. SPF, DKIM and `_dmarc` were deliberately left in place: enabling
+  routing adds no second SPF, so deleting them would only break the owner's outbound mail.
+  `tungjpstore.net`, `selinow.com`, `fball.vn` and `logivn.com` are excluded by
+  `DOMAIN_DENYLIST` and still route to Zoho — verified by public DNS after the batch.
 - **Inbound proven with real mail**, including a live provider email whose 8-digit OTP was
   extracted at 0.85 confidence while a postal code in the same message was demoted to 0.47.
 - **Gates at this writing:** 103 tests (worker 81, web 22), 5 E2E; lint and typecheck clean.
@@ -158,6 +169,24 @@ node -e 'const{generateKeyPairSync}=require("node:crypto");const{privateKey}=gen
 #   - copy the AUD tag and team domain into CF_ACCESS_AUD / CF_ACCESS_TEAM_DOMAIN
 #   - restrict direct access to the Worker route to Access only
 ```
+
+### Hostnames: two routes, one Worker, one Access app
+
+`mail.tungjp.store` is the canonical origin (`APP_ORIGIN`); `mail.omnipos.tech` still serves
+during the transition. Both are `custom_domain` routes on the same Worker, and a single
+self-hosted Access app covers both through its `self_hosted_domains` list — so
+`CF_ACCESS_AUD` did not have to change, and there is one policy ("Owner only") to keep
+correct rather than two.
+
+What that does *not* carry over, because browsers scope it per origin:
+
+- **The installed PWA.** `mail.tungjp.store` is a separate install; the old one keeps working
+  against the old hostname.
+- **The Web Push subscription.** Endpoints are origin-bound, so notifications must be
+  re-enabled once in Settings on the new hostname. Until then only the old origin notifies.
+
+To retire the old hostname: drop its route from `wrangler.jsonc`, redeploy, and remove
+`mail.omnipos.tech*` from the Access app's `self_hosted_domains`.
 
 ### API token scope (least privilege)
 
