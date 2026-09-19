@@ -20,6 +20,10 @@ const PROVIDER_SIGNATURES: Array<{ name: string; re: RegExp }> = [
   { name: "Proofpoint", re: /(pphosted|proofpoint)/i },
   { name: "Barracuda", re: /(barracuda)/i },
   { name: "SolarWinds SpamTitan", re: /(spamtitan|titanofold)/i },
+  { name: "IONOS", re: /(ionos|imh\.io|mail\.ionos)/i },
+  { name: "Amazon SES", re: /(amazonses\.com|inbound-smtp\.[a-z0-9-]+\.amazonaws\.com)/i },
+  { name: "Migadu", re: /(migadu)/i },
+  { name: "Yandex 360", re: /(yandex\.ru|yandex\.net)/i },
 ];
 
 // Cloudflare Email Routing inbound MX hosts (ours).

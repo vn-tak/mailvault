@@ -92,6 +92,29 @@ describe("MX assessment (section 7)", () => {
     expect(a.clearForUs).toBe(true);
     expect(a.total).toBe(0);
   });
+  it("names the providers seen in a real account rather than calling them unknown", () => {
+    // Hostnames captured from live zones during V1 onboarding.
+    const byHost: Array<[string, string]> = [
+      ["mx00.ionos.com", "IONOS"],
+      ["mx01.ionos.com", "IONOS"],
+      ["feedback-smtp.ap-northeast-1.amazonses.com", "Amazon SES"],
+      ["inbound-smtp.ap-northeast-1.amazonaws.com", "Amazon SES"],
+      ["mx.zoho.com", "Zoho"],
+    ];
+    for (const [host, provider] of byHost) {
+      expect(detectProvider(host), host).toBe(provider);
+    }
+  });
+  it("refuses a zone whose MX mixes Cloudflare routing with a foreign provider", () => {
+    const a = assessMx([
+      { content: "route1.mx.cloudflare.net", priority: 36 },
+      { content: "mx.zoho.com", priority: 10 },
+    ]);
+    expect(a.cloudflareRouting).toBe(1);
+    expect(a.foreign.length).toBe(1);
+    expect(a.clearForUs).toBe(false);
+    expect(a.providers).toContain("Zoho");
+  });
 });
 
 describe("email HTML sanitization (section 19)", () => {

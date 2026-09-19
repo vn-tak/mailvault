@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { api, ApiClientError } from "../lib/api";
 import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
@@ -29,12 +29,34 @@ function ClassPill({ c }: { c: string }) {
   return <span className={`pill ${s.cls}`}>{s.text}</span>;
 }
 
-function ConflictBox({ result }: { result: PreflightResult }) {
+/** Coarse bucket used for filtering; combines stored status with the latest evidence. */
+type Bucket = "ready" | "conflict" | "error" | "unconfigured" | "other";
+
+function bucketOf(d: Domain, pf?: PreflightResult, oc?: ProvisionOutcome): Bucket {
+  const cls = pf?.classification;
+  if (cls === PreflightClassification.MxConflict || cls === PreflightClassification.CatchAllConflict) return "conflict";
+  if (cls === PreflightClassification.ReadyToProvision) return "ready";
+  if (d.mailStatus === MailStatus.Conflict) return "conflict";
+  if (d.mailStatus === MailStatus.Failed || (oc && !oc.ok)) return "error";
+  if (d.mailStatus === MailStatus.Ready || cls === PreflightClassification.AlreadyConfigured) return "ready";
+  if (d.mailStatus === MailStatus.Discovered || d.mailStatus === MailStatus.Preflight) return "unconfigured";
+  return "other";
+}
+
+const FILTERS: Array<{ id: Bucket | "all"; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "ready", label: "Ready" },
+  { id: "conflict", label: "Conflict" },
+  { id: "error", label: "Error" },
+  { id: "unconfigured", label: "Unconfigured" },
+];
+
+function ConflictDetail({ result }: { result: PreflightResult }) {
   const cf = result.conflict;
   if (!cf) return null;
   return (
-    <div className="banner error" style={{ marginTop: 8, marginBottom: 0 }}>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>{cf.message}</div>
+    <div className="banner error" style={{ marginBottom: 0 }}>
+      <div style={{ fontWeight: 600 }}>{cf.message}</div>
       {cf.type === ConflictType.Mx && cf.mxRecords && cf.mxRecords.length > 0 && (
         <ul className="mono" style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12 }}>
           {cf.mxRecords.map((r, i) => (
@@ -44,32 +66,32 @@ function ConflictBox({ result }: { result: PreflightResult }) {
           ))}
         </ul>
       )}
-      {cf.type === ConflictType.CatchAll && cf.catchAll?.destination && (
+      {cf.type === ConflictType.CatchAll && (
         <div className="mono" style={{ fontSize: 12 }}>
-          Currently routed to: {cf.catchAll.actionType ?? "worker"} → {cf.catchAll.destination}
+          Currently routed to: {cf.catchAll?.actionType ?? "unknown"}
+          {cf.catchAll?.destination ? ` → ${cf.catchAll.destination}` : ""}
         </div>
       )}
     </div>
   );
 }
 
-function OutcomeBox({ o }: { o: ProvisionOutcome }) {
+function Receipt({ o }: { o: ProvisionOutcome }) {
   return (
-    <div className={`banner ${o.ok ? "ok" : "error"}`} style={{ marginTop: 8, marginBottom: 0 }}>
+    <div className={`banner ${o.ok ? "ok" : "error"}`} style={{ marginBottom: 0 }}>
       <div style={{ fontWeight: 600 }}>
         {o.ok ? "Mail enabled" : "Provisioning failed"}
         {o.error ? ` — ${o.error}` : ""}
       </div>
-      {o.steps.length > 0 && (
-        <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12 }}>
-          {o.steps.map((s, i) => (
-            <li key={i}>
-              {s.ok ? "✓" : "✗"} {s.step}
-              {s.detail ? ` (${s.detail})` : ""}
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12 }}>
+        {o.steps.length === 0 ? <li className="faint">no steps executed</li> : null}
+        {o.steps.map((s, i) => (
+          <li key={i}>
+            {s.ok ? "✓" : "✗"} {s.step}
+            {s.detail ? ` (${s.detail})` : ""}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -81,6 +103,8 @@ export function Domains() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [preflights, setPreflights] = useState<Record<string, PreflightResult>>({});
   const [outcomes, setOutcomes] = useState<Record<string, ProvisionOutcome>>({});
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<Bucket | "all">("all");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -89,7 +113,23 @@ export function Domains() {
   const [removing, setRemoving] = useState<Domain | null>(null);
   const [retryTakeover, setRetryTakeover] = useState<Domain | null>(null);
 
+  const allZones = useMemo(() => domains.map((d) => d.cloudflareZoneId), [domains]);
   const selectedZones = useMemo(() => [...selected], [selected]);
+
+  const visible = useMemo(
+    () =>
+      domains.filter((d) => (filter === "all" ? true : bucketOf(d, preflights[d.cloudflareZoneId], outcomes[d.cloudflareZoneId]) === filter)),
+    [domains, filter, preflights, outcomes],
+  );
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: domains.length, ready: 0, conflict: 0, error: 0, unconfigured: 0, other: 0 };
+    for (const d of domains) {
+      const k = bucketOf(d, preflights[d.cloudflareZoneId], outcomes[d.cloudflareZoneId]);
+      c[k] = (c[k] ?? 0) + 1;
+    }
+    return c;
+  }, [domains, preflights, outcomes]);
 
   function toggle(zoneId: string) {
     setSelected((prev) => {
@@ -100,8 +140,19 @@ export function Domains() {
     });
   }
 
-  function toggleAll() {
-    setSelected((prev) => (prev.size === domains.length ? new Set() : new Set(domains.map((d) => d.cloudflareZoneId))));
+  function toggleExpand(zoneId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(zoneId)) next.delete(zoneId);
+      else next.add(zoneId);
+      return next;
+    });
+  }
+
+  function selectVisibleEligible() {
+    const eligible = visible.filter((d) => preflights[d.cloudflareZoneId]?.safeToProvision).map((d) => d.cloudflareZoneId);
+    setSelected((prev) => new Set([...prev, ...eligible]));
+    setNotice(eligible.length ? `Selected ${eligible.length} eligible domain(s).` : "No selected domain is marked eligible yet — run Preflight first.");
   }
 
   async function runSync() {
@@ -109,7 +160,7 @@ export function Domains() {
     setActionError(null);
     try {
       const r = await api.syncDomains();
-      setNotice(`Synced from Cloudflare: ${r.discovered} zone(s) discovered. No DNS was changed.`);
+      setNotice(`Synced from Cloudflare: ${r.discovered} zone(s) imported. No DNS was changed.`);
       reload();
     } catch (e) {
       setActionError(e instanceof ApiClientError ? e.message : "Sync failed");
@@ -118,23 +169,30 @@ export function Domains() {
     }
   }
 
-  async function runPreflight() {
-    if (selectedZones.length === 0) return;
+  async function runPreflight(zoneIds: string[], label: string) {
+    if (zoneIds.length === 0) return;
     setBusy(true);
     setActionError(null);
+    setNotice(`${label} ${zoneIds.length} domain(s)… read-only, no changes.`);
     try {
-      const r = await api.preflightDomains(selectedZones);
+      const r = await api.preflightDomains(zoneIds);
       setPreflights((prev) => {
         const next = { ...prev };
         for (const item of r.results) next[item.zoneId] = item;
         return next;
       });
       const conflicts = r.results.filter((x) => !x.safeToProvision && x.conflict).length;
+      const denied = r.results.filter((x) => x.classification === PreflightClassification.ApiPermissionError).length;
       setNotice(
-        conflicts > 0
-          ? `Preflight done (read-only). ${conflicts} domain(s) have conflicts that will NOT be overwritten automatically.`
-          : "Preflight done (read-only). No changes were made.",
+        `Preflight complete (${r.results.length}). ${conflicts} conflict(s) will NOT be overwritten automatically` +
+          (denied ? `; ${denied} domain(s) could not be read with the current API token.` : "."),
       );
+      // Surface evidence for anything that is not safe, without forcing a click.
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        for (const x of r.results) if (!x.safeToProvision) next.add(x.zoneId);
+        return next;
+      });
     } catch (e) {
       setActionError(e instanceof ApiClientError ? e.message : "Preflight failed");
     } finally {
@@ -142,7 +200,6 @@ export function Domains() {
     }
   }
 
-  // Does any selected (already-preflighted) domain have a foreign catch-all we'd take over?
   const needsTakeover = selectedZones.some((z) => preflights[z]?.classification === PreflightClassification.CatchAllConflict);
   const mxBlocked = selectedZones.some((z) => preflights[z]?.classification === PreflightClassification.MxConflict);
 
@@ -175,6 +232,7 @@ export function Domains() {
     try {
       const o = await api.retryDomain(d.cloudflareZoneId, withTakeover);
       setOutcomes((prev) => ({ ...prev, [o.zoneId]: o }));
+      setExpanded((prev) => new Set(prev).add(o.zoneId));
       setRetryTakeover(null);
       reload();
     } catch (e) {
@@ -212,7 +270,10 @@ export function Domains() {
           <button onClick={runSync} disabled={busy}>
             {busy ? "Working…" : "↻ Sync from Cloudflare"}
           </button>
-          <button onClick={runPreflight} disabled={busy || selectedZones.length === 0}>
+          <button onClick={() => runPreflight(allZones, "Preflighting")} disabled={busy || allZones.length === 0}>
+            Preflight all
+          </button>
+          <button onClick={() => runPreflight(selectedZones, "Preflighting")} disabled={busy || selectedZones.length === 0}>
             Preflight ({selectedZones.length})
           </button>
           <button
@@ -237,7 +298,7 @@ export function Domains() {
         <div className="empty">
           <div style={{ fontWeight: 600, marginBottom: 4 }}>No domains tracked yet</div>
           <div className="muted" style={{ marginBottom: 14 }}>
-            Sync to import the Cloudflare zones in your account. Nothing is modified by syncing.
+            Sync imports the Cloudflare zones your API token is allowed to see. Nothing is modified by syncing.
           </div>
           <button className="primary" onClick={runSync} disabled={busy}>
             ↻ Sync from Cloudflare
@@ -246,136 +307,186 @@ export function Domains() {
       )}
 
       {domains.length > 0 && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <table>
-            <thead>
-              <tr>
-                <th style={{ width: 34 }}>
-                  <input
-                    type="checkbox"
-                    style={{ width: "auto" }}
-                    checked={selected.size === domains.length && domains.length > 0}
-                    onChange={toggleAll}
-                    aria-label="Select all"
-                  />
-                </th>
-                <th>Domain</th>
-                <th>Zone</th>
-                <th>Mail status</th>
-                <th>Checked</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {domains.map((d) => {
-                const zoneId = d.cloudflareZoneId;
-                const pf = preflights[zoneId];
-                return (
-                  <tr key={d.id} style={{ verticalAlign: "top" }}>
-                    <td>
+        <>
+          <div className="toolbar">
+            <div className="tabs">
+              {FILTERS.map((f) => (
+                <button key={f.id} type="button" className={filter === f.id ? "active" : ""} onClick={() => setFilter(f.id)}>
+                  {f.label} ({counts[f.id] ?? 0})
+                </button>
+              ))}
+            </div>
+            <button className="small" onClick={selectVisibleEligible} disabled={busy}>
+              Select eligible
+            </button>
+            {selected.size > 0 && (
+              <button className="ghost small" onClick={() => setSelected(new Set())}>
+                Clear selection ({selected.size}) ✕
+              </button>
+            )}
+          </div>
+
+          {visible.length === 0 ? (
+            <div className="empty">
+              <div style={{ fontWeight: 600 }}>No domains match “{FILTERS.find((f) => f.id === filter)?.label}”</div>
+            </div>
+          ) : (
+            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 34 }}>
                       <input
                         type="checkbox"
                         style={{ width: "auto" }}
-                        checked={selected.has(zoneId)}
-                        onChange={() => toggle(zoneId)}
-                        aria-label={`Select ${d.name}`}
+                        checked={visible.length > 0 && visible.every((d) => selected.has(d.cloudflareZoneId))}
+                        onChange={() => {
+                          const allVis = visible.map((d) => d.cloudflareZoneId);
+                          const every = allVis.every((z) => selected.has(z));
+                          setSelected((prev) => {
+                            const next = new Set(prev);
+                            for (const z of allVis) {
+                              if (every) next.delete(z);
+                              else next.add(z);
+                            }
+                            return next;
+                          });
+                        }}
+                        aria-label="Select all visible"
                       />
-                    </td>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>{d.name}</div>
-                      {pf && (
-                        <div style={{ marginTop: 4 }}>
-                          <ClassPill c={pf.classification} />
-                        </div>
-                      )}
-                    </td>
-                    <td className="muted" style={{ fontSize: 12 }}>
-                      {d.zoneStatus}
-                      <div className="faint">{d.zoneType === "full" ? "Full" : d.zoneType}</div>
-                    </td>
-                    <td>
-                      <StatusPill status={d.mailStatus} />
-                    </td>
-                    <td className="faint" style={{ fontSize: 12 }}>
-                      {relativeTime(d.lastCheckedAt)}
-                    </td>
-                    <td>
-                      <div className="row" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
-                        {d.mailStatus === MailStatus.Ready && (
-                          <button className="small" onClick={() => navigate(`/inbox?domain=${d.id}`)}>
-                            Inbox
-                          </button>
-                        )}
-                        {(d.mailStatus === MailStatus.Failed || d.mailStatus === MailStatus.Conflict) && (
-                          <button
-                            className="small"
-                            disabled={busy}
-                            onClick={() => {
-                              // A stored catch-all conflict needs an explicit takeover confirmation.
-                              if (d.conflictType === ConflictType.CatchAll) setRetryTakeover(d);
-                              else void runRetry(d, false);
-                            }}
-                          >
-                            Retry
-                          </button>
-                        )}
-                        <button className="small danger" onClick={() => setRemoving(d)} disabled={busy}>
-                          Remove
-                        </button>
-                      </div>
-                    </td>
+                    </th>
+                    <th>Domain</th>
+                    <th>Mail status</th>
+                    <th>Checked</th>
+                    <th></th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {visible.map((d) => {
+                    const zoneId = d.cloudflareZoneId;
+                    const pf = preflights[zoneId];
+                    const oc = outcomes[zoneId];
+                    const open = expanded.has(zoneId);
+                    const hasEvidence = !!pf?.conflict || !!oc;
+                    return (
+                      <Fragment key={d.id}>
+                        <tr style={{ verticalAlign: "top" }}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              style={{ width: "auto" }}
+                              checked={selected.has(zoneId)}
+                              onChange={() => toggle(zoneId)}
+                              aria-label={`Select ${d.name}`}
+                            />
+                          </td>
+                          <td>
+                            <div className="row" style={{ gap: 8 }}>
+                              {hasEvidence ? (
+                                <button className="ghost small" onClick={() => toggleExpand(zoneId)} aria-label={open ? "Hide details" : "Show details"}>
+                                  {open ? "▾" : "▸"}
+                                </button>
+                              ) : null}
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 600 }}>{d.name}</div>
+                                <div className="faint" style={{ fontSize: 12 }}>
+                                  {d.zoneStatus} · {d.zoneType === "full" ? "Full" : d.zoneType}
+                                </div>
+                              </div>
+                            </div>
+                            {pf && (
+                              <div style={{ marginTop: 4 }}>
+                                <ClassPill c={pf.classification} />
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <StatusPill status={d.mailStatus} />
+                          </td>
+                          <td className="faint" style={{ fontSize: 12 }}>
+                            {relativeTime(d.lastCheckedAt)}
+                          </td>
+                          <td>
+                            <div className="row" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
+                              {d.mailStatus === MailStatus.Ready && (
+                                <button className="small" onClick={() => navigate(`/inbox?domain=${d.id}`)}>
+                                  Inbox
+                                </button>
+                              )}
+                              {(d.mailStatus === MailStatus.Failed || d.mailStatus === MailStatus.Conflict) && (
+                                <button
+                                  className="small"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    if (d.conflictType === ConflictType.CatchAll) setRetryTakeover(d);
+                                    else void runRetry(d, false);
+                                  }}
+                                >
+                                  Retry
+                                </button>
+                              )}
+                              <button className="small danger" onClick={() => setRemoving(d)} disabled={busy}>
+                                Remove
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {open && (pf?.conflict || oc) && (
+                          <tr>
+                            <td></td>
+                            <td colSpan={4} style={{ background: "var(--bg)" }}>
+                              <div className="stack">
+                                {pf?.conflict ? <ConflictDetail result={pf} /> : null}
+                                {oc ? <Receipt o={oc} /> : null}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
-
-      {/* Per-domain conflict / outcome evidence below the table. */}
-      {selectedZones.map((z) => (preflights[z]?.conflict ? <ConflictBox key={`c-${z}`} result={preflights[z]!} /> : null))}
-      {Object.values(outcomes).map((o) => (o && !o.ok ? <OutcomeBox key={`o-${o.zoneId}`} o={o} /> : null))}
 
       {confirmProvision && (
         <Modal title="Enable mail routing" onClose={() => setConfirmProvision(false)}>
           <p className="muted" style={{ marginTop: 0 }}>
             This changes Cloudflare settings for {selectedZones.length} domain(s): it enables Email Routing and installs a
-            catch-all rule that delivers mail to MailVault.
+            catch-all rule delivering unrouted mail to MailVault.
           </p>
-          <ul className="mono" style={{ paddingLeft: 18, fontSize: 12, marginBottom: 12 }}>
+          <ul className="mono" style={{ paddingLeft: 18, fontSize: 12, marginBottom: 12, maxHeight: 160, overflow: "auto" }}>
             {selectedZones.map((z) => (
               <li key={z}>{nameOf(z)}</li>
             ))}
           </ul>
 
           <div className="banner" style={{ marginBottom: 12 }}>
-            <strong>MX records are never overwritten.</strong> Domains that point at another mail provider are reported as a
-            conflict and skipped.
+            <strong>MX records of other mail providers are never overwritten.</strong> Domains with foreign MX are reported
+            as a conflict and skipped.
           </div>
 
           {mxBlocked && (
             <div className="banner error" style={{ marginBottom: 12 }}>
-              Some selected domains have an MX conflict from preflight. They will be skipped; remove or fix them before
-              enabling.
+              Some selected domains have an MX conflict. They will be skipped — remove or fix them before enabling.
             </div>
           )}
 
           {needsTakeover && (
-            <label className="row" style={{ cursor: "pointer", marginBottom: 12 }}>
-              <input
-                type="checkbox"
-                style={{ width: "auto" }}
-                checked={takeover}
-                onChange={(e) => setTakeover(e.target.checked)}
-              />
-              Take over the existing foreign catch-all rule (currently routing elsewhere)
-            </label>
-          )}
-          {needsTakeover && takeover && (
-            <div className="banner error" style={{ marginBottom: 12 }}>
-              You are replacing another service's catch-all destination. Existing routing there will stop for unrouted
-              addresses.
-            </div>
+            <>
+              <label className="row" style={{ cursor: "pointer", marginBottom: 12 }}>
+                <input type="checkbox" style={{ width: "auto" }} checked={takeover} onChange={(e) => setTakeover(e.target.checked)} />
+                Take over the existing foreign catch-all rule
+              </label>
+              {takeover && (
+                <div className="banner error" style={{ marginBottom: 12 }}>
+                  This replaces another service's catch-all destination. unrouted mail there stops arriving.
+                </div>
+              )}
+            </>
           )}
 
           <div className="row" style={{ justifyContent: "flex-end" }}>
