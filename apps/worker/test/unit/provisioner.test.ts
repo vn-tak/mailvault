@@ -42,16 +42,24 @@ function stubDb() {
   return { db: db as unknown as D1Database, writes };
 }
 
-function stubClient(overrides: Partial<Record<"listDnsRecords" | "getEmailRoutingStatus", () => Promise<unknown>>> = {}) {
+function stubClient(
+  overrides: Partial<
+    Record<"listDnsRecords" | "getEmailRoutingStatus" | "enableEmailRouting", () => Promise<unknown>>
+  > = {},
+) {
   const mutations: string[] = [];
   const client = {
     hasToken: true,
     listAllZones: async () => [],
-    listDnsRecords: async () => (overrides.listDnsRecords ? (await overrides.listDnsRecords()) as never : []),
+    listDnsRecords: async () => (overrides.listDnsRecords ? ((await overrides.listDnsRecords()) as never) : []),
     getEmailRoutingStatus: async () =>
       overrides.getEmailRoutingStatus ? ((await overrides.getEmailRoutingStatus()) as never) : {},
     getEmailRoutingDns: async () => [],
     enableEmailRouting: async () => {
+      if (overrides.enableEmailRouting) {
+        await overrides.enableEmailRouting();
+        return;
+      }
       mutations.push("enableEmailRouting");
     },
     getCatchAll: async () => null,
@@ -115,6 +123,28 @@ describe("provisionDomain allow-list gate (section 7/9)", () => {
     expect(mutations).not.toContain("enableEmailRouting");
     expect(mutations).toContain("setCatchAllWorker");
     expect(out.steps.map((s) => s.step)).toContain("email_routing_dns");
+  });
+
+  it("tells the owner what to do when only the dashboard can enable routing", async () => {
+    const { client } = stubClient({
+      enableEmailRouting: async () => {
+        throw new CloudflareApiError(
+          "permission",
+          "Cloudflare API error: Authentication error",
+          403,
+          [10000],
+          "/zones/z1/email/routing/enable",
+        );
+      },
+    });
+    const { db } = stubDb();
+
+    const out = await provisionDomain(db, client, "z1", "mail-vault", {});
+
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("Enable Email Routing once");
+    expect(out.error).toContain("click Retry");
+    expect(out.error).not.toContain("Authentication error");
   });
 
   it("proceeds for a clean zone", async () => {

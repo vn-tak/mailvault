@@ -124,35 +124,66 @@ wrangler secret put CLOUDFLARE_API_TOKEN            # least-privilege token, see
 
 ### API token scope (least privilege)
 
-Grant only what provisioning needs for the owner's own zones:
+Create one **User API Token** per zone you want MailVault to manage, scoped to exactly
+those zones:
 
-- **Zone / Zone Settings: Read** (to enumerate + inspect zones)
-- **Zone / DNS: Read + Edit** (Email Routing manages its own MX/SPF; never edit a
-  foreign provider's MX)
-- **Email Routing Rules: Read + Edit** (enable routing, set the catch-all → Worker)
+- **Zone / Zone / Read** — enumerate + inspect the zone
+- **Zone / DNS / Read** — read MX records for conflict detection
+- **Zone / Email Routing Rules / Edit** — read and set the catch-all → Worker
+- **Account / Email Routing Addresses / Read** — carries the account resource the Email
+  Routing endpoints require
 
-Do **not** use a Global API Key.
+Do **not** use a Global API Key, and do not grant `Zone / DNS / Edit`: it was tested and
+does **not** unlock anything MailVault needs (see the constraint below).
+
+### Constraint: an API token cannot enable Email Routing
+
+Measured against a live account, not inferred:
+
+| Call with a scoped API token | Result |
+|---|---|
+| `GET /zones/{id}/dns_records?type=MX` | ✅ 200 |
+| `GET /zones/{id}/email/routing/rules/catch_all` | ✅ 200 |
+| `PUT /zones/{id}/email/routing/rules/catch_all` | ✅ 200 |
+| `GET /zones/{id}/email/routing` (settings flag) | ❌ 403 `cfCode 10000` |
+| `POST /zones/{id}/email/routing/enable` | ❌ 403 `cfCode 10000` |
+
+The two failures above persist with `Email Routing Rules:Edit`, `Zone:Read`,
+`Email Routing Addresses:Read` **and** `DNS:Edit` granted, and Cloudflare exposes no
+token permission group for them in that account. The same calls succeed with a broader
+dashboard/OAuth credential, so this is a token-permission gap, not a bug in the client.
+
+Two consequences are already built in:
+
+1. **Preflight derives routing state from DNS.** Cloudflare only publishes
+   `route*.mx.cloudflare.net` records once Email Routing is on, so the unreadable
+   `enabled` flag is not needed. If the flag read fails for any *other* reason, the
+   error still propagates — the fallback is deliberately narrow.
+2. **Onboarding a brand-new domain is a two-step, owner-driven action.**
 
 ## Enable mail per domain (owner-triggered, in the app)
 
-This is the **only** path that mutates a real domain, and it requires an authenticated
-owner action:
-
-1. **Domains → Sync from Cloudflare.** Read-only import of the account's zones. No DNS
-   change.
-2. **Select domains → Preflight.** Read-only: reports `Ready to enable` /
-   `MX conflict` / `Catch-all conflict` / `Zone inactive` / etc. **No mutation** — the
-   preflight unit test asserts an empty mutation log.
-3. **Select domains → Enable mail.** After an explicit confirmation the Worker:
-   - runs preflight again, and if a **foreign MX** is present it **stops and reports a
-     conflict** (never overwrites);
-   - if a **foreign catch-all** is present it will only replace it when the owner also
-     ticks *Take over catch-all* (`allowCatchAllTakeover`);
-   - enables Email Routing DNS for the zone,
-   - points the catch-all rule at the MailVault Worker,
-   - **verifies** routing is enabled *and* the catch-all targets this Worker before
-     marking the domain `READY` (a single 200 is never trusted).
-4. **Retry** any failed/conflict domain from the same screen.
+1. **Enable Email Routing once for the zone** in the Cloudflare dashboard
+   (Zones → *domain* → Email Routing → Enable). This is the single step an API token is
+   not permitted to perform. It adds Cloudflare's own MX/SPF records.
+2. **Domains → Sync from Cloudflare.** Read-only import of the zones the token can see.
+   No DNS change.
+3. **Domains → Preflight all** (or select, then Preflight). Read-only: reports
+   `Ready to enable` / `Already configured` / `MX conflict` / `Catch-all conflict` /
+   `Permission error`, and auto-expands any domain that is not safe. Nothing is
+   mutated — the preflight unit test asserts an empty mutation log.
+4. **Select → Enable mail.** After an explicit confirmation the Worker:
+   - runs preflight again; a **foreign MX** stops it and reports a conflict (never
+     overwrites), and a **foreign catch-all** is replaced only if the owner also ticks
+     *Take over catch-all*;
+   - skips the enable call when Cloudflare MX already exist (no redundant mutation), and
+     otherwise attempts it;
+   - points the catch-all rule at the MailVault Worker;
+   - **verifies** routing is on *and* the catch-all targets this Worker before marking
+     the domain `READY`. A single 200 is never trusted.
+5. If step 1 was skipped, the receipt says so explicitly and tells the owner to enable
+   routing in the dashboard and press **Retry** — it does not surface a bare
+   "Authentication error".
 
 `enable mail` performs exactly these steps:
 `email_routing_dns → catch_all_worker → verify`.

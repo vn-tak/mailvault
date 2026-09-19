@@ -150,16 +150,35 @@ A plain-text fallback (`<pre>`) is always available.
   discovery.
 - **Preflight is read-only** (`preflight.ts`) — proven by `test/unit/preflight.test.ts`
   asserting an empty mutation list. It classifies each zone and returns evidence.
-- **Foreign MX is never overwritten** (`mx.ts`): Google/Microsoft/Zoho/Fastmail/
-  Yahoo/Apple/Proton/Mimecast/Proofpoint/Barracuda/SpamTitan signatures (and any
-  non-Cloudflare host) mark `MX_CONFLICT` → `safeToProvision=false`, default **skip**.
-  Only Cloudflare Email Routing MX counts as "ours".
+- **Foreign MX is never overwritten** (`mx.ts`): Google Workspace, Microsoft 365, Zoho,
+  Fastmail, Yahoo, Apple, Proton, Mimecast, Proofpoint, Barracuda, SpamTitan, IONOS,
+  Amazon SES, Migadu and Yandex 360 signatures — and *any* non-Cloudflare host — mark
+  `MX_CONFLICT` → `safeToProvision=false`, default **skip**. Only Cloudflare Email
+  Routing MX counts as "ours". The IONOS/SES/Migadu/Yandex entries were added from
+  hostnames actually observed in the owner's account.
 - **Foreign catch-all** marks `CATCH_ALL_CONFLICT`; a takeover requires an explicit
   `allowCatchAllTakeover` confirmation from the owner (surfaced in the Domains UI).
+- **Provisioning is allow-listed, not block-listed** (`provisioner.ts`). It mutates only
+  when preflight returns `READY_TO_PROVISION`, `ALREADY_CONFIGURED`, or
+  `CATCH_ALL_CONFLICT` *with* an explicit takeover confirmation. Everything else —
+  including a preflight read that Cloudflare refused — stops before any write. A token
+  that cannot *see* a zone is therefore never able to *change* it. This replaced an
+  earlier block-list that let an unrecognized classification fall through to mutation,
+  found only by exercising the live API.
+- **An API token cannot enable Email Routing.** Measured live: `POST
+  /zones/{id}/email/routing/enable` and `GET /zones/{id}/email/routing` both return 403
+  (`cfCode 10000`) even with `Email Routing Rules:Edit`, `Zone:Read`,
+  `Email Routing Addresses:Read` and `DNS:Edit`. Consequences: routing state is derived
+  from DNS instead of the unreadable flag (narrowly — other failures still propagate),
+  the enable call is skipped when Cloudflare MX already exist, and the owner gets an
+  actionable receipt rather than a raw auth error. See `DEPLOYMENT.md`.
+- **No unused write permissions.** `DNS:Edit` was granted during diagnosis, shown by
+  measurement to unlock nothing required, and reverted to `DNS:Read`.
 - **Removing a domain** deletes only the local row; the code refuses while aliases
   exist and **never** deletes the Cloudflare zone or its DNS.
 - Every Cloudflare-side operation is wrapped so API/permission/rate-limit errors map
-  to safe `asApiError` codes without leaking the token.
+  to safe `asApiError` codes without leaking the token. Diagnostics log only the API
+  path, status and Cloudflare error code — never headers, bodies or the token.
 
 ## 10. Data retention — nothing auto-expires
 

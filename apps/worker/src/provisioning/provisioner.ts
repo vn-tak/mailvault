@@ -158,7 +158,19 @@ export async function provisionDomain(
     });
     await recordProvisioningEvent(db, domain.id, "provision:error", "FAILED", { kind });
     log.error("domain_provision_failed", { zoneId, kind });
-    return outcome(zoneId, domain.name, domain.id, MailStatus.Failed, false, message, steps);
+
+    // Cloudflare does not expose an API-token permission for enabling Email Routing,
+    // so this one step has to be done by the owner. Say so instead of surfacing a
+    // bare "Authentication error" that gives the owner nothing to act on.
+    const enablePath = err instanceof CloudflareApiError && /\/email\/routing\/(enable|dns)$/.test(err.path ?? "");
+    const actionable =
+      enablePath && (kind === "permission" || kind === "auth")
+        ? "Email Routing is not enabled for this domain, and MailVault's API token is not permitted to enable it. " +
+          "Enable Email Routing once for this zone in the Cloudflare dashboard, then click Retry — MailVault will set " +
+          "the catch-all and verify. No MX record will be overwritten."
+        : message;
+
+    return outcome(zoneId, domain.name, domain.id, MailStatus.Failed, false, actionable, steps);
   }
 }
 
