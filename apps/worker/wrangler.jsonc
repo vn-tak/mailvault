@@ -1,0 +1,51 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/configuration/wrangler-file/",
+  "name": "mail-vault",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-02",
+  "logpush": false,
+  "workers_dev": false,
+
+  "routes": [
+    { "pattern": "mail.omnipos.tech", "custom_domain": true }
+  ],
+
+  "observability": {
+    "enabled": true
+  },
+
+  "vars": {
+    "ENVIRONMENT": "production",
+    "CF_ACCOUNT_ID": "ef250a88911fd24073cb73d1c07e0218",
+    "MAIL_WORKER_NAME": "mail-vault",
+    "APP_ORIGIN": "https://mail.omnipos.tech",
+    "CF_ACCESS_TEAM_DOMAIN": "https://little-bar-8ffa.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "61f4423b34844e1a86c2b4680a77549acab6026bb3a0ed78af75d78ff00d10b4",
+    "MAX_MESSAGE_BYTES": "20971520",
+    "ALLOWED_EMAILS": "tungbipdz@gmail.com",
+    "DEV_AUTH_BYPASS": "false"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mail-vault-db",
+      "database_id": "c65bab2c-6af1-46fc-a07a-5ed1f36e6c69",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "MAIL_BUCKET",
+      "bucket_name": "mail-vault-storage"
+    }
+  ],
+
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  }
+}

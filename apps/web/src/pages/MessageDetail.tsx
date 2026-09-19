@@ -1,0 +1,253 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../lib/api";
+import { attachmentHref } from "../lib/api";
+import { Link, navigate } from "../lib/router";
+import { useAsync } from "../lib/useAsync";
+import { formatBytes, fullTime, senderName } from "../lib/format";
+import { MessageHtml } from "../components/MessageHtml";
+import { ConfirmDialog, CopyButton, ErrorBanner, Loading } from "../components/ui";
+import type { ExtractedCode, VerificationLink } from "@mailvault/shared";
+
+function byConfidence(a: ExtractedCode, b: ExtractedCode): number {
+  return b.confidence - a.confidence || b.length - a.length;
+}
+
+function byScore(a: VerificationLink, b: VerificationLink): number {
+  return b.score - a.score;
+}
+
+function CodeCard({ code }: { code: ExtractedCode }) {
+  return (
+    <div className="code-card">
+      <div>
+        <div className="code">{code.value}</div>
+        <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
+          {code.kind === "numeric" ? "Numeric code" : "Code"} · {code.length} chars
+        </div>
+      </div>
+      <CopyButton text={code.value} label="Copy code" />
+    </div>
+  );
+}
+
+function LinkCard({ link }: { link: VerificationLink }) {
+  return (
+    <div className="link-card">
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {link.label || "Verification link"}
+        </div>
+        <div className="host">{link.hostname}</div>
+      </div>
+      {/* Explicit user action only: never auto-followed, never prefetched. */}
+      <a
+        className="small"
+        href={link.url}
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+        style={{ textDecoration: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "4px 10px" }}
+      >
+        Open ↗
+      </a>
+    </div>
+  );
+}
+
+export function MessageDetail({ id }: { id: string }) {
+  const [remoteImages, setRemoteImages] = useState(false);
+  const [showText, setShowText] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const markedRef = useRef<string | null>(null);
+
+  const { data, error, loading, reload } = useAsync(() => api.getMessage(id, remoteImages), [id, remoteImages]);
+
+  // Opening a message marks it read once per id; ignore failures silently.
+  useEffect(() => {
+    if (!data || data.isRead || markedRef.current === data.id) return;
+    markedRef.current = data.id;
+    void api
+      .setMessageRead(data.id, true)
+      .then(reload)
+      .catch(() => {
+        /* non-critical */
+      });
+  }, [data, reload]);
+
+  const codes = useMemo(() => (data?.extractedCodes ?? []).slice().sort(byConfidence), [data]);
+  const links = useMemo(() => (data?.verificationLinks ?? []).slice().sort(byScore), [data]);
+
+  async function toggleRead() {
+    if (!data) return;
+    await api.setMessageRead(data.id, !data.isRead).catch(() => undefined);
+    reload();
+  }
+
+  async function remove() {
+    try {
+      await api.deleteMessage(id);
+      navigate("/inbox");
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Delete failed");
+      setConfirmDelete(false);
+    }
+  }
+
+  return (
+    <div className="page">
+      <div style={{ marginBottom: 14 }}>
+        <Link to="/inbox">← Back to inbox</Link>
+      </div>
+
+      {notice && <div className="banner ok">{notice}</div>}
+      {error && <ErrorBanner message={error} />}
+      {loading && !data && <Loading />}
+
+      {data && (
+        <>
+          <div className="card">
+            <div className="row spread wrap" style={{ gap: 12 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <h1 style={{ marginBottom: 6 }}>{data.subject || "(no subject)"}</h1>
+                <div className="row wrap" style={{ gap: "4px 16px", fontSize: 13 }}>
+                  <span className="muted">
+                    From <strong style={{ color: "var(--text)" }}>{senderName(data.headerFrom, data.envelopeFrom)}</strong>
+                    <span className="faint addr"> {data.envelopeFrom}</span>
+                  </span>
+                  <span className="muted">
+                    To <span className="addr">{data.headerTo || data.aliasAddress}</span>
+                  </span>
+                </div>
+                <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+                  {fullTime(data.receivedAt)}
+                  {data.aliasLabel ? ` · ${data.aliasLabel}` : ""} · to {data.aliasAddress}
+                </div>
+              </div>
+              <div className="row wrap" style={{ justifyContent: "flex-end" }}>
+                <button className="small" onClick={toggleRead}>
+                  {data.isRead ? "Mark unread" : "Mark read"}
+                </button>
+                <button className="small danger" onClick={() => setConfirmDelete(true)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {data.parseDegraded && (
+            <div className="banner error mt">
+              This message could not be fully parsed. The original is preserved and the readable parts are shown below.
+            </div>
+          )}
+
+          {codes.length > 0 && (
+            <div className="mt">
+              <h2>Codes</h2>
+              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+                {codes.map((c, i) => (
+                  <CodeCard key={`${c.value}-${i}`} code={c} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {links.length > 0 && (
+            <div className="mt">
+              <h2>Verification links</h2>
+              <div className="stack">
+                {links.map((l, i) => (
+                  <LinkCard key={`${l.url}-${i}`} link={l} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {data.attachments.length > 0 && (
+            <div className="mt">
+              <h2>Attachments</h2>
+              <div className="stack">
+                {data.attachments.map((a) => (
+                  <div key={a.id} className="attach">
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {a.filename}
+                    </span>
+                    <span className="faint" style={{ fontSize: 12 }}>
+                      {a.contentType} · {formatBytes(a.size)}
+                    </span>
+                    {/* Authenticated same-origin download; never a public URL. */}
+                    <a className="small" href={attachmentHref(data.id, a.id)} rel="noreferrer" style={{ textDecoration: "none" }}>
+                      Download
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt">
+            <div className="row spread wrap" style={{ marginBottom: 8 }}>
+              <h2 style={{ margin: 0 }}>Message</h2>
+              <div className="row wrap" style={{ justifyContent: "flex-end", fontSize: 12 }}>
+                {data.htmlBody && (
+                  <button className="small ghost" onClick={() => setShowText((s) => !s)}>
+                    {showText ? "Show HTML" : "Show plain text"}
+                  </button>
+                )}
+                {data.htmlBody && !remoteImages && (
+                  <button className="small" onClick={() => setRemoteImages(true)}>
+                    Load remote images
+                  </button>
+                )}
+                {remoteImages && (
+                  <button className="small ghost" onClick={() => setRemoteImages(false)}>
+                    Hide remote images
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {remoteImages && data.htmlBody && (
+              <div className="banner" style={{ marginBottom: 10 }}>
+                Remote images loaded from their original servers. This can reveal your IP and that the message was opened.
+              </div>
+            )}
+
+            {showText || !data.htmlBody ? (
+              data.textBody ? (
+                <pre
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius)",
+                    padding: 16,
+                    margin: 0,
+                    fontFamily: "inherit",
+                    fontSize: 14,
+                  }}
+                >
+                  {data.textBody}
+                </pre>
+              ) : (
+                <p className="muted">This message has no readable body.</p>
+              )
+            ) : (
+              <MessageHtml html={data.htmlBody} />
+            )}
+          </div>
+        </>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete message"
+          confirmLabel="Delete permanently"
+          description="This permanently deletes the message and any stored attachments. This cannot be undone."
+          onConfirm={remove}
+          onClose={() => setConfirmDelete(false)}
+        />
+      )}
+    </div>
+  );
+}

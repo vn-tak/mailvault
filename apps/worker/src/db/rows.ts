@@ -1,0 +1,80 @@
+import type {
+  AliasStatus,
+  CatchAllStatus,
+  ConflictType,
+  MailStatus,
+  RoutingStatus,
+} from "@mailvault/shared";
+
+/** Raw D1 row shapes (snake_case, TEXT/INTEGER). Mappers convert these to DTOs. */
+
+export interface DomainRow {
+  id: string;
+  cloudflare_zone_id: string;
+  cloudflare_account_id: string | null;
+  name: string;
+  zone_status: string;
+  zone_type: string;
+  mail_status: MailStatus;
+  routing_status: RoutingStatus;
+  catch_all_status: CatchAllStatus;
+  conflict_type: ConflictType;
+  conflict_details_json: string | null;
+  last_checked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AliasRow {
+  id: string;
+  domain_id: string;
+  local_part: string;
+  address: string;
+  label: string | null;
+  status: AliasStatus;
+  created_at: string;
+  updated_at: string;
+  domain_name?: string;
+  message_count?: number;
+  unread_count?: number;
+}
+
+export interface MessageRow {
+  id: string;
+  domain_id: string;
+  alias_id: string;
+  provider_message_id: string | null;
+  dedupe_key: string;
+  envelope_from: string | null;
+  envelope_to: string | null;
+  header_from: string | null;
+  header_to: string | null;
+  subject: string | null;
+  preview: string | null;
+  received_at: string;
+  raw_size: number;
+  raw_r2_key: string;
+  parsed_r2_key: string | null;
+  has_attachments: number;
+  attachment_count: number;
+  is_read: number;
+  extracted_codes_json: string | null;
+  verification_links_json: string | null;
+  created_at: string;
+  // Joined context columns
+  alias_label?: string | null;
+  alias_address?: string | null;
+  domain_name?: string | null;
+}
+
+export interface AttachmentRow {
+  id: string;
+  message_id: string;
+  filename: string;
+  safe_filename: string;
+  content_type: string | null;
+  size: number;
+  r2_key: string;
+  content_id: string | null;
+  created_at: string;
+}

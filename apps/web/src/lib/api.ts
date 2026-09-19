@@ -1,0 +1,118 @@
+import type {
+  Alias,
+  CreateAliasInput,
+  DashboardStats,
+  Domain,
+  Health,
+  MessageDetail,
+  MessageListQuery,
+  Paginated,
+  PreflightResult,
+  ProvisionOutcome,
+  MessageSummary,
+} from "@mailvault/shared";
+
+const BASE = "/api";
+
+export class ApiClientError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+    readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = "ApiClientError";
+  }
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(BASE + path, init);
+  const text = await res.text();
+  let body: unknown = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      /* non-JSON (shouldn't happen); fall through to error below */
+    }
+  }
+  if (!res.ok) {
+    const err = (body as { error?: { code?: string; message?: string; details?: unknown } })?.error;
+    throw new ApiClientError(res.status, err?.code ?? "ERROR", err?.message ?? `Request failed (${res.status})`, err?.details);
+  }
+  return body as T;
+}
+
+// The Worker requires this custom header on state-changing calls as a CSRF signal.
+function mutation(body?: unknown): RequestInit {
+  return {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-mailvault": "1" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  };
+}
+
+function qs(params: Record<string, string | number | boolean | undefined | null>): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") sp.set(k, String(v));
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
+export const api = {
+  health: () => request<Health>("/health"),
+  dashboard: () => request<DashboardStats>("/dashboard"),
+
+  listDomains: () => request<{ items: Domain[] }>("/domains"),
+  syncDomains: () => request<{ discovered: number; items: Domain[] }>("/domains/sync", mutation()),
+  preflightDomains: (zoneIds: string[]) =>
+    request<{ results: PreflightResult[] }>("/domains/preflight", mutation({ zoneIds })),
+  provisionDomains: (zoneIds: string[], allowCatchAllTakeover = false) =>
+    request<{ results: ProvisionOutcome[] }>("/domains/provision", mutation({ zoneIds, allowCatchAllTakeover })),
+  retryDomain: (zoneId: string, allowCatchAllTakeover = false) =>
+    request<ProvisionOutcome>(`/domains/${encodeURIComponent(zoneId)}/retry`, mutation({ allowCatchAllTakeover })),
+  removeDomain: (zoneId: string) =>
+    request<{ removed: boolean }>(`/domains/${encodeURIComponent(zoneId)}`, {
+      method: "DELETE",
+      headers: { "x-mailvault": "1" },
+    }),
+
+  listAliases: (q?: string) => request<{ items: Alias[] }>(`/aliases${qs({ q })}`),
+  createAlias: (input: CreateAliasInput) => request<Alias>("/aliases", mutation(input)),
+  updateAlias: (id: string, label: string | null) =>
+    request<Alias>(`/aliases/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-mailvault": "1" },
+      body: JSON.stringify({ label }),
+    }),
+  enableAlias: (id: string) => request<Alias>(`/aliases/${encodeURIComponent(id)}/enable`, mutation()),
+  disableAlias: (id: string) => request<Alias>(`/aliases/${encodeURIComponent(id)}/disable`, mutation()),
+  deleteAlias: (id: string, purgeMessages: boolean) =>
+    request<{ deleted: boolean }>(`/aliases/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json", "x-mailvault": "1" },
+      body: JSON.stringify({ purgeMessages }),
+    }),
+
+  listMessages: (query: Partial<MessageListQuery>) =>
+    request<Paginated<MessageSummary>>(`/messages${qs({ ...query })}`),
+  getMessage: (id: string, remoteImages = false) =>
+    request<MessageDetail>(`/messages/${encodeURIComponent(id)}${qs({ remoteImages: remoteImages ? "1" : "" })}`),
+  setMessageRead: (id: string, isRead: boolean) =>
+    request<{ id: string; isRead: boolean }>(`/messages/${encodeURIComponent(id)}/read`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-mailvault": "1" },
+      body: JSON.stringify({ isRead }),
+    }),
+  deleteMessage: (id: string) =>
+    request<{ deleted: boolean }>(`/messages/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { "x-mailvault": "1" },
+    }),
+};
+
+/** Authenticated, same-origin download URL for an attachment (never a public URL). */
+export function attachmentHref(messageId: string, attachmentId: string): string {
+  return `${BASE}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`;
+}

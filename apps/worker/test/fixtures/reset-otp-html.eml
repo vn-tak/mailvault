@@ -1,0 +1,15 @@
+From: "Bankify Alerts" <alerts@bankify.example>
+To: otp-bank@notify.example
+Subject: Your one-time code
+Message-ID: <reset-1@bankify.example>
+Date: Fri, 19 Sep 2026 11:30:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<div>
+  <p>Your one-time login code is</p>
+  <p style="font-size:24px"><strong>778812</strong></p>
+  <p class="muted">Order 1002345678 placed 2026-09-12 &middot; Support +1-415-555-0134.</p>
+</div>
+</body></html>

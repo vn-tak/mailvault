@@ -1,0 +1,16 @@
+From: "Acme Cloud" <no-reply@acme.example>
+To: code-x9f2@notify.example
+Subject: Your Acme verification code
+Message-ID: <otp-1@acme.example>
+Date: Fri, 19 Sep 2026 09:12:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Hi,
+
+Your one-time passcode is 429117. It expires in 10 minutes.
+
+If you didn't request this, you can ignore this email.
+
+-- The Acme Cloud Team

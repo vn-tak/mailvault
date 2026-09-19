@@ -1,0 +1,172 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { ExecutionContext } from "@cloudflare/workers-types";
+import type { Env } from "../../src/env";
+import worker from "../../src/index";
+import { ingestEmail } from "../../src/mail/ingest";
+import { getTestBindings, type TestBindings } from "./_mf";
+
+let bindings: TestBindings;
+let TEST_ENV: Env;
+let DB: D1Database;
+let BUCKET: R2Bucket;
+
+const CTX = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
+const j = async (r: Response): Promise<any> => r.json();
+
+beforeAll(async () => {
+  bindings = await getTestBindings();
+  TEST_ENV = bindings.env as unknown as Env;
+  DB = bindings.db;
+  BUCKET = bindings.bucket;
+});
+
+afterAll(async () => {
+  await bindings?.dispose();
+});
+
+function req(path: string, init: RequestInit = {}): Request {
+  return new Request(`http://localhost${path}`, { ...init, headers: { origin: "http://localhost", ...(init.headers ?? {}) } });
+}
+const mutationHeaders = { "x-mailvault": "1", "content-type": "application/json" };
+
+async function seedDomain(): Promise<string> {
+  const id = crypto.randomUUID();
+  await DB.prepare(
+    `INSERT INTO domains (id, cloudflare_zone_id, name, zone_status, zone_type, mail_status)
+     VALUES (?1, ?2, 'notify.example', 'active', 'full', 'READY')`,
+  )
+    .bind(id, `zone-${id.slice(0, 8)}`)
+    .run();
+  return id;
+}
+
+function htmlEmailWithAttachment(to: string, messageId: string): Uint8Array {
+  const b = "--BOUNDARY";
+  const mime = [
+    "From: GitHub <noreply@github.com>",
+    `To: ${to}`,
+    "Subject: Verify now",
+    `Message-ID: <${messageId}@github.com>`,
+    "Date: Fri, 19 Sep 2026 12:00:00 +0000",
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/mixed; boundary="BOUNDARY"`,
+    "",
+    b,
+    "Content-Type: text/html; charset=utf-8",
+    "",
+    `<p>Confirm at <a href="https://accounts.example.com/verify?t=1">verify</a></p><script>alert(1)</script><img src="https://track.example/x.gif">`,
+    b,
+    'Content-Type: application/pdf; name="doc.pdf"',
+    'Content-Disposition: attachment; filename="doc.pdf"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    "JVBERi0xLjQK",
+    `${b}--`,
+    "",
+  ].join("\r\n");
+  return new TextEncoder().encode(mime);
+}
+
+async function makeMessage(to: string, raw: Uint8Array) {
+  return {
+    message: {
+      from: "noreply@github.com",
+      to,
+      headers: new Headers(),
+      raw: new Response(raw).body as ReadableStream<Uint8Array>,
+      rawSize: raw.byteLength,
+      setReject: () => {},
+    },
+  };
+}
+
+beforeEach(async () => {
+  await DB.prepare(`DELETE FROM attachments`).run();
+  await DB.prepare(`DELETE FROM messages`).run();
+  await DB.prepare(`DELETE FROM aliases`).run();
+  await DB.prepare(`DELETE FROM provisioning_events`).run();
+  await DB.prepare(`DELETE FROM domains`).run();
+});
+
+describe("HTTP API", () => {
+  it("serves health without auth", async () => {
+    const res = await worker.fetch(req("/api/health"), TEST_ENV, CTX);
+    expect(res.status).toBe(200);
+    expect((await j(res)).ok).toBe(true);
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  });
+
+  it("rejects a mutation lacking the CSRF header", async () => {
+    const domainId = await seedDomain();
+    const res = await worker.fetch(
+      req("/api/aliases", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ domainId, mode: "custom", localPart: "no-csrf" }) }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(res.status).toBe(403);
+    expect((await j(res)).error.code).toBe("BAD_ORIGIN");
+  });
+
+  it("creates, lists, disables and deletes an alias", async () => {
+    const domainId = await seedDomain();
+    const created = await worker.fetch(
+      req("/api/aliases", { method: "POST", headers: mutationHeaders, body: JSON.stringify({ domainId, mode: "custom", localPart: "shop01", label: "Shopping" }) }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(created.status).toBe(201);
+    const alias = await j(created);
+    expect(alias.address).toBe("shop01@notify.example");
+
+    const list = await j(await worker.fetch(req("/api/aliases"), TEST_ENV, CTX));
+    expect(list.items.some((a: { id: string }) => a.id === alias.id)).toBe(true);
+
+    const disabled = await worker.fetch(req(`/api/aliases/${alias.id}/disable`, { method: "POST", headers: mutationHeaders }), TEST_ENV, CTX);
+    expect((await j(disabled)).status).toBe("DISABLED");
+
+    const del = await worker.fetch(req(`/api/aliases/${alias.id}`, { method: "DELETE", headers: mutationHeaders, body: JSON.stringify({ purgeMessages: false }) }), TEST_ENV, CTX);
+    expect((await j(del)).deleted).toBe(true);
+  });
+
+  it("rejects a duplicate custom alias with 409", async () => {
+    const domainId = await seedDomain();
+    const body = JSON.stringify({ domainId, mode: "custom", localPart: "taken" });
+    await worker.fetch(req("/api/aliases", { method: "POST", headers: mutationHeaders, body }), TEST_ENV, CTX);
+    const dup = await worker.fetch(req("/api/aliases", { method: "POST", headers: mutationHeaders, body }), TEST_ENV, CTX);
+    expect(dup.status).toBe(409);
+  });
+
+  it("stores a message via ingest, renders sanitized HTML, serves attachment, marks read, then deletes", async () => {
+    const domainId = await seedDomain();
+    await DB.prepare(
+      `INSERT INTO aliases (id, domain_id, local_part, address, status) VALUES (?1, ?2, 'verify', 'verify@notify.example', 'ACTIVE')`,
+    )
+      .bind(crypto.randomUUID(), domainId)
+      .run();
+
+    const { message } = await makeMessage("verify@notify.example", htmlEmailWithAttachment("verify@notify.example", "api-m1"));
+    const stored = await ingestEmail(message, bindings.env, DB, BUCKET);
+    expect(stored.status).toBe("stored");
+    const messageId = (stored as { messageId: string }).messageId;
+
+    const detail = await j(await worker.fetch(req(`/api/messages/${messageId}`), TEST_ENV, CTX));
+    expect(detail.htmlBody).not.toContain("<script");
+    expect(detail.htmlBody).not.toContain("track.example");
+    expect(detail.htmlBody).toContain("noopener");
+    expect(detail.attachments.length).toBe(1);
+
+    const att = detail.attachments[0];
+    const dl = await worker.fetch(req(att.downloadPath), TEST_ENV, CTX);
+    expect(dl.status).toBe(200);
+    expect(dl.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(dl.headers.get("Content-Disposition")).toContain("attachment");
+    expect(dl.headers.get("Content-Disposition")).toContain("doc.pdf");
+
+    const read = await worker.fetch(req(`/api/messages/${messageId}/read`, { method: "PATCH", headers: mutationHeaders, body: JSON.stringify({ isRead: true }) }), TEST_ENV, CTX);
+    expect((await j(read)).isRead).toBe(true);
+
+    const del = await worker.fetch(req(`/api/messages/${messageId}`, { method: "DELETE", headers: mutationHeaders }), TEST_ENV, CTX);
+    expect((await j(del)).deleted).toBe(true);
+    expect(await DB.prepare(`SELECT 1 FROM messages WHERE id=?1`).bind(messageId).first()).toBeNull();
+  });
+});

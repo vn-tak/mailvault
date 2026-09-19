@@ -1,0 +1,104 @@
+import { z } from "zod";
+import {
+  MailStatus,
+  RoutingStatus,
+  CatchAllStatus,
+  ConflictType,
+  PreflightClassification,
+} from "./enums";
+
+/**
+ * Domain DTOs. A `Domain` row is a Cloudflare zone that MailVault tracks.
+ * Discovery (list from Cloudflare) and provisioning (enable mail) are separate
+ * concerns — a discovered zone is inert until the owner explicitly enables it.
+ */
+
+export const ConflictDetailsSchema = z.object({
+  type: z.nativeEnum(ConflictType),
+  message: z.string(),
+  /** Existing MX records that would be disturbed (host + priority). */
+  mxRecords: z
+    .array(z.object({ exchange: z.string(), priority: z.number(), ttl: z.number().optional() }))
+    .optional(),
+  /** Foreign catch-all destination description, when relevant. */
+  catchAll: z
+    .object({
+      actionType: z.string().optional(),
+      destination: z.string().optional(),
+    })
+    .optional(),
+});
+export type ConflictDetails = z.infer<typeof ConflictDetailsSchema>;
+
+export const DomainSchema = z.object({
+  id: z.string(),
+  cloudflareZoneId: z.string(),
+  cloudflareAccountId: z.string().nullable(),
+  name: z.string(),
+  zoneStatus: z.string(),
+  zoneType: z.string(),
+  mailStatus: z.nativeEnum(MailStatus),
+  routingStatus: z.nativeEnum(RoutingStatus),
+  catchAllStatus: z.nativeEnum(CatchAllStatus),
+  conflictType: z.nativeEnum(ConflictType),
+  conflictDetails: ConflictDetailsSchema.nullable(),
+  lastCheckedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Domain = z.infer<typeof DomainSchema>;
+
+/** Minimal info about a Cloudflare zone returned by discovery, before it is stored. */
+export const DiscoveredZoneSchema = z.object({
+  cloudflareZoneId: z.string(),
+  cloudflareAccountId: z.string().nullable(),
+  name: z.string(),
+  status: z.string(),
+  type: z.string(),
+  account: z
+    .object({ id: z.string().nullable(), name: z.string().nullable() })
+    .nullable()
+    .optional(),
+});
+export type DiscoveredZone = z.infer<typeof DiscoveredZoneSchema>;
+
+export const PreflightResultSchema = z.object({
+  domainId: z.string().nullable(),
+  zoneId: z.string(),
+  name: z.string(),
+  classification: z.nativeEnum(PreflightClassification),
+  safeToProvision: z.boolean(),
+  conflict: ConflictDetailsSchema.nullable(),
+  checkedAt: z.string(),
+});
+export type PreflightResult = z.infer<typeof PreflightResultSchema>;
+
+export const ProvisionOutcomeSchema = z.object({
+  domainId: z.string(),
+  zoneId: z.string(),
+  name: z.string(),
+  status: z.nativeEnum(MailStatus),
+  ok: z.boolean(),
+  error: z.string().nullable(),
+  steps: z.array(
+    z.object({
+      step: z.string(),
+      ok: z.boolean(),
+      detail: z.string().nullable().optional(),
+    }),
+  ),
+});
+export type ProvisionOutcome = z.infer<typeof ProvisionOutcomeSchema>;
+
+/** POST /api/domains/sync|preflight|provision bodies. */
+export const DomainIdsBodySchema = z.object({
+  zoneIds: z.array(z.string().min(1)).min(1, "Select at least one domain"),
+});
+export type DomainIdsBody = z.infer<typeof DomainIdsBodySchema>;
+
+/** Dangerous-action confirmation wrapper for takeover operations. */
+export const ConfirmationTokenSchema = z.object({
+  confirm: z.literal(true, {
+    errorMap: () => ({ message: "Explicit confirmation required for destructive action" }),
+  }),
+});

@@ -1,0 +1,17 @@
+# Local development only. Copy to `.dev.vars` (gitignored) then edit.
+# `wrangler dev` loads this file automatically; it is NEVER deployed.
+
+# Cloudflare API token used for domain discovery + Email Routing provisioning.
+# Least-privilege token: Zone Read, Zone Settings Write, DNS Read/Write scoped to
+# the zones you will enable. Do NOT use your Global API Key.
+CLOUDFLARE_API_TOKEN = ""
+
+# Set to "true" to skip Cloudflare Access verification during local development.
+# MUST be unset/false in production. The Worker refuses to start mutations when the
+# environment is not explicitly ENVIRONMENT=development and this is true.
+DEV_AUTH_BYPASS = "true"
+
+# Local plaintext mirrors of wrangler vars you may want to override:
+# CF_ACCOUNT_ID = ""
+# CF_ACCESS_TEAM_DOMAIN = "https://your-team.cloudflareaccess.com"
+# CF_ACCESS_AUD = "replace-with-access-application-aud-tag"

@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mail-vault-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ENVIRONMENT": "test",
+    "DEV_AUTH_BYPASS": "true",
+    "CF_ACCOUNT_ID": "test-account",
+    "MAIL_WORKER_NAME": "mail-vault",
+    "APP_ORIGIN": "https://mail.example.com",
+    "CF_ACCESS_TEAM_DOMAIN": "https://test-team.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "test-aud",
+    "MAX_MESSAGE_BYTES": "20971520",
+    "ALLOWED_EMAILS": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mail-vault-db-test",
+      "database_id": "00000000-0000-4000-8000-000000000001",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MAIL_BUCKET",
+      "bucket_name": "mail-vault-storage-test"
+    }
+  ]
+}

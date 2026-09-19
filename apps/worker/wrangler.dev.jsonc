@@ -1,0 +1,43 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/configuration/wrangler-file/",
+  "name": "mail-vault-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "logpush": false,
+
+  "vars": {
+    "ENVIRONMENT": "development",
+    "DEV_AUTH_BYPASS": "true",
+    "CF_ACCOUNT_ID": "",
+    "MAIL_WORKER_NAME": "mail-vault",
+    "APP_ORIGIN": "http://localhost:8787",
+    "CF_ACCESS_TEAM_DOMAIN": "http://localhost:8787",
+    "CF_ACCESS_AUD": "dev-bypass",
+    "MAX_MESSAGE_BYTES": "20971520",
+    "ALLOWED_EMAILS": ""
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mail-vault-db",
+      "database_id": "00000000-0000-4000-8000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "MAIL_BUCKET",
+      "bucket_name": "mail-vault-storage"
+    }
+  ],
+
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@mailvault/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:e2e": "wrangler d1 migrations apply mail-vault-db --local --config wrangler.dev.jsonc && wrangler d1 execute mail-vault-db --local --config wrangler.dev.jsonc --file ./scripts/seed.sql && wrangler dev --config wrangler.dev.jsonc --port 8787",
+    "types": "wrangler types",
+    "build": "wrangler deploy --dry-run --outdir=dist",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:integration": "vitest run test/integration",
+    "db:migrations:generate": "wrangler d1 migrations create mail-vault-db",
+    "db:migrate:local": "wrangler d1 migrations apply mail-vault-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply mail-vault-db --remote",
+    "seed:local": "wrangler d1 execute mail-vault-db --local --file=./scripts/seed.sql"
+  },
+  "dependencies": {
+    "@mailvault/shared": "workspace:*",
+    "hono": "^4.6.14",
+    "jose": "^5.9.6",
+    "postal-mime": "^2.3.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.5.40",
+    "@cloudflare/workers-types": "^4.20241230.0",
+    "@types/node": "^22.10.2",
+    "miniflare": "3.20241230.0",
+    "typescript": "^5.7.2",
+    "vitest": "~2.1.8",
+    "wrangler": "^3.101.0"
+  }
+}
