@@ -130,6 +130,9 @@ describe("pushToAll is payload-free and self-healing", () => {
       expect(auth).toMatch(/^vapid t=[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+\./);
       expect(auth).toContain(`k=${vapidPublicKey(jwk)}`);
       expect((call.init.headers as Record<string, string>).TTL).toBe("3600");
+      // An urgency hint below `normal` invites the push service to batch, which turned
+      // "new mail" into "mail that arrived two minutes ago".
+      expect(Object.keys(call.init.headers as Record<string, string>)).not.toContain("Urgency");
     }
   });
 

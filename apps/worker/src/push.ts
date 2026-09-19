@@ -80,7 +80,9 @@ async function pushOne(target: PushTarget, cfg: { jwk: JsonWebKey; subject: stri
       method: "POST",
       headers: {
         TTL: "3600",
-        Urgency: "low",
+        // Deliberately no `Urgency` header, i.e. RFC 8030's `normal`. Sending `low` told
+        // the push service it may batch this, and a verification code then surfaced as a
+        // notification minutes after the mail was already sitting in the inbox.
         Authorization: await vapidAssertion(target.endpoint, cfg),
       },
       // No body on purpose. An encrypted payload would need the subscription's keys and
