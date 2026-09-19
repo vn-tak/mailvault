@@ -46,8 +46,10 @@ export function Settings() {
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Notifications</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          Your phone or laptop is told that new mail arrived — nothing else. The subject, sender, codes and links stay
-          behind the sign-in, and the notification carries no content at all.
+          The ping your device receives carries no content at all. The app then looks the
+          message up through your sign-in and shows sender and subject — only for a verified
+          sender, never a code or a link, and only mail that just arrived. Anything else stays
+          "New mail arrived".
         </p>
 
         <table style={{ marginBottom: 12 }}>

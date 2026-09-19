@@ -60,17 +60,99 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
+/*
+ * New-mail notification.
+ *
+ * The push itself stays payload-free: the device is told "something arrived", never what
+ * it says. The content is fetched afterwards through the authenticated API, so it crosses
+ * the Access gate exactly like the inbox does and a push service sees only an empty POST.
+ *
+ * Three rules keep that useful rather than leaking:
+ * - only a TRUSTED sender (SPF/DKIM/DMARC aligned with From) is ever quoted, because a
+ *   spoofed message choosing its own lock-screen text is precisely the attack;
+ * - only sender and subject — never the body, and a code or URL inside the subject is
+ *   masked, because "Your verification code is 55905149" is a real subject line;
+ * - only mail that arrived in the last few minutes, so a ping delivered after a laptop
+ *   wakes does not surface an old message as if it were new.
+ * Anything missing (signed out, no session, odd response) falls back to the generic note.
+ */
+const NEW_MAIL_WINDOW_MS = 5 * 60 * 1000;
+const GENERIC_NOTE = { title: "MailVault", body: "New mail arrived", tag: "mailvault-new-mail", url: "/#/inbox" };
+
+function senderLabel(item) {
+  const raw = item.headerFrom || item.envelopeFrom || "";
+  const quoted = /^\s*([^<]*?)\s*</.exec(raw);
+  const name = quoted && quoted[1] ? quoted[1].replace(/^"|"$/g, "").trim() : "";
+  return name || raw.split("@")[0] || "MailVault";
+}
+
+function pickNewMail(items, now) {
+  let best = null;
+  let bestAt = 0;
+  for (const item of items || []) {
+    if (!item || item.isRead || item.authVerdict !== "TRUSTED") continue;
+    const at = Date.parse(item.receivedAt || "");
+    if (!Number.isFinite(at) || now - at > NEW_MAIL_WINDOW_MS || at > now + 60_000) continue;
+    if (at > bestAt) {
+      best = item;
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
+/*
+ * The subject is the useful part of a notification and also where senders put the secret:
+ * "Your GitHub verification code is 55905149" is a real subject line. So the code the server
+ * already identified is masked, URLs become a word rather than a truncated address you
+ * could be tempted to tap, and long subjects stop at a reasonable length.
+ */
+function safeSubject(item) {
+  let subject = String(item.subject || "").replace(/\s+/g, " ").trim();
+  if (!subject) return "(no subject)";
+  subject = subject.replace(/https?:\/\/\S+/gi, "[link]");
+  const code = item.primaryCode;
+  if (code && typeof code === "string" && subject.indexOf(code) !== -1) {
+    subject = subject.split(code).join("••••••");
+  }
+  return subject.length > 120 ? subject.slice(0, 119) + "…" : subject;
+}
+
+async function newMailNote() {
+  let response;
+  try {
+    response = await fetch("/api/messages?filter=unread&limit=10", { credentials: "same-origin", cache: "no-store" });
+  } catch {
+    return GENERIC_NOTE; // offline, or the network refused
+  }
+  if (!response.ok) return GENERIC_NOTE; // signed out, or Access answered instead of the API
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    return GENERIC_NOTE;
+  }
+  const picked = pickNewMail(body && body.items, Date.now());
+  if (!picked) return GENERIC_NOTE;
+  return {
+    title: senderLabel(picked),
+    body: safeSubject(picked),
+    tag: "mailvault-" + picked.id,
+    url: "/#/messages/" + picked.id,
+  };
+}
+
 self.addEventListener("push", (event) => {
-  // The server deliberately sends no payload: subject, sender and OTP stay behind the
-  // Access gate. All the device may learn is that something arrived.
   event.waitUntil(
-    self.registration.showNotification("MailVault", {
-      body: "New mail arrived",
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
-      tag: "mailvault-new-mail",
-      data: { url: "/#/inbox" },
-    }),
+    newMailNote().then((note) =>
+      self.registration.showNotification(note.title, {
+        body: note.body,
+        icon: "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
+        tag: note.tag,
+        data: { url: note.url },
+      }),
+    ),
   );
 });
 
@@ -89,3 +171,10 @@ self.addEventListener("notificationclick", (event) => {
     }),
   );
 });
+
+/*
+ * Seam for tests only (src/lib/notify.test.ts, plus the phone E2E which runs newMailNote()
+ * inside the real worker): the runtime never reads this. The push path cannot be driven
+ * from a page, and these decisions are the security-relevant part of it.
+ */
+self.__mailvaultNotify = { newMailNote, pickNewMail, senderLabel, safeSubject, GENERIC_NOTE };

@@ -198,11 +198,20 @@ time and the judgement is stored (`messages.auth_verdict` + `auth_json`).
 
 ## 8.1 Notifications (Web Push) — `apps/worker/src/push.ts`, `apps/web/public/sw.js`
 
-- **The notification is payload-free by design.** The server sends a bodyless POST, and
-  the service worker shows a fixed string ("New mail arrived"). Sender, subject, codes,
-  links and attachment names never leave the authenticated app — a stolen or shared device
-  learns only that mail exists, and reading it requires Cloudflare Access.
-  `test/unit/push.test.ts` asserts the outgoing request has no body.
+- **The push carries no content; the worker asks for it afterwards.** The server sends a
+  bodyless POST, so the push service sees an empty request (`test/unit/push.test.ts` asserts
+  that). The service worker then calls `/api/messages?filter=unread` with its own session
+  cookies and quotes the newest message that is unread, `TRUSTED` (aligned SPF/DKIM/DMARC)
+  and minutes old — sender plus subject only, with any code the server identified masked and
+  URLs collapsed to `[link]`. Everything else (signed out, offline, Access answering instead
+  of the API, nothing recent, a spoofed sender) falls back to the fixed "New mail arrived".
+  `src/lib/notify.test.ts` covers those rules; the phone E2E runs them inside the installed
+  worker, where the real cookies live.
+- **What that costs, deliberately:** the subject of *trusted* mail now appears on the lock
+  screen of every device holding the installation, without an Access prompt. Codes and
+  unauthenticated senders are excluded exactly because a spoofed message choosing its own
+  lock-screen text is the attack this product attracts. OS "hide content when locked" is the
+  remaining lever.
 - **A push endpoint is a bearer credential**, so it is stored only in D1, never returned by
   any API response, never logged, and never cached by the service worker. `/api/push/status`
   reports a count, not the endpoints; the integration test asserts the response body does not

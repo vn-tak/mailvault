@@ -213,6 +213,44 @@ test("phone: a folded magic link, a tracking wrapper and an ASCII table all read
   await fitsViewport(page, "stress message as plain text");
 });
 
+/*
+ * The push path can't be triggered from a page, but Playwright can run code inside the
+ * installed worker — which is the only place the real session cookies exist. So this asks
+ * the worker itself: can it reach the API, what would it quote, and does a code ever get
+ * into a notification.
+ */
+type MsgRow = { id: string; authVerdict: string };
+type Note = { title: string; body: string; tag: string; url: string };
+type NotifyApi = {
+  pickNewMail: (items: MsgRow[] | null, now: number) => MsgRow | null;
+  newMailNote: () => Promise<Note>;
+};
+
+test("phone: the worker turns a new-mail ping into sender and subject, never a code @mobile", async ({ page, context }) => {
+  await page.goto("/#/inbox");
+  await expect.poll(() => context.serviceWorkers().length).toBeGreaterThan(0);
+  const worker = context.serviceWorkers()[0];
+  if (!worker) throw new Error("the app never registered a service worker");
+
+  const seen = await worker.evaluate(async () => {
+    const api = (self as unknown as { __mailvaultNotify: NotifyApi }).__mailvaultNotify;
+    const res = await fetch("/api/messages?filter=unread&limit=10", { cache: "no-store" });
+    const json = (await res.json()) as { items: MsgRow[] };
+    // Seeded mail is dated; judge it at a moment when the trusted one was minutes old.
+    const picked = api.pickNewMail(json.items, Date.parse("2026-09-19T08:30:30.000Z"));
+    return { status: res.status, unread: json.items.length, picked, note: await api.newMailNote() };
+  });
+
+  expect(seen.status, "the worker's fetch carries the session, like the app does").toBe(200);
+  expect(seen.unread).toBeGreaterThan(0);
+  expect(seen.picked?.id).toBe("00000000-0000-4000-8000-0000000000m1");
+  expect(seen.picked?.authVerdict).toBe("TRUSTED");
+  // Nothing recent in this fixture, so the real ping must degrade to the generic note
+  // rather than quote an hours-old subject as if it had just landed.
+  expect(seen.note.tag).toBe("mailvault-new-mail");
+  expect(JSON.stringify(seen.note)).not.toContain("55905149");
+});
+
 test("desktop: the same inbox markup grids into a two-line mail row", async ({ page }) => {
   await openInbox(page);
   await expect(page.locator(".msg")).toHaveCount(5);
