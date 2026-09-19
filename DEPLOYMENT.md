@@ -226,6 +226,28 @@ in a way worth recording, because the failure mode is genuinely misleading:
 `enable mail` performs exactly these steps:
 `email_routing_dns → catch_all_worker → verify`.
 
+## Ongoing health: the drift watchdog
+
+A zone can be edited from the dashboard at any time (by you, a teammate, or another tool),
+and then mail simply stops arriving. Two things guard against discovering that by accident:
+
+- **Hourly, automatically** (`triggers.crons` → `7 * * * *`): every domain marked `READY`
+  is re-read — are Cloudflare's routing MX still in DNS, and does the catch-all still point
+  at this Worker?
+- **On demand:** Domains → **Verify delivery**, which runs the same sweep and reports
+  `checked / drifted / restored / failed`.
+
+What it does on drift: marks the domain `CONFLICT` with `DRIFT` and names the new
+destination, records a `watchdog:drift` event, and restores the domain when the path comes
+back. What it never does: enable routing, edit DNS, or rewrite someone else's catch-all to
+win mail back — re-taking a zone is an owner decision, made with *Enable mail*. A zone whose
+reads fail is left alone, because "unknown" is not evidence of drift.
+
+This matters in practice: during development of this slice, another operator enabled
+`vnecs.com`/`vnecs.store` (with catch-all take-over) and removed two other domains from
+tracking while the app was being tested — exactly the kind of concurrent change a status
+page that never refreshes would hide.
+
 ## Receiving & reading mail
 
 - Create **aliases** (random / service-prefixed / custom) on any `READY` domain. Only

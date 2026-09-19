@@ -5,7 +5,7 @@ import { CloudflareApiError } from "../cf/api-client";
 import { getDomainByZoneId, patchDomainProvisioning, recordProvisioningEvent } from "../db/domains";
 import { log } from "../lib/logging";
 import { mapWithConcurrency, newId } from "../lib/util";
-import { preflightZone } from "./preflight";
+import { preflightZone, verifyDeliveryPath } from "./preflight";
 import { assessMx } from "./mx";
 
 export interface ProvisionOptions {
@@ -104,19 +104,11 @@ export async function provisionDomain(
     steps.push({ step: "catch_all_worker", ok: true, detail: opts.allowCatchAllTakeover && pf.classification === PreflightClassification.CatchAllConflict ? "took over foreign catch-all" : null });
     await patchDomainProvisioning(db, zoneId, { mailStatus: MailStatus.Verifying });
 
-    // verify (section 33) — do not claim READY off a single 200.
-    let routingOk: boolean;
-    try {
-      const routing = await client.getEmailRoutingStatus(zoneId);
-      routingOk = routing.enabled === true || /ready/i.test(routing.status ?? "");
-    } catch (err) {
-      if (!(err instanceof CloudflareApiError) || (err.kind !== "auth" && err.kind !== "permission")) throw err;
-      // Same fallback as preflight: Cloudflare only publishes routing MX when on.
-      routingOk = assessMx(await client.listDnsRecords(zoneId, "MX")).cloudflareRouting > 0;
-    }
-    const catchAll = await client.getCatchAll(zoneId);
-    const ca = catchAll?.actions?.[0];
-    const catchAllOk = !!ca && ca.type === "worker" && ca.value?.[0] === workerName;
+    // verify (section 33) — do not claim READY off a single 200. Re-read the whole
+    // delivery path with the same judgement the watchdog uses.
+    const verified = await verifyDeliveryPath(client, zoneId, workerName);
+    const routingOk = verified.routing;
+    const catchAllOk = verified.catchAllOurs;
     steps.push({ step: "verify", ok: routingOk && catchAllOk, detail: `routing=${routingOk} catch_all=${catchAllOk}` });
 
     const routingStatus = routingOk ? RoutingStatus.Ready : RoutingStatus.Misconfigured;

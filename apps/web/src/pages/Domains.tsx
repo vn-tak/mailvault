@@ -217,6 +217,37 @@ export function Domains() {
     }
   }
 
+  async function runVerify() {
+    setBusy(true);
+    setActionError(null);
+    try {
+      const r = await api.verifyDomains();
+      const { report } = r;
+      if (report.checked === 0) {
+        setNotice("Nothing to verify yet — no domain is marked Ready.");
+      } else if (report.drifted.length === 0 && report.failed.length === 0) {
+        setNotice(`All ${report.checked} Ready domain(s) still deliver to this Worker.` + (report.restored.length ? ` Restored: ${report.restored.join(", ")}.` : ""));
+      } else {
+        setNotice(
+          `Checked ${report.checked}: ${report.drifted.length} no longer deliver to MailVault` +
+            (report.drifted.length ? ` (${report.drifted.join(", ")})` : "") +
+            (report.failed.length ? `; ${report.failed.length} could not be read` : "") +
+            ".",
+        );
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          for (const d of data?.items ?? []) if (report.drifted.includes(d.name)) next.add(d.cloudflareZoneId);
+          return next;
+        });
+      }
+      reload();
+    } catch (e) {
+      setActionError(e instanceof ApiClientError ? e.message : "Verification failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const needsTakeover = selectedZones.some((z) => preflights[z]?.classification === PreflightClassification.CatchAllConflict);
   const mxBlocked = selectedZones.some((z) => preflights[z]?.classification === PreflightClassification.MxConflict);
 
@@ -289,6 +320,9 @@ export function Domains() {
           </button>
           <button onClick={() => runPreflight(allZones, "Preflighting")} disabled={busy || allZones.length === 0}>
             Preflight all
+          </button>
+          <button onClick={runVerify} disabled={busy} title="Re-check that Ready domains still deliver to this Worker">
+            Verify delivery
           </button>
           <button onClick={() => runPreflight(selectedZones, "Preflighting")} disabled={busy || selectedZones.length === 0}>
             Preflight ({selectedZones.length})

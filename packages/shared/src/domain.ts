@@ -51,6 +51,16 @@ export const DomainSchema = z.object({
 });
 export type Domain = z.infer<typeof DomainSchema>;
 
+/** Outcome of one drift sweep over the domains MailVault already trusts. */
+export const DriftReportSchema = z.object({
+  checked: z.number().int().nonnegative(),
+  ok: z.array(z.string()),
+  drifted: z.array(z.string()),
+  restored: z.array(z.string()),
+  failed: z.array(z.string()),
+});
+export type DriftReport = z.infer<typeof DriftReportSchema>;
+
 /** Minimal info about a Cloudflare zone returned by discovery, before it is stored. */
 export const DiscoveredZoneSchema = z.object({
   cloudflareZoneId: z.string(),

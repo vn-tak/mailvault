@@ -52,6 +52,8 @@ export const ConflictType = {
   None: "NONE",
   Mx: "MX",
   CatchAll: "CATCH_ALL",
+  /** Config was changed outside MailVault so mail no longer reaches its Worker. */
+  Drift: "DRIFT",
 } as const;
 export type ConflictType = (typeof ConflictType)[keyof typeof ConflictType];
 

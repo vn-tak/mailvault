@@ -202,6 +202,15 @@ time and the judgement is stored (`messages.auth_verdict` + `auth_json`).
   propagate), the enable call is skipped when Cloudflare MX already exist, and a refused
   enable names the token's Zone Resources as the first suspect rather than telling the owner
   to go click around in the dashboard. See `DEPLOYMENT.md`.
+- **Drift is detected, never "repaired".** `provisioning/watchdog.ts` runs hourly
+  (`triggers.crons`) and on demand from *Verify delivery*, re-reading the delivery path of
+  domains MailVault believes work. If Cloudflare's routing MX disappeared or the catch-all
+  was moved to another destination, the domain is marked `CONFLICT / DRIFT` with the new
+  destination named — it **never** re-enables routing or rewrites the catch-all to win mail
+  back, because someone else's configuration is not MailVault's to overwrite. It restores a
+  domain to `READY` only if *it* was the one that marked it drifted (an MX-conflict domain
+  is never resurrected because routing happens to look fine), and an unreadable zone is
+  recorded as unknown rather than downgraded.
 - **Zone Resources are account-wide on purpose.** The token scopes its zone permissions to
   `All zones from an account`, not a per-zone list, so adding a domain never requires
   editing the token. Widening a *resource* does not widen a *capability* — it only changes

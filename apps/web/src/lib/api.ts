@@ -4,6 +4,7 @@ import type {
   CreateAliasInput,
   DashboardStats,
   Domain,
+  DriftReport,
   Health,
   MessageDetail,
   MessageListQuery,
@@ -67,6 +68,7 @@ export const api = {
 
   listDomains: () => request<{ items: Domain[] }>("/domains"),
   syncDomains: () => request<{ discovered: number; items: Domain[] }>("/domains/sync", mutation()),
+  verifyDomains: () => request<{ report: DriftReport; items: Domain[] }>("/domains/verify", mutation()),
   preflightDomains: (zoneIds: string[]) =>
     request<{ results: PreflightResult[] }>("/domains/preflight", mutation({ zoneIds })),
   provisionDomains: (zoneIds: string[], allowCatchAllTakeover = false) =>

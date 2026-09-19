@@ -4,6 +4,7 @@ import { AuthPolicy, DomainIdsBodySchema, type DiscoveredZone } from "@mailvault
 import type { AppEnv } from "../app-env";
 import { getDomainByZoneId, listDomains, setDomainAuthPolicy, upsertDiscoveredZones } from "../db/domains";
 import { preflightMany, provisionMany, provisionDomain } from "../provisioning/provisioner";
+import { runWatchdog } from "../provisioning/watchdog";
 import { log } from "../lib/logging";
 import { badRequest, notFound, AppError } from "../lib/errors";
 import { actorOf, asApiError, cfClient, readJson } from "./_helpers";
@@ -97,6 +98,26 @@ export const domainsRoute = new Hono<AppEnv>()
       const workerName = requireWorkerName(c.env);
       const result = await provisionDomain(c.env.DB, client, zoneId, workerName, { allowCatchAllTakeover });
       return c.json(result);
+    } catch (err) {
+      throw asApiError(err);
+    }
+  })
+
+  /**
+   * Re-verify the delivery path of every domain MailVault believes works (or flagged as
+   * drifted). Read-only against Cloudflare; updates MailVault's own rows only.
+   */
+  .post("/api/domains/verify", async (c) => {
+    try {
+      const client = cfClient(c.env);
+      const report = await runWatchdog(c.env.DB, client, requireWorkerName(c.env));
+      log.info("domains_verified", {
+        actor: actorOf(c).email,
+        checked: report.checked,
+        drifted: report.drifted.length,
+        failed: report.failed.length,
+      });
+      return c.json({ report, items: await listDomains(c.env.DB) });
     } catch (err) {
       throw asApiError(err);
     }

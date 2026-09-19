@@ -1,9 +1,11 @@
-import type { ExportedHandler, ExecutionContext, ForwardableEmailMessage } from "@cloudflare/workers-types";
 import type { Env } from "./env";
+import type { ExportedHandler, ExecutionContext, ForwardableEmailMessage, ScheduledController } from "@cloudflare/workers-types";
+import { createCloudflareClient } from "./cf/api-client";
 import { createApp } from "./app";
 import { decorateResponse } from "./security/headers";
 import { ingestEmail } from "./mail/ingest";
 import { log } from "./lib/logging";
+import { runWatchdog } from "./provisioning/watchdog";
 
 // One router instance per isolate is safe: Hono is stateless and env is per-request.
 const app = createApp();
@@ -38,6 +40,34 @@ export default {
       // Rejected for retry; log without body/token (section 34). The throw is deliberate.
       log.error("email_handler_failed", { error: err instanceof Error ? err.message : "error" });
       throw err;
+    }
+  },
+
+  /**
+   * Drift check. Cloudflare config can be changed from the dashboard by anyone, and then
+   * mail silently stops arriving. This re-reads only what MailVault already believes
+   * works and updates its own rows — it never enables routing, edits DNS or touches a
+   * zone (section 9: no automatic domain mutation).
+   */
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    void ctx;
+    const token = env.CLOUDFLARE_API_TOKEN;
+    if (!token || !env.MAIL_WORKER_NAME) {
+      log.warn("watchdog_skipped", { reason: token ? "MAIL_WORKER_NAME unset" : "API token unset" });
+      return;
+    }
+    try {
+      const client = createCloudflareClient({ token, accountId: env.CF_ACCOUNT_ID || undefined });
+      const report = await runWatchdog(env.DB, client, env.MAIL_WORKER_NAME);
+      log.info("watchdog_run", {
+        cron: controller.cron,
+        checked: report.checked,
+        drifted: report.drifted.length,
+        restored: report.restored.length,
+        failed: report.failed.length,
+      });
+    } catch (err) {
+      log.error("watchdog_run_failed", { error: err instanceof Error ? err.message : "error" });
     }
   },
 } satisfies ExportedHandler<Env>;

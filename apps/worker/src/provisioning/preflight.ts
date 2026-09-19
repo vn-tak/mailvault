@@ -3,13 +3,24 @@ import { ConflictType, PreflightClassification } from "@mailvault/shared";
 import { CloudflareApiError, type CloudflareClient } from "../cf/api-client";
 import { log } from "../lib/logging";
 import { nowIso } from "../lib/util";
-import { assessMx } from "./mx";
+import { assessMx, type MxAssessment } from "./mx";
 
 export interface PreflightZoneInput {
   zoneId: string;
   name: string;
   status: string;
   type: string;
+}
+
+/** What the delivery-path reads prove about one zone, right now. */
+export interface DeliveryPath {
+  routing: boolean;
+  catchAllOurs: boolean;
+  /** A catch-all rule exists, is enabled, and points somewhere other than us. */
+  foreignCatchAll: boolean;
+  catchAllType: string | null;
+  catchAllValue: string | null;
+  mx: MxAssessment;
 }
 
 type Settled<T> = { ok: true; value: T } | { ok: false; err: unknown };
@@ -25,6 +36,48 @@ async function settle<T>(p: Promise<T>): Promise<Settled<T>> {
 
 function isDenied(err: unknown): boolean {
   return err instanceof CloudflareApiError && (err.kind === "auth" || err.kind === "permission");
+}
+
+/**
+ * Read-only verification of one zone's delivery path: is mail for this zone still
+ * arriving at `workerName`? Shared by preflight and the drift watchdog so the two can
+ * never disagree about what "configured" means. Performs NO mutation.
+ */
+export async function verifyDeliveryPath(
+  client: CloudflareClient,
+  zoneId: string,
+  workerName: string,
+): Promise<DeliveryPath> {
+  const [mxRecords, routingRes, catchAll] = await Promise.all([
+    client.listDnsRecords(zoneId, "MX"),
+    settle(client.getEmailRoutingStatus(zoneId)),
+    client.getCatchAll(zoneId),
+  ]);
+  const mx = assessMx(mxRecords);
+  let routing: boolean;
+  if (routingRes.ok) {
+    routing = routingRes.value.enabled === true || /ready/i.test(routingRes.value.status ?? "");
+  } else if (isDenied(routingRes.err)) {
+    // Re-measured after widening the token's Zone Resources: `POST .../enable` then
+    // works, but this settings read still 403s — no API-token permission covers it.
+    // Fall back to the observable truth in DNS: Cloudflare only publishes
+    // route*.mx.cloudflare.net records once Email Routing is on for the zone.
+    log.warn("verify_routing_settings_unreadable", { zoneId, fallback: "mx" });
+    routing = mx.cloudflareRouting > 0;
+  } else {
+    throw routingRes.err;
+  }
+  const ca = catchAll?.actions?.[0];
+  const catchAllOurs = !!ca && ca.type === "worker" && ca.value?.[0] === workerName;
+  const foreignCatchAll = !!catchAll && catchAll.enabled !== false && !!ca && !catchAllOurs && ca.type !== "drop";
+  return {
+    routing,
+    catchAllOurs,
+    foreignCatchAll,
+    catchAllType: ca?.type ?? null,
+    catchAllValue: ca?.value?.[0] ?? null,
+    mx,
+  };
 }
 
 function classifyError(err: unknown): PreflightResult | null {
@@ -63,36 +116,9 @@ export async function preflightZone(
     return { ...base, classification: PreflightClassification.UnsupportedZone, safeToProvision: false, conflict: null };
   }
 
-  let assessed: ReturnType<typeof assessMx>;
-  let routingReady: boolean;
-  let catchAllOurs: boolean;
-  let catchAllPresentAndNotOurs: boolean;
-  let caAction: { type?: string; value?: string[] } | undefined;
+  let path: DeliveryPath;
   try {
-    const [mxRecords, routingRes, catchAll] = await Promise.all([
-      client.listDnsRecords(zone.zoneId, "MX"),
-      settle(client.getEmailRoutingStatus(zone.zoneId)),
-      client.getCatchAll(zone.zoneId),
-    ]);
-    assessed = assessMx(mxRecords);
-
-    if (routingRes.ok) {
-      routingReady = routingRes.value.enabled === true || /ready/i.test(routingRes.value.status ?? "");
-    } else if (isDenied(routingRes.err)) {
-      // Re-measured after widening the token's Zone Resources: `POST .../enable` then
-      // works, but this settings read still 403s — no API-token permission covers it.
-      // Fall back to the observable truth in DNS: Cloudflare only publishes
-      // route*.mx.cloudflare.net records once Email Routing is on for the zone.
-      log.warn("preflight_routing_settings_unreadable", { zoneId: zone.zoneId, fallback: "mx" });
-      routingReady = assessed.cloudflareRouting > 0;
-    } else {
-      throw routingRes.err;
-    }
-
-    caAction = catchAll?.actions?.[0];
-    catchAllOurs = !!caAction && caAction.type === "worker" && caAction.value?.[0] === workerName;
-    catchAllPresentAndNotOurs =
-      !!catchAll && catchAll.enabled !== false && !!caAction && !catchAllOurs && caAction.type !== "drop";
+    path = await verifyDeliveryPath(client, zone.zoneId, workerName);
   } catch (err) {
     // Read-only diagnostics: which Cloudflare response made us stop. Safe fields only
     // (no headers, no token) — see lib/logging.
@@ -110,6 +136,7 @@ export async function preflightZone(
     if (mapped) return { ...mapped, zoneId: zone.zoneId, name: zone.name };
     throw err;
   }
+  const assessed = path.mx;
 
   if (!assessed.clearForUs) {
     const conflict: ConflictDetails = {
@@ -120,16 +147,16 @@ export async function preflightZone(
     return { ...base, classification: PreflightClassification.MxConflict, safeToProvision: false, conflict };
   }
 
-  if (catchAllPresentAndNotOurs) {
+  if (path.foreignCatchAll) {
     const conflict: ConflictDetails = {
       type: ConflictType.CatchAll,
-      message: `Catch-all already routes to ${caAction?.type === "worker" ? "a different Worker" : "another destination"}.`,
-      catchAll: { actionType: caAction?.type, destination: caAction?.value?.[0] },
+      message: `Catch-all already routes to ${path.catchAllType === "worker" ? "a different Worker" : "another destination"}.`,
+      catchAll: { actionType: path.catchAllType ?? undefined, destination: path.catchAllValue ?? undefined },
     };
     return { ...base, classification: PreflightClassification.CatchAllConflict, safeToProvision: false, conflict };
   }
 
-  if (routingReady && catchAllOurs) {
+  if (path.routing && path.catchAllOurs) {
     return { ...base, classification: PreflightClassification.AlreadyConfigured, safeToProvision: false, conflict: null };
   }
 
