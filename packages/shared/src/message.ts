@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AuthVerdict } from "./enums";
 
 /**
  * Message DTOs. `extractedCodes` / `verificationLinks` are stored in D1 as JSON
@@ -39,8 +40,37 @@ export const AttachmentSchema = z.object({
 });
 export type Attachment = z.infer<typeof AttachmentSchema>;
 
+/** One `Authentication-Results` entry as it reached us, with our alignment judgement. */
+export const AuthEvidenceSchema = z.object({
+  mechanism: z.enum(["spf", "dkim", "dmarc"]),
+  outcome: z.string(),
+  domain: z.string().nullable(),
+  aligned: z.boolean(),
+  reporter: z.string().nullable(),
+});
+export type AuthEvidence = z.infer<typeof AuthEvidenceSchema>;
+
+/**
+ * Sender authentication assessed at delivery time. A `pass` only counts as trusted when
+ * the vouched-for domain aligns with the header From — the header itself is attacker
+ * reachable, so `alignedPass` is the field the UI must trust, never `spf`/`dkim`.
+ */
+export const MessageAuthSchema = z.object({
+  verdict: z.nativeEnum(AuthVerdict),
+  spf: z.string().nullable(),
+  dkim: z.string().nullable(),
+  dmarc: z.string().nullable(),
+  alignedPass: z.object({ spf: z.boolean(), dkim: z.boolean(), dmarc: z.boolean() }),
+  envelopeMismatch: z.boolean().default(false),
+  observed: z.boolean().default(false),
+  reasons: z.array(z.string().max(120)).default([]),
+  evidence: z.array(AuthEvidenceSchema).max(8).default([]),
+});
+export type MessageAuth = z.infer<typeof MessageAuthSchema>;
+
 /** Row shape for the inbox list (never carries full bodies — section 44). */
 export const MessageSummarySchema = z.object({
+  authVerdict: z.nativeEnum(AuthVerdict).default(AuthVerdict.Unverified),
   id: z.string(),
   aliasId: z.string(),
   aliasAddress: z.string(),
@@ -75,6 +105,8 @@ export const MessageDetailSchema = MessageSummarySchema.extend({
   textBody: z.string().nullable(),
   /** Whether a parse failure occurred (raw .eml preserved regardless). */
   parseDegraded: z.boolean().default(false),
+  /** Full authentication assessment, kept for the detail view's disclosure UI. */
+  auth: MessageAuthSchema.nullable().default(null),
 });
 export type MessageDetail = z.infer<typeof MessageDetailSchema>;
 

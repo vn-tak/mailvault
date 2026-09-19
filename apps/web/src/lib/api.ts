@@ -1,5 +1,6 @@
 import type {
   Alias,
+  AuthPolicy,
   CreateAliasInput,
   DashboardStats,
   Domain,
@@ -45,9 +46,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 // The Worker requires this custom header on state-changing calls as a CSRF signal.
-function mutation(body?: unknown): RequestInit {
+function mutation(body?: unknown, method = "POST"): RequestInit {
   return {
-    method: "POST",
+    method,
     headers: { "content-type": "application/json", "x-mailvault": "1" },
     body: body === undefined ? undefined : JSON.stringify(body),
   };
@@ -77,6 +78,11 @@ export const api = {
       method: "DELETE",
       headers: { "x-mailvault": "1" },
     }),
+  setAuthPolicy: (zoneId: string, policy: AuthPolicy) =>
+    request<{ zoneId: string; authPolicy: AuthPolicy }>(
+      `/domains/${encodeURIComponent(zoneId)}/auth-policy`,
+      mutation({ policy }, "PATCH"),
+    ),
 
   listAliases: (q?: string) => request<{ items: Alias[] }>(`/aliases${qs({ q })}`),
   createAlias: (input: CreateAliasInput) => request<Alias>("/aliases", mutation(input)),

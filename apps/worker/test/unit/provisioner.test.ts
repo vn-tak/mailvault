@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AuthPolicy,
   CatchAllStatus,
   ConflictType,
   MailStatus,
@@ -22,6 +23,7 @@ const row: DomainRow = {
   catch_all_status: CatchAllStatus.Unknown,
   conflict_type: ConflictType.None,
   conflict_details_json: null,
+  auth_policy: AuthPolicy.Warn,
   last_checked_at: null,
   created_at: "2026-01-01T00:00:00.000Z",
   updated_at: "2026-01-01T00:00:00.000Z",

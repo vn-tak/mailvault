@@ -1,13 +1,15 @@
 import type {
   Attachment,
+  AuthVerdict,
   ExtractedCode,
+  MessageAuth,
   MessageDetail,
   MessageListQuery,
   MessageSummary,
   VerificationLink,
 } from "@mailvault/shared";
 import { newId, nowIso } from "../lib/util";
-import { parseJson, toMessageSummary } from "./mappers";
+import { parseJson, toMessageAuth, toMessageSummary } from "./mappers";
 import type { AttachmentRow, MessageRow } from "./rows";
 
 export interface InsertMessageInput {
@@ -29,6 +31,8 @@ export interface InsertMessageInput {
   attachmentCount: number;
   codes: ExtractedCode[];
   links: VerificationLink[];
+  authVerdict: AuthVerdict;
+  auth: MessageAuth | null;
 }
 
 export interface InsertAttachmentInput {
@@ -54,8 +58,9 @@ export async function insertMessage(db: D1Database, m: InsertMessageInput): Prom
           id, domain_id, alias_id, provider_message_id, dedupe_key,
           envelope_from, envelope_to, header_from, header_to, subject, preview,
           received_at, raw_size, raw_r2_key, parsed_r2_key, has_attachments,
-          attachment_count, is_read, extracted_codes_json, verification_links_json, created_at
-        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,0,?18,?19,?20)`,
+          attachment_count, is_read, extracted_codes_json, verification_links_json,
+          auth_verdict, auth_json, created_at
+        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,0,?18,?19,?20,?21,?22)`,
       )
       .bind(
         id,
@@ -77,6 +82,8 @@ export async function insertMessage(db: D1Database, m: InsertMessageInput): Prom
         m.attachmentCount,
         JSON.stringify(m.codes),
         JSON.stringify(m.links),
+        m.authVerdict,
+        m.auth ? JSON.stringify(m.auth) : null,
         nowIso(),
       )
       .run();
@@ -209,6 +216,7 @@ export async function getMessageDetail(db: D1Database, id: string): Promise<Mess
     htmlBody: null, // filled by the route from R2 parsed content + sanitization
     textBody: null,
     parseDegraded: !row.parsed_r2_key,
+    auth: toMessageAuth(row),
   };
 }
 

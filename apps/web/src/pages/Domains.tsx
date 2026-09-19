@@ -6,6 +6,7 @@ import { relativeTime } from "../lib/format";
 import { ConfirmDialog, ErrorBanner, Loading, Modal, StatusPill } from "../components/ui";
 import { FILTERS, bucketOf, isRoutingNotEnabledReceipt, routingConsoleUrl, type Bucket } from "../lib/domains";
 import {
+  AuthPolicy,
   ConflictType,
   MailStatus,
   PreflightClassification,
@@ -133,6 +134,19 @@ export function Domains() {
     }
     return c;
   }, [domains, preflights, outcomes]);
+
+  async function changeAuthPolicy(d: Domain, policy: AuthPolicy) {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await api.setAuthPolicy(d.cloudflareZoneId, policy);
+      reload();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not update the policy");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function toggle(zoneId: string) {
     setSelected((prev) => {
@@ -412,9 +426,22 @@ export function Domains() {
                           <td>
                             <div className="row" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
                               {d.mailStatus === MailStatus.Ready && (
-                                <button className="small" onClick={() => navigate(`/inbox?domain=${d.id}`)}>
-                                  Inbox
-                                </button>
+                                <>
+                                  <button className="small" onClick={() => navigate(`/inbox?domain=${d.id}`)}>
+                                    Inbox
+                                  </button>
+                                  <select
+                                    className="small"
+                                    value={d.authPolicy}
+                                    disabled={busy}
+                                    title="What to do with mail whose sender failed SPF/DKIM/DMARC checks"
+                                    onChange={(e) => void changeAuthPolicy(d, e.target.value as AuthPolicy)}
+                                  >
+                                    <option value={AuthPolicy.Warn}>unverified: flag</option>
+                                    <option value={AuthPolicy.Reject}>unverified: reject</option>
+                                    <option value={AuthPolicy.Off}>unverified: allow</option>
+                                  </select>
+                                </>
                               )}
                               {(d.mailStatus === MailStatus.Failed || d.mailStatus === MailStatus.Conflict) && (
                                 <button

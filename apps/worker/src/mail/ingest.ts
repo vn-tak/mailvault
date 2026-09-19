@@ -4,6 +4,7 @@ import { sha256Hex, newId, nowIso } from "../lib/util";
 import { sanitizeFilename } from "../lib/filename";
 import { log } from "../lib/logging";
 import { findActiveAliasByAddress } from "../db/aliases";
+import { getDomainById } from "../db/domains";
 import { insertMessage, insertAttachments, dedupeKeyExists } from "../db/messages";
 import type { InsertMessageInput, InsertAttachmentInput } from "../db/messages";
 import {
@@ -16,6 +17,8 @@ import {
   deleteKeys,
 } from "../storage/r2";
 import { parseMime } from "./parse";
+import { assessAuth } from "./auth";
+import { AuthPolicy, AuthVerdict, type MessageAuth } from "@mailvault/shared";
 import { extractOtp } from "./otp";
 import { extractLinks } from "./links";
 import { buildPreview, stripHtmlToText } from "./preview";
@@ -24,7 +27,10 @@ import { normalizeLookupAddress, splitAddress } from "./normalize";
 export type IngestResult =
   | { status: "stored"; messageId: string }
   | { status: "duplicate" }
-  | { status: "rejected"; reason: "unknown_recipient" | "invalid_recipient" | "too_large" };
+  | {
+      status: "rejected";
+      reason: "unknown_recipient" | "invalid_recipient" | "too_large" | "unauthenticated";
+    };
 
 interface Rejectable {
   from: string;
@@ -58,6 +64,11 @@ async function readCapped(stream: ReadableStream<Uint8Array>, cap: number): Prom
     off += c.byteLength;
   }
   return out;
+}
+
+/** Bounded for D1 storage; the verdict is computed from the full evidence, not this copy. */
+function toStoredAuth(a: ReturnType<typeof assessAuth>): MessageAuth {
+  return { ...a, reasons: a.reasons.map((r) => r.slice(0, 120)), evidence: a.evidence.slice(0, 8) };
 }
 
 /**
@@ -116,6 +127,7 @@ export async function ingestEmail(message: Rejectable, env: Env, db: D1Database,
   let providerMessageId: string | null = null;
   let receivedAt = message.headers.get("date") || nowIso();
   let parsedAttachments: { filename: string; contentType: string; contentId: string | null; bytes: Uint8Array }[] = [];
+  let authResults: string[] = [];
   let degraded = false;
   try {
     const parsed = await parseMime(bytes);
@@ -127,10 +139,23 @@ export async function ingestEmail(message: Rejectable, env: Env, db: D1Database,
     providerMessageId = parsed.messageId;
     if (parsed.date) receivedAt = parsed.date;
     parsedAttachments = parsed.attachments;
+    authResults = parsed.authResults;
   } catch (err) {
     degraded = true;
     log.warn("mail_parse_failed", { aliasId: alias.id, error: err instanceof Error ? err.message : "parse_error" });
     headerTo = message.to;
+  }
+
+  // Judged before extraction: a spoofed message must never reach the owner looking like
+  // a verified one, and its "code"/"verify link" are exactly what a phisher forges.
+  const auth = assessAuth({ authResults, headerFrom, envelopeFrom: message.from });
+  if (auth.verdict === AuthVerdict.Spoofed) {
+    const domain = await getDomainById(db, alias.domainId);
+    if (domain?.authPolicy === AuthPolicy.Reject) {
+      message.setReject("sender authentication failed");
+      log.warn("mail_rejected", { reason: "unauthenticated", aliasId: alias.id });
+      return { status: "rejected", reason: "unauthenticated" };
+    }
   }
 
   const codes = extractOtp(`${subject ?? ""}\n${text ?? stripHtmlToText(html ?? "")}`);
@@ -191,6 +216,8 @@ export async function ingestEmail(message: Rejectable, env: Env, db: D1Database,
       attachmentCount: attachmentRows.length,
       codes,
       links,
+      authVerdict: auth.verdict,
+      auth: toStoredAuth(auth),
     };
 
     const insertedId = await insertMessage(db, insert);
@@ -210,6 +237,7 @@ export async function ingestEmail(message: Rejectable, env: Env, db: D1Database,
       links: links.length,
       attachments: attachmentRows.length,
       degraded,
+      auth: auth.verdict,
     });
     return { status: "stored", messageId: insertedId };
   } catch (err) {

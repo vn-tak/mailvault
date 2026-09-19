@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { DomainIdsBodySchema, type DiscoveredZone } from "@mailvault/shared";
+import { AuthPolicy, DomainIdsBodySchema, type DiscoveredZone } from "@mailvault/shared";
 import type { AppEnv } from "../app-env";
-import { getDomainByZoneId, listDomains, upsertDiscoveredZones } from "../db/domains";
+import { getDomainByZoneId, listDomains, setDomainAuthPolicy, upsertDiscoveredZones } from "../db/domains";
 import { preflightMany, provisionMany, provisionDomain } from "../provisioning/provisioner";
 import { log } from "../lib/logging";
 import { badRequest, notFound, AppError } from "../lib/errors";
@@ -100,6 +100,20 @@ export const domainsRoute = new Hono<AppEnv>()
     } catch (err) {
       throw asApiError(err);
     }
+  })
+
+  /**
+   * Owner sets how this domain treats mail whose sender failed authentication.
+   * Local setting only — it never touches Cloudflare.
+   */
+  .patch("/api/domains/:id/auth-policy", async (c) => {
+    const { id: zoneId } = ZoneIdParam.parse({ id: c.req.param("id") });
+    const body = await readJson(c, z.object({ policy: z.nativeEnum(AuthPolicy) }));
+    const domain = await getDomainByZoneId(c.env.DB, zoneId);
+    if (!domain) throw notFound("Domain not found");
+    await setDomainAuthPolicy(c.env.DB, domain.id, body.policy);
+    log.info("domain_auth_policy_set", { actor: actorOf(c).email, zoneId, policy: body.policy });
+    return c.json({ zoneId, authPolicy: body.policy });
   })
 
   /**

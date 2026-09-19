@@ -5,6 +5,7 @@ import {
   CatchAllStatus,
   ConflictType,
   PreflightClassification,
+  AuthPolicy,
 } from "./enums";
 
 /**
@@ -42,6 +43,8 @@ export const DomainSchema = z.object({
   catchAllStatus: z.nativeEnum(CatchAllStatus),
   conflictType: z.nativeEnum(ConflictType),
   conflictDetails: ConflictDetailsSchema.nullable(),
+  /** How this domain handles mail whose sender failed authentication. */
+  authPolicy: z.nativeEnum(AuthPolicy).default(AuthPolicy.Warn),
   lastCheckedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),

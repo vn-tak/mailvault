@@ -4,7 +4,7 @@ import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime, senderName } from "../lib/format";
 import { ErrorBanner, Loading } from "../components/ui";
-import type { MessageSummary } from "@mailvault/shared";
+import { AuthVerdict, type MessageSummary } from "@mailvault/shared";
 
 const PAGE = 50;
 
@@ -29,7 +29,12 @@ function Row({ m }: { m: MessageSummary }) {
       </td>
       <td style={{ width: 130 }} className="right wrap">
         <div className="row" style={{ justifyContent: "flex-end", gap: 6 }}>
-          {m.primaryCode ? <span className="badge mono" title="Detected code">{m.primaryCode}</span> : null}
+          {m.authVerdict === AuthVerdict.Spoofed ? (
+            // Never echo a forger's payload in the list — the detail view explains it.
+            <span className="badge" title="Sender authentication failed — open for details">⚠ spoof risk</span>
+          ) : m.primaryCode ? (
+            <span className="badge mono" title="Detected code">{m.primaryCode}</span>
+          ) : null}
           {m.attachmentCount > 0 ? <span className="badge" title={`${m.attachmentCount} attachment(s)`}>📎 {m.attachmentCount}</span> : null}
         </div>
         <div className="faint right" style={{ fontSize: 12, width: "100%", textAlign: "right", marginTop: 2 }}>

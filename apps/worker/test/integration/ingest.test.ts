@@ -19,15 +19,23 @@ afterAll(async () => {
   await bindings?.dispose();
 });
 
-function emailRaw(opts: { subject: string; messageId: string; body: string; to: string }): Uint8Array {
+function emailRaw(opts: {
+  subject: string;
+  messageId: string;
+  body: string;
+  to: string;
+  from?: string;
+  authResults?: string[];
+}): Uint8Array {
   const mime = [
-    "From: GitHub <noreply@github.com>",
+    `From: ${opts.from ?? "GitHub <noreply@github.com>"}`,
     `To: ${opts.to}`,
     `Subject: ${opts.subject}`,
     `Message-ID: <${opts.messageId}@github.com>`,
     "Date: Fri, 19 Sep 2026 12:00:00 +0000",
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=utf-8",
+    ...(opts.authResults ?? []).map((v) => `Authentication-Results: ${v}`),
     "",
     opts.body,
     "",
@@ -35,10 +43,10 @@ function emailRaw(opts: { subject: string; messageId: string; body: string; to: 
   return new TextEncoder().encode(mime);
 }
 
-function makeMessage(to: string, raw: Uint8Array) {
+function makeMessage(to: string, raw: Uint8Array, from = "noreply@github.com") {
   const rejects: string[] = [];
   const message = {
-    from: "noreply@github.com",
+    from,
     to,
     headers: new Headers(),
     raw: new Response(raw).body as ReadableStream<Uint8Array>,
@@ -143,5 +151,73 @@ describe("inbound email ingestion", () => {
     expect(result).toMatchObject({ status: "rejected", reason: "too_large" });
     expect(rejects.length).toBeGreaterThan(0);
     expect(await countMessages()).toBe(0);
+  });
+
+  it("records an aligned DMARC pass as TRUSTED", async () => {
+    await seedAlias("auth-ok@notify.example");
+    const raw = emailRaw({
+      subject: "Your code",
+      body: "Your GitHub verification code is 445566.",
+      messageId: "a1",
+      to: "auth-ok@notify.example",
+      from: "GitHub <noreply@github.com>",
+      authResults: ["mailer.github.net; spf=pass smtp.mailfrom=github.net; dkim=pass header.d=github.com; dmarc=pass header.from=github.com"],
+    });
+    const result = await ingestEmail(makeMessage("auth-ok@notify.example", raw, "bounce@github.net").message, TEST_ENV, DB, BUCKET);
+    expect(result.status).toBe("stored");
+    const row = await DB.prepare(`SELECT auth_verdict, auth_json FROM messages`).first<{ auth_verdict: string; auth_json: string }>();
+    expect(row?.auth_verdict).toBe("TRUSTED");
+    expect(row?.auth_json).toContain("dmarc");
+  });
+
+  it("stores a dmarc=fail message as SPOOFED under the default warn policy", async () => {
+    await seedAlias("auth-bad@notify.example");
+    const raw = emailRaw({
+      subject: "Verify now",
+      body: "Your code is 778899",
+      messageId: "a2",
+      to: "auth-bad@notify.example",
+      from: "GitHub <security@github.com>",
+      authResults: ["evil.server; dkim=pass header.d=evil.example; dmarc=fail header.from=github.com"],
+    });
+    const result = await ingestEmail(makeMessage("auth-bad@notify.example", raw, "spam@evil.example").message, TEST_ENV, DB, BUCKET);
+    expect(result.status).toBe("stored");
+    const row = await DB.prepare(`SELECT auth_verdict FROM messages`).first<{ auth_verdict: string }>();
+    expect(row?.auth_verdict).toBe("SPOOFED");
+  });
+
+  it("refuses a spoofed sender when the domain policy is REJECT", async () => {
+    const domainId = await seedAlias("auth-reject@notify.example");
+    await DB.prepare(`UPDATE domains SET auth_policy = 'REJECT' WHERE id = ?1`).bind(domainId).run();
+    const raw = emailRaw({
+      subject: "Verify now",
+      body: "Your code is 101010",
+      messageId: "a3",
+      to: "auth-reject@notify.example",
+      from: "GitHub <security@github.com>",
+      authResults: ["evil.server; dmarc=fail header.from=github.com"],
+    });
+    const { message, rejects } = makeMessage("auth-reject@notify.example", raw, "spam@evil.example");
+    const result = await ingestEmail(message, TEST_ENV, DB, BUCKET);
+    expect(result).toMatchObject({ status: "rejected", reason: "unauthenticated" });
+    expect(rejects).toContain("sender authentication failed");
+    expect(await countMessages()).toBe(0);
+  });
+
+  it("never trusts a self-authored Authentication-Results pass", async () => {
+    await seedAlias("auth-lie@notify.example");
+    const raw = emailRaw({
+      subject: "Look, I am verified",
+      body: "Your code is 212121",
+      messageId: "a4",
+      to: "auth-lie@notify.example",
+      from: "GitHub <security@github.com>",
+      authResults: ["attacker.example; spf=pass smtp.mailfrom=attacker.example; dkim=pass header.d=attacker.example"],
+    });
+    await ingestEmail(makeMessage("auth-lie@notify.example", raw, "x@attacker.example").message, TEST_ENV, DB, BUCKET);
+    const row = await DB.prepare(`SELECT auth_verdict FROM messages`).first<{ auth_verdict: string }>();
+    // Nothing aligned with github.com, so this is unverified — and the UI keeps the code
+    // visible only for verdicts that are not SPOOFED.
+    expect(row?.auth_verdict).toBe("UNVERIFIED");
   });
 });

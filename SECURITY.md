@@ -115,6 +115,32 @@ Blob URL with its own `<meta http-equiv="Content-Security-Policy">` and
 `<base target="_blank">`. Email markup is never added to the top-level document.
 A plain-text fallback (`<pre>`) is always available.
 
+## 6.1 Sender authentication (`apps/worker/src/mail/auth.ts`)
+
+An OTP inbox is a phishing target: the whole product is "show the owner a code and a
+verification link". Anyone who learns an alias address can therefore try to deliver a
+message that *looks* like it came from a brand, so every message is judged at delivery
+time and the judgement is stored (`messages.auth_verdict` + `auth_json`).
+
+- **`Authentication-Results` is not trusted as written.** It travels inside the message, so
+  the sender can author `dkim=pass` themselves. A pass only counts when the domain it
+  vouches for (`d=`, `header.d=`, `header.i=`, `smtp.mailfrom=`) **aligns** with the header
+  `From` domain at registrable-domain level — DMARC's own rule. Misaligned passes are
+  recorded as evidence and reported honestly (`spf=pass`) but never credited
+  (`alignedPass.dkim === false`), and the UI labels exactly that distinction.
+- **Verdicts:** `SPOOFED` when `dmarc=fail` (the one result the header cannot fake into
+  usefulness); `TRUSTED` when an aligned `dmarc`/`dkim`/`spf` pass exists; `UNVERIFIED`
+  otherwise — including when no results reached us at all, which is honest rather than
+  alarming.
+- **Enforcement is per domain, default `WARN`:** `OFF` records only, `WARN` records and
+  flags, `REJECT` refuses delivery (`setReject("sender authentication failed")`) — chosen
+  by the owner per domain in the Domains table, never flipped silently.
+- **The payload of a spoofed message is withheld, not just labelled.** `MessageDetail`
+  hides extracted codes and verification links behind an explicit "Show anyway", and the
+  inbox list never echoes a `primaryCode` for a `SPOOFED` message.
+- **Old mail is not re-judged with guesses.** Rows written before this existed carry
+  `UNVERIFIED` with no assessment JSON, and the banner stays silent for them.
+
 ## 7. Attachments
 
 `apps/worker/src/routes/messages.ts` (download route) + `apps/worker/src/lib/filename.ts`:

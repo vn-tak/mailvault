@@ -6,7 +6,7 @@ import { useAsync } from "../lib/useAsync";
 import { formatBytes, fullTime, senderName } from "../lib/format";
 import { MessageHtml } from "../components/MessageHtml";
 import { ConfirmDialog, CopyButton, ErrorBanner, Loading } from "../components/ui";
-import type { ExtractedCode, VerificationLink } from "@mailvault/shared";
+import { AuthVerdict, type ExtractedCode, type MessageAuth, type VerificationLink } from "@mailvault/shared";
 
 function byConfidence(a: ExtractedCode, b: ExtractedCode): number {
   return b.confidence - a.confidence || b.length - a.length;
@@ -53,9 +53,45 @@ function LinkCard({ link }: { link: VerificationLink }) {
   );
 }
 
+function outcomeLabel(auth: MessageAuth | null): string {
+  if (!auth) return "not assessed when this message arrived";
+  const mark = (mech: "spf" | "dkim" | "dmarc", value: string | null) =>
+    value ? `${mech}=${value}${auth.alignedPass[mech] ? "*" : ""}` : null;
+  const parts = [mark("spf", auth.spf), mark("dkim", auth.dkim), mark("dmarc", auth.dmarc)].filter(Boolean);
+  return parts.length ? `${parts.join("  ")}  (* aligned with the sender domain)` : "no authentication results reached us";
+}
+
+function AuthBanner({ verdict, auth }: { verdict: AuthVerdict; auth: MessageAuth | null }) {
+  // Mail stored before authentication existed has nothing to report; saying "not
+  // verified" every time would train the owner to ignore the real warning.
+  if (!auth && verdict !== AuthVerdict.Spoofed) return null;
+  if (verdict === AuthVerdict.Trusted) {
+    return (
+      <div className="banner ok mt" style={{ fontSize: 13 }}>
+        Sender authenticated — {outcomeLabel(auth)}
+      </div>
+    );
+  }
+  if (verdict === AuthVerdict.Spoofed) {
+    return (
+      <div className="banner error mt" style={{ fontSize: 13 }}>
+        <strong>Unauthenticated sender — treat this message as an attempt to impersonate.</strong>
+        <div style={{ marginTop: 4 }}>{outcomeLabel(auth)}</div>
+        {auth?.reasons.length ? <div className="faint">Why: {auth.reasons.join("; ")}</div> : null}
+      </div>
+    );
+  }
+  return (
+    <div className="banner mt" style={{ fontSize: 13 }}>
+      Sender not verified — {outcomeLabel(auth)}
+    </div>
+  );
+}
+
 export function MessageDetail({ id }: { id: string }) {
   const [remoteImages, setRemoteImages] = useState(false);
   const [showText, setShowText] = useState(false);
+  const [revealSpoofed, setRevealSpoofed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const markedRef = useRef<string | null>(null);
@@ -76,6 +112,9 @@ export function MessageDetail({ id }: { id: string }) {
 
   const codes = useMemo(() => (data?.extractedCodes ?? []).slice().sort(byConfidence), [data]);
   const links = useMemo(() => (data?.verificationLinks ?? []).slice().sort(byScore), [data]);
+  // A spoofed message's "code" and "verify link" are the payload a phisher wants read,
+  // so they stay hidden until the owner explicitly asks for them.
+  const hidingSecrets = !!data && data.authVerdict === AuthVerdict.Spoofed && !revealSpoofed;
 
   async function toggleRead() {
     if (!data) return;
@@ -140,7 +179,22 @@ export function MessageDetail({ id }: { id: string }) {
             </div>
           )}
 
-          {codes.length > 0 && (
+          <AuthBanner verdict={data.authVerdict} auth={data.auth ?? null} />
+
+          {hidingSecrets && (codes.length > 0 || links.length > 0) ? (
+            <div className="banner error mt">
+              <div>
+                <strong>Codes and verification links are hidden.</strong> A message that fails sender authentication can be
+                forged by anyone who learns an alias address, so nothing here is presented as a code or a link until you
+                choose to look.
+              </div>
+              <button className="small danger" style={{ marginTop: 8 }} onClick={() => setRevealSpoofed(true)}>
+                Show anyway ({codes.length + links.length})
+              </button>
+            </div>
+          ) : null}
+
+          {codes.length > 0 && !hidingSecrets && (
             <div className="mt">
               <h2>Codes</h2>
               <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
@@ -151,7 +205,7 @@ export function MessageDetail({ id }: { id: string }) {
             </div>
           )}
 
-          {links.length > 0 && (
+          {links.length > 0 && !hidingSecrets && (
             <div className="mt">
               <h2>Verification links</h2>
               <div className="stack">

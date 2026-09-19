@@ -1,5 +1,7 @@
 import type {
   AliasStatus,
+  AuthPolicy,
+  AuthVerdict,
   CatchAllStatus,
   ConflictType,
   MailStatus,
@@ -20,6 +22,7 @@ export interface DomainRow {
   catch_all_status: CatchAllStatus;
   conflict_type: ConflictType;
   conflict_details_json: string | null;
+  auth_policy: AuthPolicy;
   last_checked_at: string | null;
   created_at: string;
   updated_at: string;
@@ -60,6 +63,8 @@ export interface MessageRow {
   is_read: number;
   extracted_codes_json: string | null;
   verification_links_json: string | null;
+  auth_verdict: AuthVerdict;
+  auth_json: string | null;
   created_at: string;
   // Joined context columns
   alias_label?: string | null;

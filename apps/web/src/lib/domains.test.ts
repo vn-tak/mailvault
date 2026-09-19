@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AuthPolicy,
   ConflictType,
   MailStatus,
   PreflightClassification,
@@ -26,6 +27,7 @@ function domain(over: Partial<Domain> = {}): Domain {
     catchAllStatus: CatchAllStatus.Unknown,
     conflictType: ConflictType.None,
     conflictDetails: null,
+    authPolicy: AuthPolicy.Warn,
     lastCheckedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

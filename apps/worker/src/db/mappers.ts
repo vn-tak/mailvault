@@ -3,6 +3,7 @@ import type {
   ConflictDetails,
   Domain,
   ExtractedCode,
+  MessageAuth,
   MessageSummary,
   VerificationLink,
 } from "@mailvault/shared";
@@ -30,6 +31,7 @@ export function toDomain(row: DomainRow): Domain {
     catchAllStatus: row.catch_all_status,
     conflictType: row.conflict_type,
     conflictDetails: parseJson<ConflictDetails | null>(row.conflict_details_json, null),
+    authPolicy: row.auth_policy,
     lastCheckedAt: row.last_checked_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -79,7 +81,14 @@ export function toMessageSummary(row: MessageRow): MessageSummary {
     primaryCode: primary ? primary.value : null,
     codeCount: codes.length,
     linkCount: links.length,
+    authVerdict: row.auth_verdict,
   };
+}
+
+/** The stored assessment, or null for mail that predates authentication recording. */
+export function toMessageAuth(row: Pick<MessageRow, "auth_json">): MessageAuth | null {
+  const raw = parseJson<MessageAuth | null>(row.auth_json, null);
+  return raw && typeof raw.verdict === "string" ? raw : null;
 }
 
 export { parseJson };

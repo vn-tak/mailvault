@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { Miniflare } from "miniflare";
 import type { Env } from "../../src/env";
 
@@ -19,15 +19,19 @@ export interface TestBindings {
 
 let cached: TestBindings | undefined;
 
+/** Applies every migration in filename order, like `wrangler d1 migrations apply`. */
 function loadSchema(): string[] {
-  const raw = readFileSync(new URL("../../migrations/0001_init.sql", import.meta.url), "utf8");
-  return raw
-    .split("\n")
-    .filter((line) => !line.trim().startsWith("--"))
-    .join("\n")
-    .split(";")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !/^PRAGMA/i.test(s));
+  const dir = new URL("../../migrations/", import.meta.url);
+  const files = readdirSync(dir).filter((f) => /^\d[\w.-]*\.sql$/.test(f)).sort();
+  return files.flatMap((file) =>
+    readFileSync(new URL(file, dir), "utf8")
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n")
+      .split(";")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && !/^PRAGMA/i.test(s)),
+  );
 }
 
 export async function getTestBindings(): Promise<TestBindings> {

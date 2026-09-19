@@ -19,6 +19,8 @@ export interface ParsedEmail {
   text: string | null;
   html: string | null;
   attachments: ParsedAttachment[];
+  /** Every `Authentication-Results` line, in the order they appear in the message. */
+  authResults: string[];
 }
 
 function displayMailbox(name: string | undefined, address: string | undefined): string | null {
@@ -76,5 +78,8 @@ export async function parseMime(raw: Uint8Array): Promise<ParsedEmail> {
     text: parsed.text ?? null,
     html: parsed.html ?? null,
     attachments,
+    authResults: (parsed.headers ?? [])
+      .filter((h) => h.key === "authentication-results" || h.key === "authentication-results-iana")
+      .map((h) => h.value),
   };
 }
