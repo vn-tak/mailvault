@@ -46,7 +46,7 @@ export const MessageListQuerySchema = z.object({
   filter: z.enum([MessageFilter.All, MessageFilter.Unread]).default(MessageFilter.All),
   domainId: z.string().min(1).optional(),
   aliasId: z.string().min(1).optional(),
-  /** Matches sender, subject, alias address, and alias label (section 46). */
+  /** Full-text search over subject, preview and sender, plus an exact match on OTP codes. */
   q: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),

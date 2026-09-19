@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../../src/env";
 import { ingestEmail } from "../../src/mail/ingest";
+import { deleteMessage, listMessages } from "../../src/db/messages";
 import { getTestBindings, type TestBindings } from "./_mf";
 
 let bindings: TestBindings;
@@ -219,5 +220,46 @@ describe("inbound email ingestion", () => {
     // Nothing aligned with github.com, so this is unverified — and the UI keeps the code
     // visible only for verdicts that are not SPOOFED.
     expect(row?.auth_verdict).toBe("UNVERIFIED");
+  });
+});
+
+describe("search: FTS5 text + code + alias matching", () => {
+  async function deliver(to: string, subject: string, body: string, messageId: string) {
+    const raw = emailRaw({ subject, body, messageId, to });
+    await ingestEmail(makeMessage(to, raw).message, TEST_ENV, DB, BUCKET);
+  }
+
+  const list = (q: string) => listMessages(DB, { filter: "all", limit: 10, offset: 0, q });
+
+  it("finds by words, by exact OTP, and by alias address", async () => {
+    await seedAlias("search@notify.example");
+    await DB.prepare(`UPDATE aliases SET label = 'GitHub sign-in' WHERE address = 'search@notify.example'`).run();
+    await deliver("search@notify.example", "Please verify your device", "Your GitHub verification code is 55905149.", "s1");
+    await deliver("search@notify.example", "Weekly digest", "Nothing worth reading.", "s2");
+
+    expect((await list("verify device")).total).toBe(1);
+    expect((await list("digest")).total).toBe(1);
+    expect((await list("55905149")).total).toBe(1);
+    expect((await list("search@notify.example")).total).toBe(2);
+    expect((await list("sign-in")).total).toBe(2);
+    expect((await list("nothing-matches-this")).total).toBe(0);
+  });
+
+  it("survives query strings that are FTS5 syntax attacks", async () => {
+    await seedAlias("safe@notify.example");
+    await deliver("safe@notify.example", "hello world", "body", "s3");
+    for (const q of ['"(unbalanced', "AND OR NOT", "ne*;x", "col:hello", '"', "NAAaA", "-"]) {
+      const r = await list(q);
+      expect(r.total).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("removes the index row together with the message", async () => {
+    await seedAlias("gone@notify.example");
+    await deliver("gone@notify.example", "temporary notice", "body", "s4");
+    expect((await list("temporary")).total).toBe(1);
+    const row = await DB.prepare(`SELECT id FROM messages WHERE subject = 'temporary notice'`).first<{ id: string }>();
+    await deleteMessage(DB, row!.id);
+    expect((await list("temporary")).total).toBe(0);
   });
 });

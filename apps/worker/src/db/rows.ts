@@ -70,6 +70,8 @@ export interface MessageRow {
   alias_label?: string | null;
   alias_address?: string | null;
   domain_name?: string | null;
+  /** bm25 relevance from the search query; absent on unfiltered listing. */
+  rank?: number | null;
 }
 
 export interface AttachmentRow {

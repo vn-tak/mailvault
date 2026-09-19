@@ -237,6 +237,8 @@ time and the judgement is stored (`messages.auth_verdict` + `auth_json`).
 `migrations/0001_init.sql` and the app have **no** TTL, cron, lifecycle rule, or
 background job that deletes mailbox content. Aliases and messages persist until the
 owner explicitly deletes them, and message deletion only purges content when asked.
+The one scheduled job that exists (`7 * * * *`) is the read-only drift watchdog in §9;
+it writes status columns and never touches a message, an alias or a zone.
 
 ## 11. Input validation
 
@@ -244,6 +246,13 @@ owner explicitly deletes them, and message deletion only purges content when ask
 `parseQuery`) with tight bounds: local-part charset/length + reserved names, label
 length, pagination limits (≤200), filter enums, etc. Validation failures return
 `400 VALIDATION_ERROR` rather than reaching the DB.
+
+- **Search syntax is data, not a query.** Values are always bound as parameters, but an
+  FTS5 `MATCH` string is parsed by the index itself, so `"`, `AND`, `NOT`, `col:` and
+  syntax errors in it are a caller-controlled grammar. `ftsMatch()` reduces the input to
+  quoted word tokens (capped at 8) and the search falls back to LIKE-only when nothing
+  usable remains, so a hostile query returns zero rows instead of a `500`. Proven by
+  `test/integration/ingest.test.ts` ("FTS5 syntax attacks").
 
 ## 12. What is deliberately out of scope in V1
 

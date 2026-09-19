@@ -88,7 +88,8 @@ function stubClient(stub: Stub) {
   return { client, mutations };
 }
 
-const statusWrites = (writes: { sql: string }[]) => writes.filter((w) => /UPDATE domains SET mail_status/.test(w.sql));
+const statusWrites = (writes: { sql: string; binds: unknown[] }[]) =>
+  writes.filter((w) => /UPDATE domains SET mail_status/.test(w.sql));
 
 describe("drift watchdog (read-only against Cloudflare)", () => {
   it("leaves a healthy domain alone apart from its check timestamp", async () => {

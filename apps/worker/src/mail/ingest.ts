@@ -5,7 +5,7 @@ import { sanitizeFilename } from "../lib/filename";
 import { log } from "../lib/logging";
 import { findActiveAliasByAddress } from "../db/aliases";
 import { getDomainById } from "../db/domains";
-import { insertMessage, insertAttachments, dedupeKeyExists } from "../db/messages";
+import { insertMessage, insertAttachments, dedupeKeyExists, indexMessage } from "../db/messages";
 import type { InsertMessageInput, InsertAttachmentInput } from "../db/messages";
 import {
   buildRawKey,
@@ -228,6 +228,7 @@ export async function ingestEmail(message: Rejectable, env: Env, db: D1Database,
       return { status: "duplicate" };
     }
     await insertAttachments(db, insertedId, attachmentRows);
+    await indexMessage(db, insertedId, { subject, preview, sender: headerFrom });
 
     log.info("mail_stored", {
       aliasId: alias.id,

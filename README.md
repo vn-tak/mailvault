@@ -146,7 +146,7 @@ state-changing methods, the `x-mailvault: 1` header + same-origin (CSRF).
 | PATCH | `/api/aliases/:id` | Update label |
 | POST | `/api/aliases/:id/enable` \| `/disable` | Toggle receiving |
 | DELETE | `/api/aliases/:id` | Delete alias; purge messages only if `purgeMessages` |
-| GET | `/api/messages` | Paginated inbox with filters + search |
+| GET | `/api/messages` | Paginated inbox; filters + FTS5 search over subject/preview/sender, exact OTP-code and alias match |
 | GET | `/api/messages/:id` | Detail with sanitized HTML, codes, links, attachments |
 | PATCH | `/api/messages/:id/read` | Set read flag |
 | DELETE | `/api/messages/:id` | Delete a message (+ its R2 objects) |

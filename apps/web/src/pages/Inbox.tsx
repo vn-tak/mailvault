@@ -103,7 +103,7 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
             Unread
           </button>
         </div>
-        <input className="search" placeholder="Search sender, subject, alias…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="search" placeholder="Search subject, preview, sender, OTP code, alias…" value={q} onChange={(e) => setQ(e.target.value)} />
         <button type="submit">Search</button>
         {aliasId && (
           <button type="button" className="ghost small" onClick={() => navigate("/inbox")}>
