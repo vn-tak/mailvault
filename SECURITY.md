@@ -172,6 +172,15 @@ A plain-text fallback (`<pre>`) is always available.
   from DNS instead of the unreadable flag (narrowly — other failures still propagate),
   the enable call is skipped when Cloudflare MX already exist, and the owner gets an
   actionable receipt rather than a raw auth error. See `DEPLOYMENT.md`.
+- **Zone Resources are account-wide on purpose.** The token scopes its zone permissions to
+  `All zones from an account`, not a per-zone list, so adding a domain never requires
+  editing the token. Widening a *resource* cannot widen a *capability*: the token holds no
+  MX write and no routing-enable permission at all, and its single write
+  (`Email Routing Rules:Edit`) is reachable only through the allow-list gate above, only
+  for a zone the owner imported and selected (a zone absent from `domains` is refused
+  before any API call — `test/unit/provisioner.test.ts`), and only via an authenticated
+  owner-triggered route. Measured on the owner's account: sync + preflight classified 38/38
+  zones and reported 35 conflicts with zero writes.
 - **No unused write permissions.** `DNS:Edit` was granted during diagnosis, shown by
   measurement to unlock nothing required, and reverted to `DNS:Read`.
 - **Removing a domain** deletes only the local row; the code refuses while aliases

@@ -21,14 +21,14 @@ const row: DomainRow = {
   updated_at: "2026-01-01T00:00:00.000Z",
 };
 
-function stubDb() {
+function stubDb(found = true) {
   const writes: string[] = [];
   const db = {
     prepare(sql: string) {
       const isSelect = /^\s*SELECT/i.test(sql);
       const api: Record<string, unknown> = {
         bind: () => api,
-        first: async () => (isSelect ? row : null),
+        first: async () => (isSelect ? (found ? row : null) : null),
         all: async () => [],
         run: async () => {
           writes.push(sql.trim().slice(0, 48));
@@ -159,5 +159,17 @@ describe("provisionDomain allow-list gate (section 7/9)", () => {
     // domain must NOT be marked READY off a single successful write.
     expect(out.status).toBe(MailStatus.Failed);
     expect(out.ok).toBe(false);
+  });
+
+  it("refuses a zone MailVault never imported, which is what bounds an account-wide token", async () => {
+    const { client, mutations } = stubClient();
+    const { db, writes } = stubDb(false);
+
+    const out = await provisionDomain(db, client, "z9", "mail-vault", { allowCatchAllTakeover: true });
+
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("Domain not synced yet");
+    expect(mutations).toEqual([]);
+    expect(writes).toEqual([]);
   });
 });
