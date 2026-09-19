@@ -65,7 +65,10 @@ of this system, so this addendum records the difference.
   zones. The remaining 35 zones were classified as conflicts and left untouched.
 - **Inbound proven with real mail**, including a live provider email whose 8-digit OTP was
   extracted at 0.85 confidence while a postal code in the same message was demoted to 0.47.
-- **Gates at this writing:** 71 tests (worker 49, web 22); lint and typecheck clean.
+- **Gates at this writing:** 103 tests (worker 81, web 22), 5 E2E; lint and typecheck clean.
+  The five later slices — sender authentication, drift watchdog, FTS5 search, alias
+  lifecycle, PWA + payload-free push — were each built, tested and deployed on
+  `feat/mailvault-v1`; see `git log` and `SECURITY.md` §6.1/§8.1/§9 for their contracts.
 
 ## Why it was `DEPLOYMENT_BLOCKED_CREDENTIALS`
 

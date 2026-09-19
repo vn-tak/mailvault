@@ -20,7 +20,7 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | D1 schema + migration | ✅ Implemented (`apps/worker/migrations/0001_init.sql`) |
 | React SPA (Dashboard / Domains / Aliases / Alias detail / Inbox / Message / Settings) | ✅ Implemented |
 | Installable PWA + payload-free new-mail notifications | ✅ Implemented |
-| Unit + integration tests (71 passing: worker 49, web 22) | ✅ Green |
+| Unit + integration tests (103 passing: worker 81, web 22) | ✅ Green |
 | Playwright E2E (5 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 3 owner-enabled domains | ✅ Live |
 
