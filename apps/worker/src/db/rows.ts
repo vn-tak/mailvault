@@ -34,6 +34,9 @@ export interface AliasRow {
   local_part: string;
   address: string;
   label: string | null;
+  notes: string | null;
+  pinned: number;
+  archived: number;
   status: AliasStatus;
   created_at: string;
   updated_at: string;

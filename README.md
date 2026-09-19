@@ -18,7 +18,7 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Worker (API + inbound email) | ✅ Implemented |
 | Shared types/validation (`packages/shared`) | ✅ Implemented |
 | D1 schema + migration | ✅ Implemented (`apps/worker/migrations/0001_init.sql`) |
-| React SPA (Dashboard / Domains / Aliases / Inbox / Message) | ✅ Implemented |
+| React SPA (Dashboard / Domains / Aliases / Alias detail / Inbox / Message) | ✅ Implemented |
 | Unit + integration tests (71 passing: worker 49, web 22) | ✅ Green |
 | Playwright E2E (5 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 3 owner-enabled domains | ✅ Live |
@@ -82,7 +82,7 @@ apps/
     migrations/      D1 SQL
     test/            unit + integration + .eml fixtures
   web/               React 18 + Vite SPA (custom hash router, no UI framework)
-    src/pages/       Dashboard, Domains, Aliases, Inbox, MessageDetail
+    src/pages/       Dashboard, Domains, Aliases, AliasDetail, Inbox, MessageDetail
     src/components/  ui primitives, sandboxed MessageHtml
     e2e/             Playwright specs (against same-origin wrangler dev)
 packages/
@@ -141,9 +141,10 @@ state-changing methods, the `x-mailvault: 1` header + same-origin (CSRF).
 | POST | `/api/domains/provision` | Enable mail on selected zones (owner action; takes over catch-all only with explicit confirm) |
 | POST | `/api/domains/:id/retry` | Retry provisioning for one zone |
 | DELETE | `/api/domains/:id` | Forget a domain locally (**never** deletes the Cloudflare zone) |
-| GET | `/api/aliases` | List/search aliases |
+| GET | `/api/aliases` | List/search aliases (`?view=active\|archived\|all`, pinned first) |
 | POST | `/api/aliases` | Create alias (random / service_random / custom) |
-| PATCH | `/api/aliases/:id` | Update label |
+| GET | `/api/aliases/:id` | One alias + arrival history (counts, first/last, top senders) |
+| PATCH | `/api/aliases/:id` | Update label, notes, pinned, archived (partial) |
 | POST | `/api/aliases/:id/enable` \| `/disable` | Toggle receiving |
 | DELETE | `/api/aliases/:id` | Delete alias; purge messages only if `purgeMessages` |
 | GET | `/api/messages` | Paginated inbox; filters + FTS5 search over subject/preview/sender, exact OTP-code and alias match |

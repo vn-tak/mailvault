@@ -170,3 +170,72 @@ describe("HTTP API", () => {
     expect(await DB.prepare(`SELECT 1 FROM messages WHERE id=?1`).bind(messageId).first()).toBeNull();
   });
 });
+
+describe("alias lifecycle: notes, pin, archive and timeline", () => {
+  const patch = (id: string, body: unknown) =>
+    worker.fetch(req(`/api/aliases/${id}`, { method: "PATCH", headers: mutationHeaders, body: JSON.stringify(body) }), TEST_ENV, CTX);
+
+  it("changes one field without clobbering the others, and archives out of the default view", async () => {
+    const domainId = await seedDomain();
+    const created = await j(
+      await worker.fetch(
+        req("/api/aliases", { method: "POST", headers: mutationHeaders, body: JSON.stringify({ domainId, mode: "custom", localPart: "life01", label: "Life" }) }),
+        TEST_ENV,
+        CTX,
+      ),
+    );
+    expect(created.notes).toBeNull();
+    expect(created.pinned).toBe(false);
+    expect(created.archived).toBe(false);
+
+    expect((await patch(created.id, { notes: "handed to the staging account" })).status).toBe(200);
+    const pinned = await j(await patch(created.id, { pinned: true }));
+    expect(pinned.notes).toBe("handed to the staging account");
+    expect(pinned.pinned).toBe(true);
+    expect(pinned.label).toBe("Life");
+
+    await patch(created.id, { archived: true });
+    const active = await j(await worker.fetch(req("/api/aliases"), TEST_ENV, CTX));
+    const all = await j(await worker.fetch(req("/api/aliases?view=all"), TEST_ENV, CTX));
+    expect(active.items.some((a: { id: string }) => a.id === created.id)).toBe(false);
+    expect(all.items.some((a: { id: string }) => a.id === created.id)).toBe(true);
+    expect(all.items.find((a: { id: string }) => a.id === created.id).archived).toBe(true);
+  });
+
+  it("refuses an empty patch and an oversized note", async () => {
+    const domainId = await seedDomain();
+    const created = await j(
+      await worker.fetch(
+        req("/api/aliases", { method: "POST", headers: mutationHeaders, body: JSON.stringify({ domainId, mode: "custom", localPart: "life02" }) }),
+        TEST_ENV,
+        CTX,
+      ),
+    );
+    expect((await patch(created.id, {})).status).toBe(400);
+    expect((await patch(created.id, { notes: "x".repeat(1001) })).status).toBe(400);
+  });
+
+  it("reports what has arrived at one alias", async () => {
+    const domainId = await seedDomain();
+    const aliasId = crypto.randomUUID();
+    await DB.prepare(
+      `INSERT INTO aliases (id, domain_id, local_part, address, status) VALUES (?1, ?2, 'tally', 'tally@notify.example', 'ACTIVE')`,
+    )
+      .bind(aliasId, domainId)
+      .run();
+    const stored = await ingestEmail(
+      (await makeMessage("tally@notify.example", htmlEmailWithAttachment("tally@notify.example", "tally-m1"))).message,
+      bindings.env,
+      DB,
+      BUCKET,
+    );
+    expect(stored.status).toBe("stored");
+
+    const detail = await j(await worker.fetch(req(`/api/aliases/${aliasId}`), TEST_ENV, CTX));
+    expect(detail.alias.address).toBe("tally@notify.example");
+    expect(detail.stats.messages).toBe(1);
+    expect(detail.stats.unread).toBe(1);
+    expect(detail.stats.lastReceivedAt).toBeTruthy();
+    expect(detail.stats.senders[0]?.name).toContain("GitHub");
+  });
+});

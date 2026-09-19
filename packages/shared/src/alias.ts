@@ -8,6 +8,7 @@ import { AliasStatus, LocalPartMode } from "./enums";
  */
 export const LOCAL_PART_MAX_LENGTH = 64;
 export const LABEL_MAX_LENGTH = 120;
+export const NOTES_MAX_LENGTH = 1000;
 /** System-reserved local parts that could collide with future control addresses. */
 export const RESERVED_LOCAL_PARTS = [
   "postmaster",
@@ -61,6 +62,9 @@ export const AliasSchema = z.object({
   localPart: z.string(),
   address: z.string(),
   label: z.string().nullable(),
+  notes: z.string().nullable().default(null),
+  pinned: z.boolean().default(false),
+  archived: z.boolean().default(false),
   status: z.nativeEnum(AliasStatus),
   messageCount: z.number().int().nonnegative().optional(),
   unreadCount: z.number().int().nonnegative().optional(),
@@ -106,11 +110,29 @@ export const CreateAliasSchema = z.discriminatedUnion("mode", [
 export type CreateAliasInput = z.input<typeof CreateAliasSchema>;
 export type CreateAliasParsed = z.output<typeof CreateAliasSchema>;
 
-/** PATCH /api/aliases/:id — currently only the label can be edited inline. */
-export const UpdateAliasSchema = z.object({
-  label: z.string().max(LABEL_MAX_LENGTH).nullable(),
-});
+/** PATCH /api/aliases/:id — every field is optional; at least one must be sent. */
+export const UpdateAliasSchema = z
+  .object({
+    label: z.string().max(LABEL_MAX_LENGTH).nullable().optional(),
+    notes: z.string().max(NOTES_MAX_LENGTH).nullable().optional(),
+    pinned: z.boolean().optional(),
+    archived: z.boolean().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "Nothing to update" });
 export type UpdateAliasInput = z.infer<typeof UpdateAliasSchema>;
+
+/** What has arrived at one alias — the timeline on its detail page. */
+export const AliasStatsSchema = z.object({
+  messages: z.number().int().nonnegative(),
+  unread: z.number().int().nonnegative(),
+  firstReceivedAt: z.string().nullable(),
+  lastReceivedAt: z.string().nullable(),
+  senders: z.array(z.object({ name: z.string(), count: z.number().int().nonnegative() })).default([]),
+});
+export type AliasStats = z.infer<typeof AliasStatsSchema>;
+
+export const AliasDetailSchema = z.object({ alias: AliasSchema, stats: AliasStatsSchema });
+export type AliasDetail = z.infer<typeof AliasDetailSchema>;
 
 /** DELETE /api/aliases/:id — `purgeMessages` also removes its stored mail. */
 export const DeleteAliasSchema = z.object({

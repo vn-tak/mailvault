@@ -1,5 +1,6 @@
 import type {
   Alias,
+  AliasDetail,
   AuthPolicy,
   CreateAliasInput,
   DashboardStats,
@@ -12,6 +13,7 @@ import type {
   PreflightResult,
   ProvisionOutcome,
   MessageSummary,
+  UpdateAliasInput,
 } from "@mailvault/shared";
 
 const BASE = "/api";
@@ -86,14 +88,12 @@ export const api = {
       mutation({ policy }, "PATCH"),
     ),
 
-  listAliases: (q?: string) => request<{ items: Alias[] }>(`/aliases${qs({ q })}`),
+  listAliases: (q?: string, view: "all" | "active" | "archived" = "active") =>
+    request<{ items: Alias[] }>(`/aliases${qs({ q, view })}`),
+  getAlias: (id: string) => request<AliasDetail>(`/aliases/${encodeURIComponent(id)}`),
+  updateAlias: (id: string, patch: UpdateAliasInput) =>
+    request<Alias>(`/aliases/${encodeURIComponent(id)}`, mutation(patch, "PATCH")),
   createAlias: (input: CreateAliasInput) => request<Alias>("/aliases", mutation(input)),
-  updateAlias: (id: string, label: string | null) =>
-    request<Alias>(`/aliases/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json", "x-mailvault": "1" },
-      body: JSON.stringify({ label }),
-    }),
   enableAlias: (id: string) => request<Alias>(`/aliases/${encodeURIComponent(id)}/enable`, mutation()),
   disableAlias: (id: string) => request<Alias>(`/aliases/${encodeURIComponent(id)}/disable`, mutation()),
   deleteAlias: (id: string, purgeMessages: boolean) =>

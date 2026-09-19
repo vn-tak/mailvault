@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiClientError } from "../lib/api";
-import { LocalPartMode, MailStatus, type Alias, type CreateAliasInput, type Domain } from "@mailvault/shared";
+import {
+  LocalPartMode,
+  MailStatus,
+  type Alias,
+  type CreateAliasInput,
+  type Domain,
+  type UpdateAliasInput,
+} from "@mailvault/shared";
 import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
@@ -127,7 +134,8 @@ function Preview({ local, domain }: { local: string; domain: string }) {
 
 export function Aliases({ openNew }: { openNew: boolean }) {
   const [q, setQ] = useState("");
-  const { data, error, loading, reload } = useAsync(() => api.listAliases(q || undefined), [q]);
+  const [view, setView] = useState<"active" | "archived" | "all">("active");
+  const { data, error, loading, reload } = useAsync(() => api.listAliases(q || undefined, view), [q, view]);
   const [showNew, setShowNew] = useState(openNew);
   const [deleting, setDeleting] = useState<Alias | null>(null);
   const [purge, setPurge] = useState(false);
@@ -141,6 +149,15 @@ export function Aliases({ openNew }: { openNew: boolean }) {
     if (a.status === "ACTIVE") await api.disableAlias(a.id);
     else await api.enableAlias(a.id);
     reload();
+  }
+
+  async function patch(a: Alias, changes: UpdateAliasInput) {
+    try {
+      await api.updateAlias(a.id, changes);
+      reload();
+    } catch (e) {
+      setNotice(e instanceof ApiClientError ? e.message : "Update failed");
+    }
   }
 
   async function confirmDelete() {
@@ -171,7 +188,14 @@ export function Aliases({ openNew }: { openNew: boolean }) {
       {error && <ErrorBanner message={error} />}
 
       <div className="toolbar">
-        <input className="search" placeholder="Search address or label…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="search" placeholder="Search address, label or note…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="tabs" role="tablist">
+          {(["active", "archived", "all"] as const).map((v) => (
+            <button key={v} type="button" role="tab" aria-selected={view === v} className={view === v ? "active" : ""} onClick={() => setView(v)}>
+              {v === "active" ? "Active" : v === "archived" ? "Archived" : "All"}
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading && !data && <Loading />}
@@ -195,8 +219,16 @@ export function Aliases({ openNew }: { openNew: boolean }) {
               {data.items.map((a) => (
                 <tr key={a.id}>
                   <td>
-                    <div style={{ fontWeight: 600 }}>{a.label || <span className="muted">No label</span>}</div>
+                    <div style={{ fontWeight: 600 }}>
+                      {a.pinned ? "📌 " : null}
+                      {a.label || <span className="muted">No label</span>}
+                    </div>
                     <div className="addr muted">{a.address}</div>
+                    {a.notes ? (
+                      <div className="faint" style={{ fontSize: 12, marginTop: 2, maxWidth: 380 }}>
+                        {a.notes.length > 90 ? `${a.notes.slice(0, 90)}…` : a.notes}
+                      </div>
+                    ) : null}
                   </td>
                   <td>
                     <span className={`pill ${a.status === "ACTIVE" ? "ready" : "neutral"}`}>{a.status === "ACTIVE" ? "Active" : "Disabled"}</span>
@@ -206,6 +238,19 @@ export function Aliases({ openNew }: { openNew: boolean }) {
                   <td>
                     <div className="row" style={{ justifyContent: "flex-end" }}>
                       <CopyButton text={a.address} label="Copy" small />
+                      <button className="small" onClick={() => navigate(`/aliases/${a.id}`)}>
+                        Detail
+                      </button>
+                      <button className="small" onClick={() => patch(a, { pinned: !a.pinned })} title="Keep this one at the top">
+                        {a.pinned ? "Unpin" : "Pin"}
+                      </button>
+                      <button
+                        className="small"
+                        onClick={() => patch(a, { archived: !a.archived })}
+                        title="Archiving only hides it from the active list — it keeps receiving mail"
+                      >
+                        {a.archived ? "Unarchive" : "Archive"}
+                      </button>
                       <button className="small" onClick={() => navigate(`/inbox?alias=${a.id}`)}>
                         Inbox
                       </button>

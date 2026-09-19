@@ -4,6 +4,7 @@ import { Link, matchRoute, useRoute } from "./lib/router";
 import { Dashboard } from "./pages/Dashboard";
 import { Domains } from "./pages/Domains";
 import { Aliases } from "./pages/Aliases";
+import { AliasDetail } from "./pages/AliasDetail";
 import { Inbox } from "./pages/Inbox";
 import { MessageDetail } from "./pages/MessageDetail";
 
@@ -23,6 +24,8 @@ function Route() {
   const { path, query } = useRoute();
   const msg = matchRoute("/messages/:id", path);
   if (msg?.id) return <MessageDetail id={msg.id} />;
+  const alias = matchRoute("/aliases/:id", path);
+  if (alias?.id) return <AliasDetail id={alias.id} />;
   if (path === "/domains") return <Domains />;
   if (path === "/aliases") return <Aliases openNew={query.get("new") === "1"} />;
   if (path === "/inbox") return <Inbox aliasId={query.get("alias") ?? undefined} domainId={query.get("domain") ?? undefined} />;
