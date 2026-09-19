@@ -138,4 +138,21 @@ describe("email HTML sanitization (section 19)", () => {
     expect(out).toContain('rel="');
     expect(out).toContain("noopener");
   });
+  it("keeps character references and escapes only bare ampersands", () => {
+    // Real GitHub footers are full of these; double-escaping printed them as literal text.
+    const out = sanitizeEmailHtml("GitHub, Inc. &#183; 88 Street&#160;CA & more &amp; done &#x30FB; &#107;");
+    expect(out).toContain("&#183;");
+    expect(out).toContain("&#160;");
+    expect(out).toContain("&#x30FB;");
+    expect(out).toContain("&#107;");
+    expect(out).toContain("&amp; more");
+    expect(out).toContain("&amp; done");
+    expect(out).not.toContain("&amp;#");
+  });
+  it("still neutralises markup smuggled as text", () => {
+    const out = sanitizeEmailHtml("a &lt;b&gt; c <b>bold</b> & d");
+    expect(out).toContain("&lt;b&gt;");
+    expect(out).toContain("<b>bold</b>");
+    expect(out).toContain("&amp; d");
+  });
 });

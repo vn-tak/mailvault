@@ -88,7 +88,7 @@ function filterAttributes(tag: string, raw: string, allowRemoteImages: boolean):
 }
 
 function escapeAttr(v: string): string {
-  return v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return v.replace(BARE_AMP, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 export interface SanitizeOptions {
@@ -133,6 +133,12 @@ export function sanitizeEmailHtml(input: string, opts: SanitizeOptions = {}): st
 }
 
 // Escape raw text between tags so stray < > never start markup in the iframe.
+// A bare `&` must become `&amp;`, but an existing character reference must survive —
+// escaping it twice is what made real GitHub mail print "&#160;" everywhere.
+// Entities only ever decode to characters, and the iframe is `sandbox=""`, so keeping
+// them cannot introduce script execution.
+const BARE_AMP = /&(?!#x[0-9a-f]{1,8};|#[0-9]{1,8};|[a-zA-Z][a-zA-Z0-9]{1,31};)/gi;
+
 function escapeText(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text.replace(BARE_AMP, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

@@ -35,8 +35,11 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;
 
   if (request.mode === "navigate") {
+    // no-store: a deploy must reach an installed client on the next open. Without it the
+    // HTTP cache can answer with the previous index.html, which points at the previous
+    // hashed bundle — i.e. the app silently runs an old UI. Offline still falls back.
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-store" })
         .then((response) => {
           void cacheLater(request, response);
           return response;
