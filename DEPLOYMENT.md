@@ -124,8 +124,9 @@ wrangler secret put CLOUDFLARE_API_TOKEN            # least-privilege token, see
 
 ### API token scope (least privilege)
 
-Create one **User API Token** per zone you want MailVault to manage, scoped to exactly
-those zones:
+Create **one** User API Token and list every zone MailVault should manage in its
+*Zone Resources* (Add more → Specific zone). Scope it to exactly those zones — never
+"All zones" — because the account may contain domains whose mail is served elsewhere.
 
 - **Zone / Zone / Read** — enumerate + inspect the zone
 - **Zone / DNS / Read** — read MX records for conflict detection
