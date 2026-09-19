@@ -74,6 +74,16 @@ of this system, so this addendum records the difference.
   routing adds no second SPF, so deleting them would only break the owner's outbound mail.
   `tungjpstore.net`, `selinow.com`, `fball.vn` and `logivn.com` are excluded by
   `DOMAIN_DENYLIST` and still route to Zoho — verified by public DNS after the batch.
+  All 36 were then re-checked against each zone's **authoritative** nameservers, because a
+  recursive resolver served a deleted IONOS MX set for `abitovn.info` minutes afterwards
+  (authoritative DNS was already correct; the cache, not the zone, was wrong).
+- **One `READY` domain cannot receive mail: `loiyeuthuong.org`.** Its Cloudflare zone is
+  active, `full`, and holds exactly Cloudflare's routing MX, so both preflight and the drift
+  watchdog report it healthy — but the *registration* lapsed on 2026-08-21 and the registry
+  moved it to `redemptionPeriod` on 2026-09-17, which removes it from the `.org` zone. Public
+  DNS answers NXDOMAIN, so no sender can ever look up its MX. This is registrar state, not
+  MailVault state: the fix is to renew (or deliberately drop) the domain, and nothing here can
+  verify that from inside a Worker without querying a public resolver on MailVault's behalf.
 - **Inbound proven with real mail**, including a live provider email whose 8-digit OTP was
   extracted at 0.85 confidence while a postal code in the same message was demoted to 0.47.
 - **Gates at this writing:** 103 tests (worker 81, web 22), 5 E2E; lint and typecheck clean.
