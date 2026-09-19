@@ -78,6 +78,9 @@ function stubClient(
     setCatchAllWorker: async () => {
       mutations.push("setCatchAllWorker");
     },
+    deleteDnsRecord: async (_zoneId: string, id: string) => {
+      mutations.push(`deleteDnsRecord:${id}`);
+    },
   } as unknown as CloudflareClient;
   return { client, mutations };
 }
@@ -155,8 +158,9 @@ describe("provisionDomain allow-list gate (section 7/9)", () => {
 
     expect(out.ok).toBe(false);
     expect(out.error).toContain("Email Routing is not enabled for this domain");
+    expect(out.error).toContain("Email Routing Rules → Edit");
     expect(out.error).toContain("Zone Resources");
-    expect(out.error).toContain("click Retry");
+    expect(out.error).toContain("No MX record was touched");
     expect(out.error).not.toContain("Authentication error");
   });
 
@@ -214,5 +218,88 @@ describe("preflightMany remembers its verdict locally, never in Cloudflare", () 
     expect(res?.classification).toBe(PreflightClassification.ApiPermissionError);
     expect(upd?.sql).not.toContain("mail_status");
     expect(upd?.sql).toContain("last_checked_at");
+  });
+});
+
+/*
+ * MX takeover is the one provisioning action that stops mail arriving somewhere else, so
+ * the tests are about who may pull that trigger and what is left behind to undo it.
+ */
+describe("owner-confirmed MX takeover", () => {
+  const zoneDns = async () => [
+    { id: "mx-google", type: "MX", name: "example.com", content: "aspmx.l.google.com", priority: 1 },
+    { id: "txt-old-spf", type: "TXT", name: "example.com", content: "v=spf1 include:_spf.google.com ~all" },
+    { id: "txt-cf-spf", type: "TXT", name: "example.com", content: "v=spf1 include:_spf.mx.cloudflare.net ~all" },
+    { id: "txt-dmarc", type: "TXT", name: "_dmarc.example.com", content: "v=DMARC1; p=reject" },
+    { id: "txt-key", type: "TXT", name: "google._domainkey.example.com", content: "v=DKIM1; k=rsa; p=AAA" },
+  ];
+  const deletes = (mutations: string[]) => mutations.filter((m) => m.startsWith("deleteDnsRecord"));
+
+  it("never deletes Cloudflare's own routing MX while clearing the rest", async () => {
+    const { client, mutations } = stubClient({
+      listDnsRecords: async () => [
+        { id: "mx-google", type: "MX", name: "example.com", content: "aspmx.l.google.com", priority: 1 },
+        { id: "mx-cf", type: "MX", name: "example.com", content: "route1.mx.cloudflare.net", priority: 36 },
+      ],
+    });
+    const { db } = stubDb();
+
+    await provisionDomain(db, client, "z1", "mail-vault", { allowMxTakeover: true });
+
+    expect(deletes(mutations)).toEqual(["deleteDnsRecord:mx-google"]);
+  });
+
+  it("removes the foreign MX and nothing else, then enables routing", async () => {
+    const { client, mutations } = stubClient({ listDnsRecords: zoneDns });
+    const { db, writes } = stubDb();
+
+    const out = await provisionDomain(db, client, "z1", "mail-vault", { allowMxTakeover: true });
+
+    expect(deletes(mutations)).toEqual(["deleteDnsRecord:mx-google"]);
+    expect(mutations).toContain("enableEmailRouting");
+    // Measured on a real takeover: enabling routing does not add a second SPF, so deleting
+    // the provider's SPF would break the owner's outbound mail for no gain. DKIM/DMARC too.
+    expect(mutations).not.toContain("deleteDnsRecord:txt-old-spf");
+    expect(mutations).not.toContain("deleteDnsRecord:txt-cf-spf");
+    expect(mutations).not.toContain("deleteDnsRecord:txt-dmarc");
+    expect(mutations).not.toContain("deleteDnsRecord:txt-key");
+
+    const audit = writes.filter((w) => /INSERT INTO provisioning_events/.test(w.sql)).map((w) => JSON.stringify(w.binds));
+    expect(audit.some((a) => a.includes("mx_takeover") && a.includes("aspmx.l.google.com"))).toBe(true);
+    expect(out.steps.map((s) => s.step)).toContain("mx_takeover");
+  });
+
+  it("deletes nothing without the confirmation", async () => {
+    const { client, mutations } = stubClient({ listDnsRecords: zoneDns });
+    const { db } = stubDb();
+
+    const out = await provisionDomain(db, client, "z1", "mail-vault", {});
+
+    expect(deletes(mutations)).toEqual([]);
+    expect(out.status).toBe(MailStatus.Conflict);
+  });
+
+  it("a catch-all confirmation does not buy an MX deletion as well", async () => {
+    const { client, mutations } = stubClient({ listDnsRecords: zoneDns });
+    const { db } = stubDb();
+
+    await provisionDomain(db, client, "z1", "mail-vault", { allowCatchAllTakeover: true });
+
+    expect(deletes(mutations)).toEqual([]);
+  });
+
+  it("refuses a domain the owner excluded, whatever the flags say", async () => {
+    const { client, mutations } = stubClient({ listDnsRecords: zoneDns });
+    const { db } = stubDb();
+
+    const out = await provisionDomain(db, client, "z1", "mail-vault", {
+      allowMxTakeover: true,
+      allowCatchAllTakeover: true,
+      denyDomains: ["EXAMPLE.COM"],
+    });
+
+    expect(mutations).toEqual([]);
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("excluded from MailVault management");
   });
 });

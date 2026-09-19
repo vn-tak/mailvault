@@ -27,10 +27,15 @@ const PROVIDER_SIGNATURES: Array<{ name: string; re: RegExp }> = [
 ];
 
 // Cloudflare Email Routing inbound MX hosts (ours).
-const CLOUDFLARE_ROUTING_MX = /(email-router\.net|emailrouting\.net|mx\.\w*\.?cloudflare)/i;
+const CLOUDFLARE_ROUTING_MX = /(email-router\.net|emailrouting\.net|(^|\.)mx\.[a-z0-9-]*\.?cloudflare)/i;
+// An MX exchange is a bare hostname. Anything with a space, an '=' or a scheme is record
+// *text* — e.g. an SPF line that merely mentions _spf.mx.cloudflare.net — and must never
+// be counted as our routing MX.
+const HOSTNAME_ONLY = /^[a-z0-9._-]+$/i;
 
 export function isCloudflareRoutingMx(content: string): boolean {
-  return CLOUDFLARE_ROUTING_MX.test(content);
+  const host = (content ?? "").trim().replace(/\.$/, "");
+  return HOSTNAME_ONLY.test(host) && CLOUDFLARE_ROUTING_MX.test(host);
 }
 
 export function detectProvider(content: string): string | null {

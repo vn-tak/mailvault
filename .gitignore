@@ -22,3 +22,6 @@ apps/web/dist/
 
 # Playwright visual snapshots (local inspection only)
 apps/web/e2e-screens/
+
+# Operational snapshots taken before DNS changes (local restore data, not source)
+.ops/

@@ -165,23 +165,32 @@ Create **one** User API Token.
 
 - **Zone / Zone / Read** — enumerate + inspect the zone
 - **Zone / DNS / Read** — read MX records for conflict detection
-- **Zone / Email Routing Rules / Edit** — read and set the catch-all → Worker
+- **Zone / DNS / Edit** — *only* for an owner-confirmed MX take-over: deleting another
+  provider's MX is the one DNS write MailVault performs. Without it, takeover attempts stop
+  with an auth error and nothing is deleted.
+- **Zone / Email Routing Rules / Edit** — read and set the catch-all → Worker, and
+  `POST /email/routing/enable`
 - **Account / Email Routing Addresses / Read** — carries the account resource the Email
   Routing endpoints require
 
-Do **not** use a Global API Key, and do not grant `Zone / DNS / Edit`: it was tested and
-does **not** unlock anything MailVault needs (see the constraint below).
+Do **not** use a Global API Key. `DNS:Edit` is the widest grant here, so it is worth being
+explicit about what bounds it: the code deletes a record only inside a take-over the owner
+confirmed in the UI, only records whose `type` is `MX` and whose exchange the preflight
+named as foreign, never Cloudflare's own routing MX, never SPF/DKIM/DMARC, never a zone on
+`DOMAIN_DENYLIST`, and never on startup or from a cron.
 
 Set *Zone Resources* to **All zones from an account**. A per-zone list was tried first
 and rejected: it forces a dashboard edit before MailVault can even *see* a new domain, and
 it makes `email/routing/enable` fail with an error that looks like a missing permission
-(next section). The scope changes which zones the *existing four* permissions apply to, so
+(next section). The scope changes which zones the *existing* permissions apply to, so
 judge it by what they can do on a zone MailVault has no business touching:
 
 - `Zone:Read` + `DNS:Read` are read-only on the owner's own zones.
 - `Email Routing Addresses:Read` is read-only.
-- `Email Routing Rules:Edit` is the single write: it sets the catch-all rule and, through
+- `Email Routing Rules:Edit` is the routing write: it sets the catch-all rule and, through
   the same permission, enables Email Routing. Both are bounded in code, not by the token.
+- `DNS:Edit` is the record write, and the only one that can strand a mailbox — see the
+  take-over gate in `SECURITY.md` §9.
 
 What actually limits the blast radius is the code path: an HTTP route can only name zones
 the owner selected, each must already be a row in MailVault's own `domains` table, the
@@ -197,10 +206,18 @@ in a way worth recording, because the failure mode is genuinely misleading:
 | Call with the runtime API token | Result |
 |---|---|
 | `GET /zones/{id}/dns_records?type=MX` | ✅ 200 |
+| `DELETE /zones/{id}/dns_records/{id}` | ❌ 403 `cfCode 10000` without `DNS:Edit`; ✅ 200 with it |
 | `GET /zones/{id}/email/routing/rules/catch_all` | ✅ 200 |
 | `PUT /zones/{id}/email/routing/rules/catch_all` | ✅ 200 |
 | `POST /zones/{id}/email/routing/enable` | ✅ 200 — but ❌ 403 `cfCode 10000` when the zone is outside the token's *Zone Resources* |
 | `GET /zones/{id}/email/routing` (settings flag) | ❌ 403 `cfCode 10000`, in every scope and permission combination tried |
+
+- **`enable` and `DNS:Edit` are independent grants, and `cfCode 10000` cannot tell them
+  apart.** Measured 2026-09-20 during a real take-over: the same token deleted IONOS's MX on
+  a zone (so that zone *is* inside its resources and `DNS:Edit` works) and was refused
+  `email/routing/enable` on that same zone minutes later. The domain was left with no MX at
+  all until routing was enabled through another credential — which is why the take-over
+  failure message now says the MX is already gone instead of reassuring about it.
 
 - **Enabling Email Routing *is* token-performable.** It was first written down as
   impossible because `cfCode 10000` ("Authentication error") is also what Cloudflare

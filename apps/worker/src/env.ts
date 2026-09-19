@@ -19,6 +19,12 @@ export interface Env {
   CF_ACCESS_AUD?: string;
   MAX_MESSAGE_BYTES?: string;
   ALLOWED_EMAILS?: string; // comma-separated owner allowlist (empty = any Access user)
+  /**
+   * Comma-separated domains the owner has ruled out of MailVault management because they
+   * serve another mail product. No Cloudflare mutation is ever issued for them, whatever
+   * takeover flags the request carries.
+   */
+  DOMAIN_DENYLIST?: string;
   DEV_AUTH_BYPASS?: string;
 
   // Secrets
@@ -55,6 +61,14 @@ export function allowedEmails(env: Env): string[] {
   return (env.ALLOWED_EMAILS ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** Domains the owner ruled out of management. Empty means nothing is excluded. */
+export function domainDenylist(env: Env): string[] {
+  return (env.DOMAIN_DENYLIST ?? "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase())
     .filter(Boolean);
 }
 

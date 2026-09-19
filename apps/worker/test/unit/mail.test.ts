@@ -87,6 +87,12 @@ describe("MX assessment (section 7)", () => {
     expect(a.cloudflareRouting).toBe(1);
     expect(a.clearForUs).toBe(true);
   });
+  it("does not mistake an SPF record that mentions our include target for routing MX", () => {
+    // A takeover reads every record type in the zone; a substring match here would make
+    // the provisioner believe Cloudflare's MX is already published and skip enabling it.
+    expect(isCloudflareRoutingMx("v=spf1 include:_spf.mx.cloudflare.net ~all")).toBe(false);
+    expect(assessMx([{ content: "v=spf1 include:_spf.mx.cloudflare.net ~all", priority: 0 }]).cloudflareRouting).toBe(0);
+  });
   it("treats an empty MX set as clear to provision", () => {
     const a = assessMx([]);
     expect(a.clearForUs).toBe(true);

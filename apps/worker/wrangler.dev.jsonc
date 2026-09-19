@@ -15,7 +15,8 @@
     "CF_ACCESS_TEAM_DOMAIN": "http://localhost:8787",
     "CF_ACCESS_AUD": "dev-bypass",
     "MAX_MESSAGE_BYTES": "20971520",
-    "ALLOWED_EMAILS": ""
+    "ALLOWED_EMAILS": "",
+    "DOMAIN_DENYLIST": "tungjpstore.net,selinow.com,fball.vn,logivn.com"
   },
 
   "d1_databases": [

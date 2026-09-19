@@ -49,6 +49,8 @@ export interface CloudflareClient {
   hasToken: boolean;
   listAllZones(): Promise<CfZone[]>;
   listDnsRecords(zoneId: string, type?: string): Promise<CfDnsRecord[]>;
+  /** Used only by an owner-confirmed MX takeover; the record is audited before deletion. */
+  deleteDnsRecord(zoneId: string, recordId: string): Promise<void>;
   getEmailRoutingStatus(zoneId: string): Promise<CfEmailRoutingSettings>;
   getEmailRoutingDns(zoneId: string): Promise<CfEmailRoutingDnsRecord[]>;
   enableEmailRouting(zoneId: string): Promise<void>;
@@ -173,6 +175,10 @@ export function createCloudflareClient(options: CloudflareClientOptions): Cloudf
 
     async listDnsRecords(zoneId, type): Promise<CfDnsRecord[]> {
       return pagedAll<CfDnsRecord>(`/zones/${zoneId}/dns_records`, type ? { type } : undefined);
+    },
+
+    async deleteDnsRecord(zoneId, recordId): Promise<void> {
+      await requestResult("DELETE", `/zones/${zoneId}/dns_records/${encodeURIComponent(recordId)}`);
     },
 
     getEmailRoutingStatus: (zoneId) => requestResult<CfEmailRoutingSettings>("GET", `/zones/${zoneId}/email/routing`),

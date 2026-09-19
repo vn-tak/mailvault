@@ -243,17 +243,30 @@ time and the judgement is stored (`messages.auth_verdict` + `auth_json`).
   discovery.
 - **Preflight is read-only** (`preflight.ts`) — proven by `test/unit/preflight.test.ts`
   asserting an empty mutation list. It classifies each zone and returns evidence.
-- **Foreign MX is never overwritten** (`mx.ts`): Google Workspace, Microsoft 365, Zoho,
-  Fastmail, Yahoo, Apple, Proton, Mimecast, Proofpoint, Barracuda, SpamTitan, IONOS,
+- **Foreign MX is never overwritten *by default*** (`mx.ts`): Google Workspace, Microsoft 365,
+  Zoho, Fastmail, Yahoo, Apple, Proton, Mimecast, Proofpoint, Barracuda, SpamTitan, IONOS,
   Amazon SES, Migadu and Yandex 360 signatures — and *any* non-Cloudflare host — mark
   `MX_CONFLICT` → `safeToProvision=false`, default **skip**. Only Cloudflare Email
   Routing MX counts as "ours". The IONOS/SES/Migadu/Yandex entries were added from
   hostnames actually observed in the owner's account.
+- **An MX take-over exists, and it is the owner pulling the trigger** (`allowMxTakeover`):
+  the Domains UI lists the exact records that will be deleted per selected domain, the
+  confirm is a separate checkbox from the catch-all one (a catch-all confirmation buys no
+  MX deletion — tested), and each record is written to `provisioning_events` *before* it is
+  removed so the domain can be handed back. Matching requires `type === "MX"` plus an
+  exchange the preflight named as foreign, so Cloudflare's own routing MX cannot be caught.
+  Nothing but MX is touched: enabling routing does not add a second SPF, so deleting the
+  provider's SPF/DKIM/DMARC would break the owner's outbound mail for no inbound gain
+  (measured on a live take-over).
+- **`DOMAIN_DENYLIST` (a Worker var) is checked before any mutation**, whatever the flags
+  say. It exists for domains the owner runs another mail product on — they are refused with
+  an explicit message rather than silently skipped, so the reason is visible in the UI.
 - **Foreign catch-all** marks `CATCH_ALL_CONFLICT`; a takeover requires an explicit
   `allowCatchAllTakeover` confirmation from the owner (surfaced in the Domains UI).
 - **Provisioning is allow-listed, not block-listed** (`provisioner.ts`). It mutates only
-  when preflight returns `READY_TO_PROVISION`, `ALREADY_CONFIGURED`, or
-  `CATCH_ALL_CONFLICT` *with* an explicit takeover confirmation. Everything else —
+  when preflight returns `READY_TO_PROVISION`, `ALREADY_CONFIGURED`, or a conflict *with*
+  the matching explicit confirmation from the owner (`CATCH_ALL_CONFLICT` →
+  `allowCatchAllTakeover`, `MX_CONFLICT` → `allowMxTakeover`). Everything else —
   including a preflight read that Cloudflare refused — stops before any write. A token
   that cannot *see* a zone is therefore never able to *change* it. This replaced an
   earlier block-list that let an unrecognized classification fall through to mutation,
@@ -267,8 +280,9 @@ time and the judgement is stored (`messages.auth_verdict` + `auth_json`).
   flag), which 403s in every scope and permission set tried. Consequences: routing state is
   derived from DNS instead of the unreadable flag (narrowly — other failures still
   propagate), the enable call is skipped when Cloudflare MX already exist, and a refused
-  enable names the token's Zone Resources as the first suspect rather than telling the owner
-  to go click around in the dashboard. See `DEPLOYMENT.md`.
+  enable names both possible causes — the missing `Email Routing Rules: Edit` permission and
+  the token's Zone Resources — and says whether this run already deleted the domain's MX.
+  See `DEPLOYMENT.md`.
 - **Drift is detected, never "repaired".** `provisioning/watchdog.ts` runs hourly
   (`triggers.crons`) and on demand from *Verify delivery*, re-reading the delivery path of
   domains MailVault believes work. If Cloudflare's routing MX disappeared or the catch-all

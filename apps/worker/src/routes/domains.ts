@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { AuthPolicy, DomainIdsBodySchema, type DiscoveredZone } from "@mailvault/shared";
 import type { AppEnv } from "../app-env";
+import { domainDenylist } from "../env";
 import { getDomainByZoneId, listDomains, setDomainAuthPolicy, upsertDiscoveredZones } from "../db/domains";
 import { preflightMany, provisionMany, provisionDomain } from "../provisioning/provisioner";
 import { runWatchdog } from "../provisioning/watchdog";
@@ -11,9 +12,10 @@ import { actorOf, asApiError, cfClient, readJson } from "./_helpers";
 
 const ZoneIdParam = z.object({ id: z.string().min(1) });
 
-/** Provision/preflight bodies accept an explicit, dangerous-action takeover confirm. */
+/** Provision/preflight bodies accept explicit, dangerous-action takeover confirmations. */
 const ProvisionBodySchema = DomainIdsBodySchema.extend({
   allowCatchAllTakeover: z.boolean().default(false),
+  allowMxTakeover: z.boolean().default(false),
 });
 
 function requireWorkerName(env: AppEnv["Bindings"]): string {
@@ -69,12 +71,15 @@ export const domainsRoute = new Hono<AppEnv>()
       const workerName = requireWorkerName(c.env);
       const results = await provisionMany(c.env.DB, client, body.zoneIds, workerName, {
         allowCatchAllTakeover: body.allowCatchAllTakeover,
+        allowMxTakeover: body.allowMxTakeover,
+        denyDomains: domainDenylist(c.env),
       });
       log.info("domains_provisioned", {
         actor: actorOf(c).email,
         count: results.length,
         ok: results.filter((r) => r.ok).length,
         takeover: body.allowCatchAllTakeover,
+        mxTakeover: body.allowMxTakeover,
       });
       return c.json({ results });
     } catch (err) {
@@ -88,15 +93,21 @@ export const domainsRoute = new Hono<AppEnv>()
     try {
       // Retry may be sent with no body; absence means "no takeover confirmation".
       let allowCatchAllTakeover = false;
+      let allowMxTakeover = false;
       try {
-        const body = await readJson(c, z.object({ allowCatchAllTakeover: z.boolean().optional() }));
+        const body = await readJson(c, z.object({ allowCatchAllTakeover: z.boolean().optional(), allowMxTakeover: z.boolean().optional() }));
         allowCatchAllTakeover = body.allowCatchAllTakeover ?? false;
+        allowMxTakeover = body.allowMxTakeover ?? false;
       } catch {
         /* empty/absent body is fine for a retry */
       }
       const client = cfClient(c.env);
       const workerName = requireWorkerName(c.env);
-      const result = await provisionDomain(c.env.DB, client, zoneId, workerName, { allowCatchAllTakeover });
+      const result = await provisionDomain(c.env.DB, client, zoneId, workerName, {
+        allowCatchAllTakeover,
+        allowMxTakeover,
+        denyDomains: domainDenylist(c.env),
+      });
       return c.json(result);
     } catch (err) {
       throw asApiError(err);

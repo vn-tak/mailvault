@@ -114,6 +114,7 @@ export function Domains() {
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmProvision, setConfirmProvision] = useState(false);
   const [takeover, setTakeover] = useState(false);
+  const [mxTakeover, setMxTakeover] = useState(false);
   const [removing, setRemoving] = useState<Domain | null>(null);
   const [retryTakeover, setRetryTakeover] = useState<Domain | null>(null);
 
@@ -249,14 +250,23 @@ export function Domains() {
   }
 
   const needsTakeover = selectedZones.some((z) => preflights[z]?.classification === PreflightClassification.CatchAllConflict);
-  const mxBlocked = selectedZones.some((z) => preflights[z]?.classification === PreflightClassification.MxConflict);
+  /**
+   * Selected domains whose mail currently lands at another provider, with the exact records
+   * at stake. The owner has to confirm deleting these per batch, and sees what goes.
+   */
+  const mxTargets = selectedZones
+    .map((z) => ({ zoneId: z, name: nameOf(z), pf: preflights[z] }))
+    .filter((x) => x.pf?.classification === PreflightClassification.MxConflict && (x.pf.conflict?.mxRecords?.length ?? 0) > 0);
 
   async function runProvision() {
     if (selectedZones.length === 0) return;
     setBusy(true);
     setActionError(null);
     try {
-      const r = await api.provisionDomains(selectedZones, takeover);
+      const r = await api.provisionDomains(selectedZones, {
+        allowCatchAllTakeover: takeover,
+        allowMxTakeover: mxTakeover,
+      });
       setOutcomes((prev) => {
         const next = { ...prev };
         for (const o of r.results) next[o.zoneId] = o;
@@ -331,6 +341,7 @@ export function Domains() {
             className="primary"
             onClick={() => {
               setTakeover(false);
+              setMxTakeover(false);
               setConfirmProvision(true);
             }}
             disabled={busy || selectedZones.length === 0}
@@ -505,14 +516,33 @@ export function Domains() {
           </ul>
 
           <div className="banner" style={{ marginBottom: 12 }}>
-            <strong>MX records of other mail providers are never overwritten.</strong> Domains with foreign MX are reported
-            as a conflict and skipped.
+            <strong>Nothing here changes without this confirmation.</strong> Removing another provider&apos;s MX stops mail
+            to that domain arriving at its current mailbox — the records being deleted are listed below and written to the
+            domain&apos;s event log first, so they can be put back.
           </div>
 
-          {mxBlocked && (
-            <div className="banner error" style={{ marginBottom: 12 }}>
-              Some selected domains have an MX conflict. They will be skipped — remove or fix them before enabling.
-            </div>
+          {mxTargets.length > 0 && (
+            <>
+              <label className="row" style={{ cursor: "pointer", marginBottom: 12 }}>
+                <input type="checkbox" style={{ width: "auto" }} checked={mxTakeover} onChange={(e) => setMxTakeover(e.target.checked)} />
+                Delete the current provider&apos;s MX on {mxTargets.length} domain(s)
+              </label>
+              {mxTakeover && (
+                <div className="banner error" style={{ marginBottom: 12 }}>
+                  <div className="mono" style={{ fontSize: 12, maxHeight: 180, overflow: "auto" }}>
+                    {mxTargets.map((t) => (
+                      <div key={t.zoneId} style={{ marginBottom: 4 }}>
+                        <strong>{t.name}</strong>:{" "}
+                        {(t.pf?.conflict?.mxRecords ?? []).map((m) => `${m.priority} ${m.exchange}`).join(", ")}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
+                    Cloudflare&apos;s routing MX replaces these, and unrouted mail arrives at MailVault.
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {needsTakeover && (
@@ -531,7 +561,7 @@ export function Domains() {
 
           <div className="row-end">
             <button onClick={() => setConfirmProvision(false)}>Cancel</button>
-            <button className="primary" onClick={runProvision} disabled={busy || (needsTakeover && !takeover)}>
+            <button className="primary" onClick={runProvision} disabled={busy || (needsTakeover && !takeover) || (mxTargets.length > 0 && !mxTakeover)}>
               {busy ? "Enabling…" : "Enable mail"}
             </button>
           </div>

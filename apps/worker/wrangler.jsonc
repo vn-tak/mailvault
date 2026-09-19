@@ -29,6 +29,7 @@
     "CF_ACCESS_AUD": "61f4423b34844e1a86c2b4680a77549acab6026bb3a0ed78af75d78ff00d10b4",
     "MAX_MESSAGE_BYTES": "20971520",
     "ALLOWED_EMAILS": "tungbipdz@gmail.com",
+    "DOMAIN_DENYLIST": "tungjpstore.net,selinow.com,fball.vn,logivn.com",
     "DEV_AUTH_BYPASS": "false"
   },
 

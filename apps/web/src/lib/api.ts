@@ -74,8 +74,16 @@ export const api = {
   verifyDomains: () => request<{ report: DriftReport; items: Domain[] }>("/domains/verify", mutation()),
   preflightDomains: (zoneIds: string[]) =>
     request<{ results: PreflightResult[] }>("/domains/preflight", mutation({ zoneIds })),
-  provisionDomains: (zoneIds: string[], allowCatchAllTakeover = false) =>
-    request<{ results: ProvisionOutcome[] }>("/domains/provision", mutation({ zoneIds, allowCatchAllTakeover })),
+  /** Both takeover flags are explicit, per-request confirmations of a destructive change. */
+  provisionDomains: (
+    zoneIds: string[],
+    flags: { allowCatchAllTakeover?: boolean; allowMxTakeover?: boolean } = {},
+  ) =>
+    request<{ results: ProvisionOutcome[] }>("/domains/provision", mutation({
+      zoneIds,
+      allowCatchAllTakeover: flags.allowCatchAllTakeover ?? false,
+      allowMxTakeover: flags.allowMxTakeover ?? false,
+    })),
   retryDomain: (zoneId: string, allowCatchAllTakeover = false) =>
     request<ProvisionOutcome>(`/domains/${encodeURIComponent(zoneId)}/retry`, mutation({ allowCatchAllTakeover })),
   removeDomain: (zoneId: string) =>

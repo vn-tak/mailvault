@@ -9,8 +9,15 @@ import { preflightZone, verifyDeliveryPath } from "./preflight";
 import { assessMx } from "./mx";
 
 export interface ProvisionOptions {
-  /** Owner explicitly confirmed replacing a foreign catch-all. Never enables MX takeover. */
+  /** Owner explicitly confirmed replacing a foreign catch-all. */
   allowCatchAllTakeover?: boolean;
+  /** Owner explicitly confirmed deleting another provider's MX records on this domain. */
+  allowMxTakeover?: boolean;
+  /**
+   * Domains the owner has ruled out (they serve another mail product). Nothing is
+   * mutated for them regardless of the takeover flags.
+   */
+  denyDomains?: string[];
 }
 
 interface Step {
@@ -20,9 +27,43 @@ interface Step {
 }
 
 /**
+ * Delete the MX records belonging to another provider, writing them to the event log first
+ * so the domain can be handed back. Matching is by record type and normalised exchange, so
+ * Cloudflare's own routing MX can never be caught here even when a zone has both.
+ *
+ * Deliberately narrow, and measured on a real takeover (abitovn.info, 2026-09-20):
+ * enabling Email Routing added its MX and its DKIM record but did NOT add a second SPF, so
+ * the provider's `v=spf1 include:_spf-us.ionos.com ~all` was left as the only SPF. Deleting
+ * it would have bought nothing for inbound and silently broken anything the owner still
+ * sends through the old provider. DKIM and `_dmarc` are left alone for the same reason.
+ */
+async function removeForeignMx(
+  db: D1Database,
+  client: CloudflareClient,
+  domain: Domain,
+  pf: PreflightResult,
+): Promise<string[]> {
+  const zoneId = domain.cloudflareZoneId;
+  const foreignMx = new Set((pf.conflict?.mxRecords ?? []).map((r) => r.exchange.toLowerCase()));
+  if (foreignMx.size === 0) return [];
+
+  const records = await client.listDnsRecords(zoneId, "MX");
+  const doomed = records.filter((r) => r.type === "MX" && foreignMx.has((r.content ?? "").trim().replace(/\.$/, "").toLowerCase()));
+  if (doomed.length === 0) return [];
+
+  const removing = doomed.map((r) => ({ id: r.id, type: r.type, name: r.name, content: r.content, priority: Number(r.priority ?? 0) }));
+  await recordProvisioningEvent(db, domain.id, "provision:mx_takeover", "RUNNING", { removing });
+  for (const rec of doomed) await client.deleteDnsRecord(zoneId, rec.id);
+  log.warn("domain_mx_removed", { domain: domain.name, zoneId, count: doomed.length });
+  return doomed.map((r) => `MX ${r.content}`);
+}
+
+/**
  * Idempotent provisioning state machine (section 8). Runs only after an explicit,
- * authenticated owner action — never on startup. Existing third-party MX is ALWAYS
- * skipped (safe-stop); a foreign catch-all may be replaced only with confirmation.
+ * authenticated owner action — never on startup. Another provider's MX is removed only
+ * when the owner asked for exactly that (`allowMxTakeover`), and every record is written
+ * to the domain's event log first so it can be put back. Domains the owner ruled out are
+ * refused whatever the flags say.
  */
 export async function provisionDomain(
   db: D1Database,
@@ -36,14 +77,23 @@ export async function provisionDomain(
     return outcome(zoneId, "", null, MailStatus.Failed, false, "Domain not synced yet — run Sync first", []);
   }
   const steps: Step[] = [];
+
+  const denied = (opts.denyDomains ?? []).some((d) => d.trim().toLowerCase() === domain.name.toLowerCase());
+  if (denied) {
+    await recordProvisioningEvent(db, domain.id, "provision:denied", "BLOCKED", { reason: "excluded by owner" });
+    return outcome(zoneId, domain.name, domain.id, MailStatus.Conflict, false, `${domain.name} is excluded from MailVault management — nothing was changed`, steps);
+  }
+
   await patchDomainProvisioning(db, zoneId, { mailStatus: MailStatus.Provisioning });
   await recordProvisioningEvent(db, domain.id, "provision:start", "RUNNING");
 
   try {
     const pf = await preflightZone(client, { zoneId, name: domain.name, status: domain.zoneStatus, type: domain.zoneType }, workerName);
+    const mxTakeover = pf.classification === PreflightClassification.MxConflict && opts.allowMxTakeover === true;
 
-    // Blocking conflicts: MX is never auto-overwritten. Catch-all only with confirm.
-    if (pf.classification === PreflightClassification.MxConflict) {
+    // Blocking conflicts: MX is removed only on this explicit confirm; a foreign catch-all
+    // only on its own.
+    if (pf.classification === PreflightClassification.MxConflict && !mxTakeover) {
       await patchDomainProvisioning(db, zoneId, {
         mailStatus: MailStatus.Conflict,
         conflictType: ConflictType.Mx,
@@ -62,14 +112,16 @@ export async function provisionDomain(
       return outcome(zoneId, domain.name, domain.id, MailStatus.Conflict, false, pf.conflict?.message ?? "Catch-all conflict", steps);
     }
 
-    // Allow-list gate: mutate ONLY for classifications we have positively cleared.
-    // Anything else — MX conflict, inactive/unsupported zone, and especially a
-    // permission/auth error from a preflight read — stops here. A token that cannot
-    // *see* the zone must never be allowed to *change* it (section 7/9).
+    // Allow-list gate: mutate ONLY for classifications we have positively cleared, plus the
+    // two conflicts the owner has just confirmed taking over. Anything else — an
+    // inactive/unsupported zone, and especially a permission/auth error from a preflight
+    // read — stops here. A token that cannot *see* the zone must never be allowed to
+    // *change* it (section 7/9).
     const provisionable =
       pf.classification === PreflightClassification.ReadyToProvision ||
       pf.classification === PreflightClassification.AlreadyConfigured ||
-      (pf.classification === PreflightClassification.CatchAllConflict && opts.allowCatchAllTakeover === true);
+      (pf.classification === PreflightClassification.CatchAllConflict && opts.allowCatchAllTakeover === true) ||
+      mxTakeover;
     if (!provisionable) {
       await patchDomainProvisioning(db, zoneId, {
         mailStatus: pf.conflict ? MailStatus.Conflict : MailStatus.Failed,
@@ -78,6 +130,11 @@ export async function provisionDomain(
       });
       await recordProvisioningEvent(db, domain.id, "provision:blocked", "BLOCKED", { classification: pf.classification });
       return outcome(zoneId, domain.name, domain.id, MailStatus.Failed, false, `Not safe to provision (${pf.classification})`, steps);
+    }
+
+    if (mxTakeover) {
+      const removed = await removeForeignMx(db, client, domain, pf);
+      steps.push({ step: "mx_takeover", ok: true, detail: removed.length ? `removed ${removed.join("; ")}` : "nothing to remove" });
     }
 
     const skipDns = pf.classification === PreflightClassification.AlreadyConfigured;
@@ -151,17 +208,24 @@ export async function provisionDomain(
     await recordProvisioningEvent(db, domain.id, "provision:error", "FAILED", { kind });
     log.error("domain_provision_failed", { zoneId, kind });
 
-    // Measured live: `enable` succeeds with an API token as long as the zone is inside
-    // the token's Zone Resources, and Cloudflare answers 403 / cfCode 10000 — the same
-    // shape as a missing permission — when it is not. Name both causes, in that order.
+    // Two measured shapes of this failure. `enable` succeeds with an API token when the
+    // zone is inside its Zone Resources, and Cloudflare answers 403 / cfCode 10000 — the
+    // same code it uses for a missing permission — when it is not. On 2026-09-20 a token
+    // that deleted DNS records on a zone was still refused `enable` on that same zone, so
+    // the permission itself can be the gap: name both, and say what happens to the MX.
     const enablePath = err instanceof CloudflareApiError && /\/email\/routing\/(enable|dns)$/.test(err.path ?? "");
+    const mxAlreadyGone = steps.some((s) => s.step === "mx_takeover");
     const actionable =
       enablePath && (kind === "permission" || kind === "auth")
         ? "Email Routing is not enabled for this domain, and MailVault's API token was refused when it tried. " +
-          "First check the token's Zone Resources — a zone the token does not cover is rejected with this same " +
-          "auth error, so 'All zones from an account' is the setting that works. Then click Retry. Enabling Email " +
-          "Routing once for the zone in the Cloudflare dashboard also works. MailVault will then set the catch-all " +
-          "and verify. No MX record will be overwritten."
+          "The token needs Zone → Email Routing Rules → Edit, and its Zone Resources set to 'All zones from an " +
+          "account' — Cloudflare reports both problems with this same auth error. Enabling Email Routing once for " +
+          "the zone in the Cloudflare dashboard also works; MailVault will then set the catch-all and verify. " +
+          (mxAlreadyGone
+            ? "Note: this domain's previous MX records were already removed for the take-over you confirmed, so " +
+              "inbound mail has nowhere to go until routing is enabled. The removed records are in the domain's " +
+              "event log."
+            : "No MX record was touched.")
         : message;
 
     return outcome(zoneId, domain.name, domain.id, MailStatus.Failed, false, actionable, steps);

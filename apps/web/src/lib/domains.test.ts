@@ -79,8 +79,8 @@ describe("isRoutingNotEnabledReceipt", () => {
           ok: false,
           error:
             "Email Routing is not enabled for this domain, and MailVault's API token was refused when it tried. " +
-            "First check the token's Zone Resources — a zone the token does not cover is rejected with this same " +
-            "auth error. Then click Retry.",
+            "The token needs Zone → Email Routing Rules → Edit, and its Zone Resources set to 'All zones from an " +
+            "account' — Cloudflare reports both problems with this same auth error.",
         }),
       ),
     ).toBe(true);
