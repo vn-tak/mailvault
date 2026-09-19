@@ -11,7 +11,7 @@ import {
 import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
-import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Modal } from "../components/ui";
+import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Menu, Modal } from "../components/ui";
 
 function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreated: (a: Alias) => void }) {
   const { data: domains } = useAsync(() => api.listDomains(), []);
@@ -228,19 +228,14 @@ export function Aliases({ openNew }: { openNew: boolean }) {
                 <CopyButton text={a.address} label="Copy address" />
                 <button onClick={() => navigate(`/aliases/${a.id}`)}>Detail</button>
                 <button onClick={() => navigate(`/inbox?alias=${a.id}`)}>Inbox</button>
-                <button onClick={() => patch(a, { pinned: !a.pinned })} title="Keep this one at the top">
-                  {a.pinned ? "Unpin" : "Pin"}
-                </button>
-                <button
-                  onClick={() => patch(a, { archived: !a.archived })}
-                  title="Archiving only hides it from the active list — it keeps receiving mail"
-                >
-                  {a.archived ? "Unarchive" : "Archive"}
-                </button>
                 <button onClick={() => toggleStatus(a)}>{a.status === "ACTIVE" ? "Disable" : "Enable"}</button>
-                <button className="danger" onClick={() => setDeleting(a)}>
-                  Delete
-                </button>
+                <Menu
+                  items={[
+                    { label: a.pinned ? "Unpin" : "Pin", onSelect: () => patch(a, { pinned: !a.pinned }) },
+                    { label: a.archived ? "Unarchive" : "Archive", onSelect: () => patch(a, { archived: !a.archived }) },
+                    { label: "Delete", danger: true, onSelect: () => setDeleting(a) },
+                  ]}
+                />
               </div>
             </div>
           ))}

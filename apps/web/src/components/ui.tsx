@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MailStatus } from "@mailvault/shared";
 
 export function Loading({ label = "Loading…" }: { label?: string }) {
@@ -92,6 +92,110 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
         </div>
         <div className="mt">{children}</div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A small dropdown for the actions that should not crowd a row. Hand-rolled because the
+ * alternative is a dependency for one widget: this keeps the same keyboard contract the
+ * rest of the app has — Escape and clicking away close it, arrows move focus, and focus
+ * returns to the trigger.
+ */
+export interface MenuItem {
+  label: string;
+  onSelect: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+}
+
+export function Menu({ label = "More", items }: { label?: string; items: MenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const pop = popRef.current;
+    const trigger = triggerRef.current;
+
+    // A row near the bottom of a phone has no room below it; flip instead of clipping.
+    // The bottom tab bar is fixed and paints over content, so on phones it — not the
+    // viewport edge — is the real bottom boundary a popover has to clear.
+    if (pop && trigger) {
+      const rect = trigger.getBoundingClientRect();
+      const popHeight = pop.offsetHeight;
+      const bar = document.querySelector<HTMLElement>(".sidebar")?.getBoundingClientRect();
+      const overlaysBottom = !!bar && bar.top > window.innerHeight / 2 && bar.bottom >= window.innerHeight - 1;
+      const floor = overlaysBottom && bar ? bar.top : window.innerHeight;
+      setUp(floor - rect.bottom < popHeight + 16 && rect.top > popHeight + 16);
+      pop.querySelector<HTMLButtonElement>("[role='menuitem']:not([disabled])")?.focus();
+    }
+
+    const close = () => {
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) close();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+        return;
+      }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      const nodes = Array.from(
+        popRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not([disabled])") ?? [],
+      );
+      if (nodes.length === 0) return;
+      e.preventDefault();
+      const at = nodes.indexOf(document.activeElement as HTMLButtonElement);
+      const next = e.key === "ArrowDown" ? (at + 1) % nodes.length : (at - 1 + nodes.length) % nodes.length;
+      nodes[next]?.focus();
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [open]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="menu" ref={wrapRef}>
+      <button
+        ref={triggerRef}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {label}
+      </button>
+      {open && (
+        <div ref={popRef} role="menu" className={`menu-pop ${up ? "menu-up" : ""}`}>
+          {items.map((item) => (
+            <button
+              key={item.label}
+              role="menuitem"
+              className={item.danger ? "danger" : ""}
+              disabled={item.disabled}
+              onClick={() => {
+                setOpen(false);
+                item.onSelect();
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

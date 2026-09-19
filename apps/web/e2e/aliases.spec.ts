@@ -20,7 +20,8 @@ test("lists the seeded alias, then creates and removes one", async ({ page }) =>
   await row.getByRole("button", { name: "Disable" }).click();
   await expect(row.getByText("Disabled")).toBeVisible();
 
-  await row.getByRole("button", { name: "Delete" }).click();
+  await row.getByRole("button", { name: "More" }).click();
+  await row.getByRole("menuitem", { name: "Delete" }).click();
   await page.getByRole("button", { name: "Delete alias" }).click();
   await expect(page.getByText("E2E alias")).toHaveCount(0);
 });

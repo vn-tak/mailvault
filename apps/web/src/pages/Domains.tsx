@@ -3,7 +3,7 @@ import { api, ApiClientError } from "../lib/api";
 import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
-import { ConfirmDialog, ErrorBanner, Loading, Modal, StatusPill } from "../components/ui";
+import { ConfirmDialog, ErrorBanner, Loading, Menu, Modal, StatusPill } from "../components/ui";
 import { FILTERS, bucketOf, isRoutingNotEnabledReceipt, routingConsoleUrl, type Bucket } from "../lib/domains";
 import {
   AuthPolicy,
@@ -458,20 +458,23 @@ export function Domains() {
                           </select>
                         </>
                       )}
-                      {(d.mailStatus === MailStatus.Failed || d.mailStatus === MailStatus.Conflict) && (
-                        <button
-                          disabled={busy}
-                          onClick={() => {
-                            if (d.conflictType === ConflictType.CatchAll) setRetryTakeover(d);
-                            else void runRetry(d, false);
-                          }}
-                        >
-                          Retry
-                        </button>
-                      )}
-                      <button className="danger" onClick={() => setRemoving(d)} disabled={busy}>
-                        Remove
-                      </button>
+                      <Menu
+                        items={[
+                          ...(d.mailStatus === MailStatus.Failed || d.mailStatus === MailStatus.Conflict
+                            ? [
+                                {
+                                  label: "Retry",
+                                  disabled: busy,
+                                  onSelect: () => {
+                                    if (d.conflictType === ConflictType.CatchAll) setRetryTakeover(d);
+                                    else void runRetry(d, false);
+                                  },
+                                },
+                              ]
+                            : []),
+                          { label: "Remove", danger: true, disabled: busy, onSelect: () => setRemoving(d) },
+                        ]}
+                      />
                     </div>
                     {open && (pf?.conflict || oc) ? (
                       <div className="entity-details">

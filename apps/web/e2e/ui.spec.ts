@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /*
  * Layout contract for the phone build. These assert the things that silently break a
@@ -25,6 +25,39 @@ async function fitsViewport(page: Page, where: string) {
 }
 
 /*
+ * An absolutely-positioned popover inside a rounded card is the mobile failure that
+ * reports success: the DOM is there, the CSS box has a size, and the owner sees nothing
+ * because an ancestor clipped it, or because the fixed tab bar paints over it. So measure
+ * the real box and hit-test its centre rather than trusting a visibility check. Assert the
+ * panel's class first (web-first, retried) — React decides up/down in an effect, so a
+ * one-shot read races the flush it schedules.
+ */
+async function popoverFits(menu: Locator, where: string) {
+  const probe = await menu.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const bar = document.querySelector<HTMLElement>(".sidebar")?.getBoundingClientRect();
+    return {
+      top: r.top,
+      bottom: r.bottom,
+      left: r.left,
+      right: r.right,
+      vw: window.innerWidth,
+      barTop: bar && bar.top > window.innerHeight / 2 ? bar.top : window.innerHeight,
+      visibleAtCentre: !!at && el.contains(at),
+      itemHeights: [...el.querySelectorAll('[role="menuitem"]')].map((b) => b.getBoundingClientRect().height),
+    };
+  });
+  const box = `pop=[${[probe.top, probe.right, probe.bottom, probe.left].map(Math.round).join(", ")}] vw=${probe.vw} barTop=${Math.round(probe.barTop)}`;
+  expect(probe.visibleAtCentre, `${where}: popover is clipped or covered (${box})`).toBe(true);
+  expect(probe.top, `${where}: popover runs above the viewport (${box})`).toBeGreaterThanOrEqual(0);
+  expect(probe.bottom, `${where}: popover hides behind the bottom tab bar (${box})`).toBeLessThanOrEqual(probe.barTop + 1);
+  expect(probe.left, `${where}: popover goes off the left edge (${box})`).toBeGreaterThanOrEqual(0);
+  expect(probe.right, `${where}: popover goes off the right edge (${box})`).toBeLessThanOrEqual(probe.vw);
+  for (const h of probe.itemHeights) expect(h, `${where}: menu item too small to tap`).toBeGreaterThanOrEqual(40);
+}
+
+/*
  * Opening a message marks it read, and the local D1 survives between runs — so unread
  * assertions would depend on what a previous run did. Reset the two rows this suite
  * reasons about, from inside the page so the browser supplies the same-origin headers
@@ -46,6 +79,28 @@ async function openInbox(page: Page) {
   }, SEEDED_UNREAD);
   await page.reload();
   await expect(page.locator(".msg")).toHaveCount(4);
+}
+
+/*
+ * Same problem, same cure, for the alias this test archives on purpose: a reused dev
+ * server skips the seed, so a row left archived by a previous (failed) run would break
+ * the next run for reasons that have nothing to do with the layout under test.
+ */
+const SEEDED_ALIAS = "00000000-0000-4000-8000-00000000al01";
+const SEEDED_ALIAS_ADDRESS = "github-x9f2@demo.example";
+
+async function openAliases(page: Page) {
+  await page.goto("/#/aliases");
+  await page.evaluate(async (id) => {
+    const res = await fetch(`/api/aliases/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-mailvault": "1" },
+      body: JSON.stringify({ archived: false, pinned: false }),
+    });
+    if (!res.ok) throw new Error(`reset alias ${id}: ${res.status}`);
+  }, SEEDED_ALIAS);
+  await page.reload();
+  return page.locator(".entity").filter({ hasText: SEEDED_ALIAS_ADDRESS });
 }
 
 test("phone: every screen fits the viewport, is labelled, and screenshots clean @mobile", async ({ page }) => {
@@ -126,4 +181,60 @@ test("desktop: the same inbox markup grids into a two-line mail row", async ({ p
     .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
   expect(columns).toBe(4);
   await page.screenshot({ path: "e2e-screens/inbox-desktop.png" });
+});
+
+test("phone: secondary actions sit behind More instead of crowding the row @mobile", async ({ page }) => {
+  const row = await openAliases(page);
+  await expect(row).toHaveCount(1);
+
+  // Copy · Detail · Inbox · Disable · More — the rest is one tap away, not four buttons wide.
+  await expect(row.locator(".entity-actions > button, .entity-actions > div")).toHaveCount(5);
+  await expect(row.getByRole("button", { name: "Archive" })).toHaveCount(0);
+
+  await row.getByRole("button", { name: "More" }).click();
+  const menu = row.getByRole("menu");
+  await expect(menu.getByRole("menuitem")).toHaveCount(3);
+  await expect(menu).not.toHaveClass(/menu-up/); // room below: open downwards
+  await popoverFits(menu, "alias row");
+
+  await menu.getByRole("menuitem", { name: "Archive" }).click();
+  await expect(row).toHaveCount(0);
+
+  // It left the Active list, so the row is gone from this tab.
+  await page.getByRole("tab", { name: "Archived" }).click();
+  const archived = page.locator(".entity").filter({ hasText: SEEDED_ALIAS_ADDRESS });
+  await expect(archived).toHaveCount(1);
+
+  /*
+   * The case the first version got wrong. The panel is ~150px tall and wants 16px of
+   * clearance, so 166px is "room to open downwards" — but the fixed tab bar paints over
+   * the bottom of the screen, so the viewport's measure lies. Size the window from the
+   * row's own position (rather than scrolling, which depends on how long the list is)
+   * until the two measures disagree, then require the bar's answer.
+   */
+  const NEED = 166;
+  const trigger = archived.locator(".menu > button");
+  const geometry = await trigger.evaluate((el) => {
+    const bar = document.querySelector<HTMLElement>(".sidebar")?.getBoundingClientRect();
+    return { bottom: el.getBoundingClientRect().bottom, barHeight: window.innerHeight - (bar?.top ?? window.innerHeight) };
+  });
+  await page.setViewportSize({ width: 412, height: Math.round(geometry.bottom + NEED + geometry.barHeight / 2) });
+  const room = await trigger.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const bar = document.querySelector<HTMLElement>(".sidebar")?.getBoundingClientRect();
+    return {
+      toViewport: Math.round(window.innerHeight - r.bottom),
+      toBar: Math.round((bar?.top ?? window.innerHeight) - r.bottom),
+      above: Math.round(r.top),
+    };
+  });
+  expect(room.toViewport, "viewport says there is room below").toBeGreaterThanOrEqual(NEED);
+  expect(room.toBar, "the tab bar says there is not").toBeLessThan(NEED);
+  expect(room.above, "and there is room above to flip into").toBeGreaterThan(NEED);
+  await trigger.click();
+  const flipped = archived.getByRole("menu");
+  await expect(flipped).toHaveClass(/menu-up/);
+  await popoverFits(flipped, "bottom row");
+  await archived.getByRole("menuitem", { name: "Unarchive" }).click();
+  await expect(archived).toHaveCount(0);
 });

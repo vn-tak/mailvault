@@ -171,7 +171,7 @@ label { display: block; font-size: var(--text-xs); color: var(--muted); margin-b
 .stats { grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); }
 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-2); box-shadow: var(--shadow); overflow: hidden; }
-.card--flush { padding: 0; }
+.card--flush { padding: 0; overflow: visible; }
 .card > :first-child { margin-top: 0; }
 .card > :last-child { margin-bottom: 0; }
 .stat .k { color: var(--muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -240,6 +240,30 @@ label { display: block; font-size: var(--text-xs); color: var(--muted); margin-b
   .detail-head .actions-cell { justify-content: flex-end; }
 }
 
+/* Row actions that do not deserve a button each. Anchored to the row, so the card must
+   not clip it; `menu-up` flips it when the row sits near the bottom of the screen. */
+.menu { position: relative; flex: 0 0 auto; }
+.menu-pop {
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+}
+.menu-pop.menu-up { top: auto; bottom: calc(100% + 6px); }
+.menu-pop button { justify-content: flex-start; text-align: left; background: transparent; border: 0; min-height: var(--tap); }
+.menu-pop button:hover:not(:disabled) { background: var(--surface); }
+.menu-pop button.danger { color: var(--danger); }
+.menu-pop button.danger:hover:not(:disabled) { background: #2a1416; }
+
 /* A back affordance you can actually hit with a thumb. */
 .backrow { margin-bottom: var(--space-2); }
 .backlink { display: inline-flex; align-items: center; min-height: var(--tap); padding: 0 4px; font-weight: 600; }
@@ -297,7 +321,7 @@ tr.unread .subject::before { content: ""; display: inline-block; width: 7px; hei
  * a wide screen. One markup, because duplicating a table and a card list is how the two
  * drift apart.
  */
-.list-head { display: flex; align-items: center; gap: 10px; padding: 8px var(--space-2); border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.list-head { display: flex; align-items: center; gap: 10px; padding: 8px var(--space-2); border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
 .entity { display: grid; gap: 6px; border-bottom: 1px solid var(--border); padding: var(--space-2); }
 .entity:last-child { border-bottom: 0; }
 .entity-title { display: flex; align-items: baseline; gap: 10px; justify-content: space-between; }
