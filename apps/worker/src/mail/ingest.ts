@@ -5,6 +5,8 @@ import { sanitizeFilename } from "../lib/filename";
 import { log } from "../lib/logging";
 import { findActiveAliasByAddress } from "../db/aliases";
 import { getDomainById } from "../db/domains";
+import { fileByRule, listEnabledRules, recordRuleHits } from "../db/rules";
+import { applyRules, NO_RULES, type AppliedRules } from "./rules";
 import { insertMessage, insertAttachments, dedupeKeyExists, indexMessage } from "../db/messages";
 import type { InsertMessageInput, InsertAttachmentInput } from "../db/messages";
 import {
@@ -108,6 +110,11 @@ async function readCapped(stream: ReadableStream<Uint8Array>, cap: number): Prom
 /** Bounded for D1 storage; the verdict is computed from the full evidence, not this copy. */
 function toStoredAuth(a: ReturnType<typeof assessAuth>): MessageAuth {
   return { ...a, reasons: a.reasons.map((r) => r.slice(0, 120)), evidence: a.evidence.slice(0, 8) };
+}
+
+/** The part a rule matches on: who sent it, not who they claim to be in the header. */
+function senderDomainOf(envelopeFrom: string): string {
+  return (envelopeFrom.split("@").pop() ?? "").toLowerCase();
 }
 
 /**
@@ -325,6 +332,30 @@ export async function commitIngest(job: IngestJob, db: D1Database, bucket: R2Buc
   await insertAttachments(db, insertedId, staged.attachments);
   await indexMessage(db, insertedId, { subject: staged.subject, preview, sender: staged.from });
 
+  // Rules run after the row exists: filing mail is organisation, and a rule that throws
+  // must never cost the owner a message that already arrived.
+  let filed: AppliedRules = NO_RULES;
+  try {
+    const rules = await listEnabledRules(db);
+    if (rules.length > 0) {
+      filed = applyRules(rules, {
+        senderDomain: senderDomainOf(job.envelopeFrom),
+        subject: staged.subject,
+        aliasId: job.aliasId,
+        domainId: job.domainId,
+        hasCode: codes.length > 0,
+        hasAttachment: staged.attachments.length > 0,
+      });
+      if (filed.ruleId) {
+        await fileByRule(db, insertedId, filed);
+        await recordRuleHits(db, filed.ruleIds);
+      }
+    }
+  } catch (err) {
+    log.warn("rule_application_failed", { messageId: insertedId, error: err instanceof Error ? err.message : "error" });
+    filed = NO_RULES;
+  }
+
   log.info("mail_stored", {
     aliasId: job.aliasId,
     domainId: job.domainId,
@@ -334,6 +365,7 @@ export async function commitIngest(job: IngestJob, db: D1Database, bucket: R2Buc
     attachments: staged.attachments.length,
     degraded: staged.degraded,
     auth: auth.verdict,
+    rule: filed.ruleId,
   });
   return { status: "stored", messageId: insertedId, verdict: auth.verdict };
 }

@@ -25,6 +25,7 @@ function MsgItem({ m, scoped }: { m: MessageSummary; scoped: boolean }) {
           ) : m.primaryCode ? (
             <span className="badge mono" title="Detected code">{m.primaryCode}</span>
           ) : null}
+          {m.ruleTag ? <span className="badge" title="Filed by a rule">{m.ruleTag}</span> : null}
           {m.attachmentCount > 0 ? <span className="badge" title={`${m.attachmentCount} attachment(s)`}>📎 {m.attachmentCount}</span> : null}
         </span>
       </Link>
@@ -35,20 +36,22 @@ function MsgItem({ m, scoped }: { m: MessageSummary; scoped: boolean }) {
 export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: string }) {
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [view, setView] = useState<"all" | "unread" | "archived">("all");
   const [offset, setOffset] = useState(0);
 
   // Debounce-free: only query on explicit change of filter/scope, not every keystroke.
   const query = useMemo(
     () => ({
-      filter: unreadOnly ? ("unread" as const) : ("all" as const),
+      filter: view === "unread" ? ("unread" as const) : ("all" as const),
+      // A rule files mail out of the working list; the Archived tab is how it comes back.
+      archived: view === "archived" ? ("archived" as const) : ("active" as const),
       q: search || undefined,
       aliasId,
       domainId,
       limit: PAGE,
       offset,
     }),
-    [unreadOnly, search, aliasId, domainId, offset],
+    [view, search, aliasId, domainId, offset],
   );
 
   const { data, error, loading, reload } = useAsync(() => api.listMessages(query), [query]);
@@ -65,7 +68,7 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
 
   useEffect(() => {
     setOffset(0);
-  }, [unreadOnly, search, aliasId, domainId]);
+  }, [view, search, aliasId, domainId]);
 
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -76,7 +79,7 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
   const hasPrev = offset > 0;
   const hasNext = data ? offset + PAGE < total : false;
 
-  const scope = aliasId || domainId || search || unreadOnly;
+  const scope = aliasId || domainId || search || view !== "all";
   // Inside one mailbox every row arrived at the same domain, so repeating it would be
   // noise; across all of them it is the one fact that tells the rows apart.
   const scoped = !!(aliasId || domainId);
@@ -96,11 +99,14 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
 
       <form className="toolbar toolbar--sticky" onSubmit={submitSearch}>
         <div className="tabs">
-          <button type="button" className={!unreadOnly ? "active" : ""} onClick={() => setUnreadOnly(false)}>
+          <button type="button" className={view === "all" ? "active" : ""} onClick={() => setView("all")}>
             All
           </button>
-          <button type="button" className={unreadOnly ? "active" : ""} onClick={() => setUnreadOnly(true)}>
+          <button type="button" className={view === "unread" ? "active" : ""} onClick={() => setView("unread")}>
             Unread
+          </button>
+          <button type="button" className={view === "archived" ? "active" : ""} onClick={() => setView("archived")}>
+            Filed
           </button>
         </div>
         {/* One mailbox at a time, because mail for different domains arriving in one

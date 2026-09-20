@@ -45,6 +45,11 @@ export const MessageFilter = {
 
 export const MessageListQuerySchema = z.object({
   filter: z.enum([MessageFilter.All, MessageFilter.Unread]).default(MessageFilter.All),
+  /**
+   * Which side of a rule's filing to look at. `active` is the working list and the
+   * default, so archiving something takes it out of the way without removing it.
+   */
+  archived: z.enum(["active", "archived", "all"]).default("active"),
   domainId: z.string().min(1).optional(),
   aliasId: z.string().min(1).optional(),
   /** Full-text search over subject, preview and sender, plus an exact match on OTP codes. */
@@ -91,6 +96,19 @@ export const PasskeySchema = z.object({
   lastUsedAt: z.string().nullable(),
 });
 export type Passkey = z.infer<typeof PasskeySchema>;
+
+/**
+ * One sender domain that has written to more than one of the owner's aliases — i.e. the
+ * address was reused, or resold, across services.
+ */
+export const AddressReuseSchema = z.object({
+  senderDomain: z.string(),
+  aliases: z.number().int().nonnegative(),
+  messages: z.number().int().nonnegative(),
+  firstSeen: z.string(),
+  lastSeen: z.string(),
+});
+export type AddressReuse = z.infer<typeof AddressReuseSchema>;
 
 export const HealthSchema = z.object({
   ok: z.boolean(),

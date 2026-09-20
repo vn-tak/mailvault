@@ -64,6 +64,10 @@ export interface MessageRow {
   has_attachments: number;
   attachment_count: number;
   is_read: number;
+  archived: number;
+  rule_tag: string | null;
+  applied_rule_id: string | null;
+  applied_rule_note: string | null;
   extracted_codes_json: string | null;
   verification_links_json: string | null;
   auth_verdict: AuthVerdict;

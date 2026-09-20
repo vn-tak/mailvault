@@ -211,6 +211,15 @@ export function MessageDetail({ id }: { id: string }) {
 
           <AuthBanner verdict={data.authVerdict} auth={data.auth ?? null} />
 
+          {/* Says why this mail is where it is, in the words the rule had at the time —
+              so an archive still explains itself after the rule is edited or deleted. */}
+          {data.appliedRuleNote && (
+            <div className="banner mt">
+              <span className="muted">Filed automatically — {data.appliedRuleNote}.</span>{" "}
+              <Link to="/aliases">Review rules</Link>
+            </div>
+          )}
+
           {hidingSecrets && (codes.length > 0 || links.length > 0) ? (
             <div className="banner error mt">
               <div>

@@ -161,6 +161,10 @@ function buildListFilters(query: MessageListQuery): { where: string; params: unk
     return params.length;
   };
   if (query.filter === "unread") clauses.push("m.is_read = 0");
+  // Rules file mail out of the working list; they never remove it. `all` is what the
+  // archived view and any "show me everything" query uses.
+  if (query.archived === "active") clauses.push("m.archived = 0");
+  else if (query.archived === "archived") clauses.push("m.archived = 1");
   if (query.domainId) clauses.push(`m.domain_id = ?${push(query.domainId)}`);
   if (query.aliasId) clauses.push(`m.alias_id = ?${push(query.aliasId)}`);
 
@@ -252,6 +256,7 @@ export async function getMessageDetail(db: D1Database, id: string): Promise<Mess
   const attachments = await getMessageAttachments(db, id);
   return {
     ...summary,
+    appliedRuleNote: row.applied_rule_note ?? null,
     providerMessageId: row.provider_message_id,
     rawSize: Number(row.raw_size),
     extractedCodes: parseJson<ExtractedCode[]>(row.extracted_codes_json, []),

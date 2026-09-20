@@ -90,6 +90,9 @@ export const MessageSummarySchema = z.object({
   preview: z.string().nullable(),
   receivedAt: z.string(),
   isRead: z.boolean(),
+  /** Out of the working list because a rule put it there. Never a deletion. */
+  archived: z.boolean().default(false),
+  ruleTag: z.string().nullable().default(null),
   hasAttachments: z.boolean(),
   attachmentCount: z.number().int().nonnegative(),
   /** Best OTP candidate, precomputed for the list badge. */
@@ -114,6 +117,8 @@ export const MessageDetailSchema = MessageSummarySchema.extend({
   parseDegraded: z.boolean().default(false),
   /** Full authentication assessment, kept for the detail view's disclosure UI. */
   auth: MessageAuthSchema.nullable().default(null),
+  /** Why a rule filed this message, in the words the rule had when it acted. */
+  appliedRuleNote: z.string().nullable().default(null),
 });
 export type MessageDetail = z.infer<typeof MessageDetailSchema>;
 

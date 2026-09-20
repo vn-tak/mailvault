@@ -5,6 +5,7 @@ import worker from "../../src/index";
 import { commitIngest, ingestEmail, stageEmail } from "../../src/mail/ingest";
 import { getObject } from "../../src/storage/r2";
 import { deleteMessage, listMessages } from "../../src/db/messages";
+import { addressReuseReport } from "../../src/db/report";
 import { getTestBindings, type TestBindings } from "./_mf";
 
 let bindings: TestBindings;
@@ -232,7 +233,8 @@ describe("search: FTS5 text + code + alias matching", () => {
     await ingestEmail(makeMessage(to, raw).message, TEST_ENV, DB, BUCKET);
   }
 
-  const list = (q: string) => listMessages(DB, { filter: "all", limit: 10, offset: 0, q });
+  // Searching spans filed mail too; `archived` only narrows the working list.
+  const list = (q: string) => listMessages(DB, { filter: "all", archived: "all", limit: 10, offset: 0, q });
 
   it("finds by words, by exact OTP, and by alias address", async () => {
     await seedAlias("search@notify.example");
@@ -469,5 +471,94 @@ describe("ingest queue consumer", () => {
 
     expect(batch.decisions).toEqual(["retry:0", "ack:1"]);
     expect(await countMessages()).toBe(1);
+  });
+});
+
+/*
+ * Rules run at commit, after the message row exists. The property worth pinning is that
+ * they only ever organise: mail is filed and stays retrievable, and a rule that breaks
+ * cannot take the message with it.
+ */
+describe("rules at commit", () => {
+  async function addRule(match: object, action: object, enabled = 1) {
+    const id = crypto.randomUUID();
+    await DB.prepare(`INSERT INTO rules (id, enabled, match_json, action_json, hits, created_at) VALUES (?1, ?2, ?3, ?4, 0, ?5)`)
+      .bind(id, enabled, JSON.stringify(match), JSON.stringify(action), new Date().toISOString())
+      .run();
+    return id;
+  }
+
+  async function deliver(to: string, subject: string, body: string, messageId: string, from = "noreply@github.com") {
+    const { message } = makeMessage(to, emailRaw({ subject, body, messageId, to }), from);
+    return ingestEmail(message, TEST_ENV, DB, BUCKET);
+  }
+
+  it("files matching mail and leaves everything else in the working list", async () => {
+    await seedAlias("rules@notify.example");
+    await addRule({ senderDomain: "mailchimp.com" }, { archive: true, tag: "newsletters" });
+
+    await deliver("rules@notify.example", "Weekly digest", "Hello from Mailchimp", "ru1", "news@mailchimp.com");
+    await deliver("rules@notify.example", "Your code is 435829", "code", "ru2");
+
+    const row = await DB.prepare(`SELECT archived, rule_tag, applied_rule_note FROM messages WHERE subject = 'Weekly digest'`)
+      .first<{ archived: number; rule_tag: string; applied_rule_note: string }>();
+    expect(row?.archived).toBe(1);
+    expect(row?.rule_tag).toBe("newsletters");
+    expect(row?.applied_rule_note).toContain("mailchimp.com");
+
+    const kept = await DB.prepare(`SELECT archived FROM messages WHERE subject LIKE 'Your code%'`).first<{ archived: number }>();
+    expect(kept?.archived).toBe(0);
+
+    const active = await listMessages(DB, { filter: "all", archived: "active", limit: 10, offset: 0 });
+    expect(active.items.map((m) => m.subject)).toEqual(["Your code is 435829"]);
+    const filed = await listMessages(DB, { filter: "all", archived: "archived", limit: 10, offset: 0 });
+    expect(filed.items[0]?.ruleTag).toBe("newsletters");
+    expect(filed.items[0]?.archived).toBe(true);
+  });
+
+  it("counts a hit, and stops firing once the rule is paused", async () => {
+    await seedAlias("pause@notify.example");
+    const id = await addRule({ subjectContains: "invoice" }, { archive: true });
+
+    await deliver("pause@notify.example", "Your invoice", "body", "pa1");
+    expect((await DB.prepare(`SELECT hits AS h FROM rules WHERE id = ?1`).bind(id).first<{ h: number }>())?.h).toBe(1);
+
+    await DB.prepare(`UPDATE rules SET enabled = 0 WHERE id = ?1`).bind(id).run();
+    await deliver("pause@notify.example", "Another invoice", "body", "pa2");
+
+    expect((await DB.prepare(`SELECT hits AS h FROM rules WHERE id = ?1`).bind(id).first<{ h: number }>())?.h).toBe(1);
+    const stillActive = await DB.prepare(`SELECT archived AS a FROM messages WHERE subject = 'Another invoice'`).first<{ a: number }>();
+    expect(stillActive?.a).toBe(0);
+  });
+
+  it("keeps the message when a rule cannot be applied", async () => {
+    await seedAlias("broken@notify.example");
+    await addRule({ senderDomain: "broken.example" }, { archive: true });
+    // Hide the rule table so the lookup throws. The mail was already committed, and a
+    // rule that cannot run must not cost the owner a message that arrived.
+    await DB.prepare(`ALTER TABLE rules RENAME TO rules_hidden`).run();
+    try {
+      const result = await deliver("broken@notify.example", "Fragile", "body", "br1", "x@broken.example");
+      expect(result.status).toBe("stored");
+      expect(await countMessages()).toBe(1);
+    } finally {
+      await DB.prepare(`ALTER TABLE rules_hidden RENAME TO rules`).run();
+    }
+  });
+
+  it("reports senders that hold more than one alias", async () => {
+    const domainId = await seedAlias("one@notify.example");
+    // Two aliases on the one domain: `domains.name` is unique, so the second is an alias
+    // row rather than a second call to seedAlias.
+    await DB.prepare(`INSERT INTO aliases (id, domain_id, local_part, address, status) VALUES (?1, ?2, 'two', 'two@notify.example', 'ACTIVE')`)
+      .bind(crypto.randomUUID(), domainId)
+      .run();
+    await deliver("one@notify.example", "Hi", "body", "ar1", "hello@service.example");
+    await deliver("two@notify.example", "Hi again", "body", "ar2", "hello@service.example");
+    await deliver("two@notify.example", "Alone here", "body", "ar3", "solo@other.example");
+
+    const report = await addressReuseReport(DB);
+    expect(report).toHaveLength(1);
+    expect(report[0]).toMatchObject({ senderDomain: "service.example", aliases: 2, messages: 2 });
   });
 });

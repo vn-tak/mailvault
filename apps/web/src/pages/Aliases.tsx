@@ -15,6 +15,7 @@ import { withStepUp } from "../lib/passkeys";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
 import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Menu, Modal, Row, useOpenRow } from "../components/ui";
+import { AddressReuseCard, RulesCard } from "../components/RulesCard";
 
 function describeError(e: unknown): string {
   if (!(e instanceof ApiClientError)) return "Could not create alias";
@@ -294,6 +295,9 @@ export function Aliases({ openNew }: { openNew: boolean }) {
           ))}
         </div>
       )}
+
+      <RulesCard />
+      <AddressReuseCard />
 
       {showNew && <CreateAliasModal onClose={() => setShowNew(false)} onCreated={() => reload()} />}
 

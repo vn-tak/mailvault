@@ -380,12 +380,19 @@ landed without waiting for a pull-to-refresh.
   path, status and Cloudflare error code — never headers, bodies or the token.
 
 ## 10. Data retention — nothing auto-expires
-
 `migrations/0001_init.sql` and the app have **no** TTL, cron, lifecycle rule, or
 background job that deletes mailbox content. Aliases and messages persist until the
 owner explicitly deletes them, and message deletion only purges content when asked.
 The one scheduled job that exists (`7 * * * *`) is the read-only drift watchdog in §9;
 it writes status columns and never touches a message, an alias or a zone.
+
+**Rules inherit this limit.** `packages/shared/src/rules.ts` accepts only `archive` and
+`tag` as actions — there is no delete verb for a rule to reach — and filing sets
+`messages.archived = 1`, which moves mail out of the working list and nothing else. The
+`Filed` tab and `archived=all` still return it. A rule records how it was worded at the
+moment it acted (`applied_rule_note`), so an archive from last month is explainable after
+the rule is edited or removed, and rule evaluation runs *after* the message row is
+committed, wrapped so a broken rule can never cost the owner mail that arrived.
 
 ## 11. Input validation
 

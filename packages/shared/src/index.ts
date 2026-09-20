@@ -3,6 +3,7 @@ export * from "./domain";
 export * from "./alias";
 export * from "./message";
 export * from "./api";
+export * from "./rules";
 
 export const MAILVAULT_VERSION = "0.1.0";
 

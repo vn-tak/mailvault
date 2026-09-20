@@ -1,4 +1,5 @@
 import type {
+  AddressReuse,
   Alias,
   AliasDetail,
   AuthPolicy,
@@ -15,6 +16,9 @@ import type {
   ProvisionOutcome,
   PushOutcome,
   MessageSummary,
+  Rule,
+  RuleAction,
+  RuleMatch,
   UpdateAliasInput,
 } from "@mailvault/shared";
 import { grantHeaders } from "./grant";
@@ -161,6 +165,14 @@ export const api = {
   stepUpOptions: () => request<StepUpOptions>("/security/step-up/options", mutation()),
   stepUpVerify: (input: { response: unknown; challenge: string }) =>
     request<{ token: string; expiresAt: string; seconds: number }>("/security/step-up/verify", mutation(input)),
+
+  listRules: () => request<{ items: Rule[] }>("/rules"),
+  createRule: (input: { match: RuleMatch; action: RuleAction; enabled?: boolean }) =>
+    request<Rule>("/rules", mutation(input)),
+  updateRule: (id: string, patch: { match?: RuleMatch; action?: RuleAction; enabled?: boolean }) =>
+    request<Rule>(`/rules/${encodeURIComponent(id)}`, mutation(patch, "PATCH")),
+  deleteRule: (id: string) => request<{ removed: boolean }>(`/rules/${encodeURIComponent(id)}`, mutation(undefined, "DELETE")),
+  addressReuse: () => request<{ items: AddressReuse[] }>("/report/address-reuse"),
 };
 
 /** Authenticated, same-origin download URL for an attachment (never a public URL). */

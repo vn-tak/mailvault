@@ -78,6 +78,10 @@ of this system, so this addendum records the difference.
   in any response. **The WebAuthn ceremony itself is unverified by me** — it needs the
   owner's fingerprint or security key, so enrolling the first passkey is one action left to
   do in Settings.
+- **Migration `0007_rules.sql` is applied to production D1** (rules table; `archived`,
+  `rule_tag`, `applied_rule_id`, `applied_rule_note` on messages). Verified live:
+  `/api/report/address-reuse` already answers a real question — `github.com` holds **four**
+  of the owner's aliases across 14 messages, and `cf-bounce.selinow.com` holds two.
 - **Ingest is queue-backed:** `mail-ingest` (consumer = the same Worker, `max_retries: 3`)
   with `mail-ingest-dlq` behind it. The email handler stages to R2 and posts a job; the
   consumer commits to D1. Created 2026-09-20 with `wrangler queues create`, and the

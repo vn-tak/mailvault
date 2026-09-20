@@ -65,6 +65,7 @@ export const messagesRoute = new Hono<AppEnv>()
       textBody: parsed?.text ?? null,
       htmlBody: parsed?.html ? sanitizeEmailHtml(parsed.html, { allowRemoteImages: allowRemote }) : null,
       parseDegraded: detail.parseDegraded || parsed?.degraded === true,
+      appliedRuleNote: row?.applied_rule_note ?? null,
     });
   })
 
