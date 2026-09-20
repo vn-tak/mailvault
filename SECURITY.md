@@ -62,11 +62,36 @@ secret and scrubbed from every log path.
   returns a structured `{ error: { code, message } }`).
 
 ### Dev bypass cannot reach production
-
 `apps/worker/src/env.ts` → `devAuthBypassEnabled()` returns true **only** when
 `DEV_AUTH_BYPASS=="true"` **and** `ENVIRONMENT` is one of `development/local/test`.
 Production config ships `ENVIRONMENT=production`, so the bypass is inert regardless of
 the flag — accidental exposure is structurally impossible.
+
+### Passkey step-up (`apps/worker/src/routes/security.ts`, `src/lib/webauthn.ts`)
+
+Access answers *which account* signed in. A step-up answers *is the same person holding
+this device right now*, so a copied session cookie cannot do the irreversible things on its
+own. It is asked for, by the route rather than the page, before:
+
+- purging an alias's stored mail (`DELETE /api/aliases/:id` with `purgeMessages`) — a plain
+  alias delete, which keeps the mail, does not ask;
+- detaching a domain from MailVault;
+- setting a domain's sender-auth policy to `OFF` (tightening it never asks);
+- enrolling an additional passkey once one exists — otherwise a hijacked session could
+  quietly add the attacker's key and the gate would be theirs.
+
+How it works: the browser's authenticator signs a single-use challenge (60s), and the
+Worker returns a bearer grant valid for 5 minutes. Only its SHA-256 is stored, so reading
+D1 cannot mint someone else's unlock; the grant lives in memory in the tab and is gone on
+reload. `userVerification: required`, so the prompt must be a fingerprint, passcode or
+security key rather than mere presence.
+
+Boundaries worth stating: the relying-party id is the canonical `APP_ORIGIN` host, so a
+passkey enrolled on `mail.tungjp.store` will not unlock the transitional
+`mail.omnipos.tech` hostname. And removing the **last** passkey needs only the signed-in
+identity — that is the break-glass path, because a lost key must not mean a lost account.
+The residual risk is unchanged by this feature: whoever holds your Access session can still
+read everything. Step-up protects what cannot be undone, not confidentiality.
 
 ## 4. CSRF & same-origin
 

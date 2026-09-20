@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { api, ApiClientError } from "../lib/api";
 import { navigate } from "../lib/router";
+import { withStepUp } from "../lib/passkeys";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
 import { ConfirmDialog, ErrorBanner, Loading, Menu, Modal, Row, StatusPill, useOpenRow } from "../components/ui";
@@ -141,7 +142,7 @@ export function Domains() {
     setBusy(true);
     setActionError(null);
     try {
-      await api.setAuthPolicy(d.cloudflareZoneId, policy);
+      await withStepUp(() => api.setAuthPolicy(d.cloudflareZoneId, policy));
       reload();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Could not update the policy");
@@ -305,7 +306,7 @@ export function Domains() {
     if (!removing) return;
     setBusy(true);
     try {
-      await api.removeDomain(removing.cloudflareZoneId);
+      await withStepUp(() => api.removeDomain(removing.cloudflareZoneId));
       setNotice(`Removed ${removing.name} from MailVault. Your Cloudflare zone and DNS were NOT touched.`);
       setRemoving(null);
       reload();

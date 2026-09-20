@@ -34,6 +34,22 @@ export function bytesToBase64Url(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/** URL-safe random token, cryptographically secure. Used for challenges and grants. */
+export function randomToken(bytes = 32): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return bytesToBase64Url(buf);
+}
+
+/** Inverse of `bytesToBase64Url`, tolerant of padding and the alternate alphabet. */
+export function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (value.length % 4)) % 4);
+  const bin = atob(padded);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 export async function sha256Hex(input: ArrayBuffer | Uint8Array | string): Promise<string> {
   const data = typeof input === "string" ? encoder.encode(input) : input instanceof Uint8Array ? input : new Uint8Array(input);
   const digest = await crypto.subtle.digest("SHA-256", data as unknown as ArrayBuffer);

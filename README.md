@@ -27,7 +27,8 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Inbound ingest is retryable: stage to R2 → queue → commit, with a dead-letter queue | ✅ +9 tests |
 | Open tabs learn about new mail over a per-owner Durable Object (nudge only, no content) | ✅ Handshake tested |
 | CI: typecheck + lint + tests + E2E on every push; manual versioned deploy; rollback | ✅ Green on GitHub |
-| Unit + integration tests (192 passing: worker 131, web 61) | ✅ Green |
+| Passkey step-up before anything irreversible (purge mail, detach domain, disable sender checks) | ✅ Gate tested |
+| Unit + integration tests (208 passing: worker 143, web 65) | ✅ Green |
 | Playwright E2E (20 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 

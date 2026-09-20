@@ -10,12 +10,35 @@ import type {
   MessageDetail,
   MessageListQuery,
   Paginated,
+  Passkey,
   PreflightResult,
   ProvisionOutcome,
   PushOutcome,
   MessageSummary,
   UpdateAliasInput,
 } from "@mailvault/shared";
+import { grantHeaders } from "./grant";
+
+/**
+ * WebAuthn option objects as they travel over the wire. The browser types for them are
+ * tied to `BufferSource`, which is not what JSON carries, so they stay loose here and the
+ * WebAuthn library does the conversion at the boundary.
+ */
+export interface PasskeyOptions {
+  options: unknown;
+  challenge: string;
+}
+
+export interface StepUpOptions {
+  options: unknown;
+  challenge: string;
+}
+
+export interface SecurityStatus {
+  passkeys: Passkey[];
+  enrolled: boolean;
+  rpId: string | null;
+}
 
 const BASE = "/api";
 
@@ -49,11 +72,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
-// The Worker requires this custom header on state-changing calls as a CSRF signal.
+// The Worker requires this custom header on state-changing calls as a CSRF signal, and
+// looks for the step-up grant on the ones that cannot be undone.
 function mutation(body?: unknown, method = "POST"): RequestInit {
   return {
     method,
-    headers: { "content-type": "application/json", "x-mailvault": "1" },
+    headers: { "content-type": "application/json", "x-mailvault": "1", ...grantHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
   };
 }
@@ -87,10 +111,7 @@ export const api = {
   retryDomain: (zoneId: string, allowCatchAllTakeover = false) =>
     request<ProvisionOutcome>(`/domains/${encodeURIComponent(zoneId)}/retry`, mutation({ allowCatchAllTakeover })),
   removeDomain: (zoneId: string) =>
-    request<{ removed: boolean }>(`/domains/${encodeURIComponent(zoneId)}`, {
-      method: "DELETE",
-      headers: { "x-mailvault": "1" },
-    }),
+    request<{ removed: boolean }>(`/domains/${encodeURIComponent(zoneId)}`, mutation(undefined, "DELETE")),
   setAuthPolicy: (zoneId: string, policy: AuthPolicy) =>
     request<{ zoneId: string; authPolicy: AuthPolicy }>(
       `/domains/${encodeURIComponent(zoneId)}/auth-policy`,
@@ -106,11 +127,7 @@ export const api = {
   enableAlias: (id: string) => request<Alias>(`/aliases/${encodeURIComponent(id)}/enable`, mutation()),
   disableAlias: (id: string) => request<Alias>(`/aliases/${encodeURIComponent(id)}/disable`, mutation()),
   deleteAlias: (id: string, purgeMessages: boolean) =>
-    request<{ deleted: boolean }>(`/aliases/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      headers: { "content-type": "application/json", "x-mailvault": "1" },
-      body: JSON.stringify({ purgeMessages }),
-    }),
+    request<{ deleted: boolean }>(`/aliases/${encodeURIComponent(id)}`, mutation({ purgeMessages }, "DELETE")),
 
   listMessages: (query: Partial<MessageListQuery>) =>
     request<Paginated<MessageSummary>>(`/messages${qs({ ...query })}`),
@@ -134,6 +151,16 @@ export const api = {
     request<{ id: string }>("/push/subscribe", mutation(input)),
   pushUnsubscribe: (endpoint: string) => request<{ removed: number }>("/push/unsubscribe", mutation({ endpoint })),
   pushTest: () => request<PushOutcome>("/push/test", mutation()),
+
+  securityStatus: () => request<SecurityStatus>("/security/status"),
+  passkeyOptions: () => request<PasskeyOptions>("/security/passkeys/options", mutation()),
+  passkeyVerify: (input: { response: unknown; challenge: string; deviceLabel?: string }) =>
+    request<{ passkey: Passkey }>("/security/passkeys/verify", mutation(input)),
+  deletePasskey: (id: string) =>
+    request<{ removed: boolean }>(`/security/passkeys/${encodeURIComponent(id)}`, mutation(undefined, "DELETE")),
+  stepUpOptions: () => request<StepUpOptions>("/security/step-up/options", mutation()),
+  stepUpVerify: (input: { response: unknown; challenge: string }) =>
+    request<{ token: string; expiresAt: string; seconds: number }>("/security/step-up/verify", mutation(input)),
 };
 
 /** Authenticated, same-origin download URL for an attachment (never a public URL). */

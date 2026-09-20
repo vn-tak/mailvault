@@ -19,7 +19,8 @@ export const badRequest = (msg: string, details?: unknown) =>
   new AppError(400, ErrorCodes.Validation, msg, details);
 export const unauthorized = (msg = "Authentication required") =>
   new AppError(401, ErrorCodes.Unauthorized, msg);
-export const forbidden = (msg = "Not permitted") => new AppError(403, ErrorCodes.Forbidden, msg);
+export const forbidden = (msg = "Not permitted", details?: unknown) =>
+  new AppError(403, ErrorCodes.Forbidden, msg, details);
 export const notFound = (msg = "Not found") => new AppError(404, ErrorCodes.NotFound, msg);
 export const conflict = (msg: string, details?: unknown) =>
   new AppError(409, ErrorCodes.Conflict, msg, details);

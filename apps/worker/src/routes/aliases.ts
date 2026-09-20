@@ -25,6 +25,7 @@ import { log } from "../lib/logging";
 import { randomLocalPart } from "../lib/util";
 import { deleteKeys } from "../storage/r2";
 import { actorOf, parseQuery, readJson } from "./_helpers";
+import { requireStepUp } from "./security";
 
 const IdParam = z.object({ id: z.string().min(1) });
 const ListQuery = z.object({
@@ -118,6 +119,9 @@ export const aliasesRoute = new Hono<AppEnv>()
     const { id } = IdParam.parse({ id: c.req.param("id") });
     const { purgeMessages } = await readJson(c, DeleteAliasSchema);
     if (!(await getAliasById(c.env.DB, id))) throw notFound("Alias not found");
+    // Purging stored mail is the one alias operation that cannot be undone, so it asks for
+    // the passkey. A plain delete keeps the mail and needs no second factor.
+    if (purgeMessages) await requireStepUp(c);
     const { rawKeys } = await deleteAlias(c.env.DB, id, purgeMessages);
     if (rawKeys.length) await deleteKeys(c.env.MAIL_BUCKET, rawKeys);
     log.info("alias_deleted", { actor: actorOf(c).email, aliasId: id, purgeMessages, r2Keys: rawKeys.length });

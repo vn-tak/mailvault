@@ -11,6 +11,7 @@ import {
   type UpdateAliasInput,
 } from "@mailvault/shared";
 import { navigate } from "../lib/router";
+import { withStepUp } from "../lib/passkeys";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
 import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Menu, Modal, Row, useOpenRow } from "../components/ui";
@@ -196,7 +197,7 @@ export function Aliases({ openNew }: { openNew: boolean }) {
   async function confirmDelete() {
     if (!deleting) return;
     try {
-      await api.deleteAlias(deleting.id, purge);
+      await withStepUp(() => api.deleteAlias(deleting.id, purge));
       setDeleting(null);
       setNotice(purge ? "Alias and its messages deleted" : "Alias deleted — existing mail kept");
       setPurge(false);

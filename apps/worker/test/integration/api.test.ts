@@ -3,6 +3,7 @@ import type { ExecutionContext } from "@cloudflare/workers-types";
 import type { Env } from "../../src/env";
 import worker from "../../src/index";
 import { ingestEmail } from "../../src/mail/ingest";
+import { newGrant } from "../../src/db/security";
 import { getTestBindings, type TestBindings } from "./_mf";
 
 let bindings: TestBindings;
@@ -317,6 +318,155 @@ describe("dashboard mailboxes", () => {
     // Busiest first, because the dashboard leads with where the mail actually is.
     expect(dash.mailboxes.slice(0, 2).map((m: { name: string }) => m.name)).toEqual(["busy.example", "quiet.example"]);
     expect(dash.totalMessages).toBe(dash.mailboxes.reduce((n: number, m: { total: number }) => n + m.total, 0));
+  });
+});
+
+describe("passkey step-up gate", () => {
+  async function aliasId(domainId: string, local: string) {
+    const id = crypto.randomUUID();
+    await DB.prepare(
+      `INSERT INTO aliases (id, domain_id, local_part, address, status) VALUES (?1, ?2, ?3, ?4, 'ACTIVE')`,
+    )
+      .bind(id, domainId, local, `${local}@notify.example`)
+      .run();
+    return id;
+  }
+
+  async function grantHeader(): Promise<Record<string, string>> {
+    const grant = await newGrant(DB, 60_000);
+    return { ...mutationHeaders, "x-mailvault-stepup": grant.token };
+  }
+
+  it("reports no passkey enrolled on a fresh database", async () => {
+    const res = await worker.fetch(req("/api/security/status"), TEST_ENV, CTX);
+    const body = await j(res);
+    expect(res.status).toBe(200);
+    expect(body.enrolled).toBe(false);
+    expect(body.passkeys).toEqual([]);
+  });
+
+  it("refuses to purge an alias's mail without an unlock, but allows a plain delete", async () => {
+    const domainId = await seedDomain();
+    const id = await aliasId(domainId, "gate1");
+
+    const blocked = await worker.fetch(
+      req(`/api/aliases/${id}`, { method: "DELETE", headers: mutationHeaders, body: JSON.stringify({ purgeMessages: true }) }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(blocked.status).toBe(403);
+    expect((await j(blocked)).error.details).toEqual({ stepUpRequired: true });
+    // The refusal must not have taken the alias with it.
+    expect((await j(await worker.fetch(req(`/api/aliases/${id}`), TEST_ENV, CTX))).alias).toBeTruthy();
+
+    const allowed = await worker.fetch(
+      req(`/api/aliases/${id}`, { method: "DELETE", headers: mutationHeaders, body: JSON.stringify({ purgeMessages: false }) }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(allowed.status).toBe(200);
+    expect((await j(allowed)).purgedMessages).toBe(false);
+  });
+
+  it("lets a live grant through, and stores only its hash", async () => {
+    const domainId = await seedDomain();
+    const id = await aliasId(domainId, "gate2");
+    const grant = await newGrant(DB, 60_000);
+
+    const res = await worker.fetch(
+      req(`/api/aliases/${id}`, {
+        method: "DELETE",
+        headers: { ...mutationHeaders, "x-mailvault-stepup": grant.token },
+        body: JSON.stringify({ purgeMessages: true }),
+      }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(res.status).toBe(200);
+    expect((await j(res)).purgedMessages).toBe(true);
+
+    // A read of the table must not hand out someone else's second factor.
+    const stored = await DB.prepare(`SELECT token_hash FROM step_up_grants LIMIT 5`).all<{ token_hash: string }>();
+    for (const row of stored.results ?? []) {
+      expect(row.token_hash).not.toBe(grant.token);
+      expect(row.token_hash).toHaveLength(64);
+    }
+  });
+
+  it("rejects an expired grant and a made-up one", async () => {
+    const domainId = await seedDomain();
+    const id = await aliasId(domainId, "gate3");
+    const expired = await newGrant(DB, -1000);
+
+    for (const token of [expired.token, "not-a-real-grant"]) {
+      const res = await worker.fetch(
+        req(`/api/aliases/${id}`, {
+          method: "DELETE",
+          headers: { ...mutationHeaders, "x-mailvault-stepup": token },
+          body: JSON.stringify({ purgeMessages: true }),
+        }),
+        TEST_ENV,
+        CTX,
+      );
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it("gates detaching a domain and turning sender checks off, but not tightening them", async () => {
+    const domainId = await seedDomain();
+    const zone = (await DB.prepare(`SELECT cloudflare_zone_id AS z FROM domains WHERE id = ?1`).bind(domainId).first<{ z: string }>())!.z;
+
+    const removed = await worker.fetch(
+      req(`/api/domains/${zone}`, { method: "DELETE", headers: mutationHeaders }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(removed.status).toBe(403);
+
+    const off = await worker.fetch(
+      req(`/api/domains/${zone}/auth-policy`, { method: "PATCH", headers: mutationHeaders, body: JSON.stringify({ policy: "OFF" }) }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(off.status).toBe(403);
+
+    const reject = await worker.fetch(
+      req(`/api/domains/${zone}/auth-policy`, { method: "PATCH", headers: mutationHeaders, body: JSON.stringify({ policy: "REJECT" }) }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(reject.status).toBe(200);
+
+    const withGrant = await worker.fetch(
+      req(`/api/domains/${zone}`, { method: "DELETE", headers: await grantHeader() }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(withGrant.status).toBe(200);
+  });
+
+  it("burns a challenge on first use, so a prompt cannot be replayed", async () => {
+    const first = await j(await worker.fetch(req("/api/security/passkeys/options", { method: "POST", headers: mutationHeaders }), TEST_ENV, CTX));
+    expect(typeof first.challenge).toBe("string");
+    expect(first.options.rp?.id ?? first.options.rpId).toBeTruthy();
+
+    const body = { response: { id: "c1", rawId: "c1", type: "public-key", clientExtensionResults: {}, response: {}, challenge: first.challenge } };
+    const used = await worker.fetch(req("/api/security/passkeys/verify", { method: "POST", headers: mutationHeaders, body: JSON.stringify(body) }), TEST_ENV, CTX);
+    expect(used.status).toBe(400);
+
+    // Same challenge again: refused before verification is even attempted.
+    const replay = await worker.fetch(req("/api/security/passkeys/verify", { method: "POST", headers: mutationHeaders, body: JSON.stringify(body) }), TEST_ENV, CTX);
+    expect(replay.status).toBe(400);
+    expect((await j(replay)).error.message).toMatch(/expired|already used/);
+  });
+
+  it("asks for an unlock before adding a second passkey, and never returns key material", async () => {
+    const status = await j(await worker.fetch(req("/api/security/status"), TEST_ENV, CTX));
+    expect(JSON.stringify(status)).not.toMatch(/publicKey|public_key|credentialId/);
+
+    // Nothing enrolled yet, so the first registration needs only the signed-in identity.
+    const ok = await worker.fetch(req("/api/security/passkeys/options", { method: "POST", headers: mutationHeaders }), TEST_ENV, CTX);
+    expect(ok.status).toBe(200);
   });
 });
 

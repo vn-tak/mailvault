@@ -79,6 +79,19 @@ export const DashboardStatsSchema = z.object({
 });
 export type DashboardStats = z.infer<typeof DashboardStatsSchema>;
 
+/**
+ * A registered passkey as the owner sees it. The credential id and public key are
+ * verification material and are never returned.
+ */
+export const PasskeySchema = z.object({
+  id: z.string(),
+  deviceLabel: z.string().nullable(),
+  transports: z.array(z.string()).nullable(),
+  createdAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+});
+export type Passkey = z.infer<typeof PasskeySchema>;
+
 export const HealthSchema = z.object({
   ok: z.boolean(),
   version: z.string(),

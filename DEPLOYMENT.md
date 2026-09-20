@@ -71,6 +71,13 @@ of this system, so this addendum records the difference.
   - The E2E that first "passed" only observed the browser *attempting* a socket. It now
     completes a handshake and waits for the hub's `hello` frame, which is what fails when
     either of the above regresses.
+- **Migration `0006_passkeys.sql` is applied to production D1** (passkeys, single-use
+  challenges, hashed step-up grants). It only adds tables; nothing existing was touched.
+  Verified live: `/api/security/passkeys/options` returns a registration challenge bound to
+  `rp.id = mail.tungjp.store` with `userVerification: required`, and no key material appears
+  in any response. **The WebAuthn ceremony itself is unverified by me** — it needs the
+  owner's fingerprint or security key, so enrolling the first passkey is one action left to
+  do in Settings.
 - **Ingest is queue-backed:** `mail-ingest` (consumer = the same Worker, `max_retries: 3`)
   with `mail-ingest-dlq` behind it. The email handler stages to R2 and posts a job; the
   consumer commits to D1. Created 2026-09-20 with `wrangler queues create`, and the

@@ -9,6 +9,7 @@ import { runWatchdog } from "../provisioning/watchdog";
 import { log } from "../lib/logging";
 import { badRequest, notFound, AppError } from "../lib/errors";
 import { actorOf, asApiError, cfClient, readJson } from "./_helpers";
+import { requireStepUp } from "./security";
 
 const ZoneIdParam = z.object({ id: z.string().min(1) });
 
@@ -143,6 +144,9 @@ export const domainsRoute = new Hono<AppEnv>()
     const body = await readJson(c, z.object({ policy: z.nativeEnum(AuthPolicy) }));
     const domain = await getDomainByZoneId(c.env.DB, zoneId);
     if (!domain) throw notFound("Domain not found");
+    // Weakening this is exactly what an attacker with a stolen session would want, and it
+    // is invisible in the mail that then arrives.
+    if (body.policy === AuthPolicy.Off) await requireStepUp(c);
     await setDomainAuthPolicy(c.env.DB, domain.id, body.policy);
     log.info("domain_auth_policy_set", { actor: actorOf(c).email, zoneId, policy: body.policy });
     return c.json({ zoneId, authPolicy: body.policy });
@@ -158,6 +162,7 @@ export const domainsRoute = new Hono<AppEnv>()
     const { id: zoneId } = ZoneIdParam.parse({ id: c.req.param("id") });
     const domain = await getDomainByZoneId(c.env.DB, zoneId);
     if (!domain) throw notFound("Domain not found");
+    await requireStepUp(c);
     const aliasCount = await c.env.DB
       .prepare(`SELECT COUNT(*) AS c FROM aliases WHERE domain_id = ?1`)
       .bind(domain.id)
