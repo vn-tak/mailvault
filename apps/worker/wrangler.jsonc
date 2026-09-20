@@ -71,10 +71,11 @@
 
   // Per-owner websocket hub. `new_sqlite_classes` runs the one-time migration that
   // creates the namespace; it is never re-applied on later deploys.
+  // NB: this wrangler takes the code-side binding name in `name` — adding a `binding`
+  // field is rejected as unexpected and silently renames the binding, which local dev
+  // forgives and production does not.
   "durable_objects": {
-    "bindings": [
-      { "binding": "MAILBOX_HUB", "name": "MailboxHub", "class_name": "MailboxHub" }
-    ]
+    "bindings": [{ "name": "MAILBOX_HUB", "class_name": "MailboxHub" }]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["MailboxHub"] }

@@ -41,7 +41,7 @@ test("the inbox switcher narrows to one mailbox and back", async ({ page }) => {
   await expect(page.locator(".msg-alias").first()).toContainText("demo.example");
 });
 
-test("phone: an open tab connects to the live hub and refetches when nudged @mobile", async ({ page }) => {
+test("phone: an open tab reaches the live hub and refetches when nudged @mobile", async ({ page }) => {
   const sockets: string[] = [];
   page.on("websocket", (ws) => sockets.push(ws.url()));
 
@@ -49,6 +49,33 @@ test("phone: an open tab connects to the live hub and refetches when nudged @mob
   await expect
     .poll(() => sockets.filter((u) => u.endsWith("/api/live")).length, "the app should hold one socket to the hub")
     .toBeGreaterThan(0);
+
+  /*
+   * A recorded socket attempt is not a connection — the first version of this test passed
+   * while the handshake was failing, because the browser logs the attempt either way. So
+   * complete a real handshake from the page and wait for the hub's first frame.
+   */
+  const handshake = await page.evaluate(
+    () =>
+      new Promise<{ opened: boolean; first: string | null }>((resolve) => {
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${proto}//${location.host}/api/live`);
+        const done = (opened: boolean, first: string | null) => {
+          try {
+            ws.close();
+          } catch {
+            /* already gone */
+          }
+          resolve({ opened, first });
+        };
+        ws.onopen = () => {};
+        ws.onmessage = (ev) => done(true, String(ev.data));
+        ws.onerror = () => done(false, null);
+        setTimeout(() => done(false, null), 5000);
+      }),
+  );
+  expect(handshake.opened, "the hub must accept an authenticated upgrade").toBe(true);
+  expect(JSON.parse(handshake.first ?? "{}").type).toBe("hello");
 
   // The nudge carries no data, so the visible effect is a refetch through the normal
   // authenticated route — the same one the Refresh button uses.

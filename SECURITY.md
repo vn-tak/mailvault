@@ -194,6 +194,23 @@ Codes, links, preview and the auth verdict are *re-derived* at commit time from 
 parse by the same pure functions — one assessment per message, and the stored verdict
 cannot disagree with the one that was judged at the edge.
 
+### 6.4 Live updates — `apps/worker/src/live/hub.ts`, `apps/web/src/lib/live.ts`
+
+`GET /api/live` upgrades to a Durable Object websocket so an open tab learns that mail
+landed without waiting for a pull-to-refresh.
+
+- The frame the hub ever sends is `{"type":"hello"}` or `{"type":"new-mail"}`. **No sender,
+  subject, code or link crosses the socket.** The tab reacts by refetching through
+  `/api/*`, which is where access control actually lives, so the socket inherits it rather
+  than bypassing it.
+- The route sits behind the same Access verification as every other `/api/*` handler, and
+  the hub instance is keyed by the authenticated address, so a second identity on the team
+  cannot even observe that the owner's mail arrived.
+- The client ignores any frame that is not the nudge and never renders socket data.
+- `connect-src 'self'` covers the same-origin `wss://` handshake — verified live, not
+  assumed, and covered by an E2E test that completes a real handshake and waits for the
+  first frame.
+
 ## 7. Attachments
 
 `apps/worker/src/routes/messages.ts` (download route) + `apps/worker/src/lib/filename.ts`:

@@ -51,9 +51,7 @@
   },
 
   "durable_objects": {
-    "bindings": [
-      { "binding": "MAILBOX_HUB", "name": "MailboxHub", "class_name": "MailboxHub" }
-    ]
+    "bindings": [{ "name": "MAILBOX_HUB", "class_name": "MailboxHub" }]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["MailboxHub"] }

@@ -25,8 +25,10 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | One mailbox per domain: dashboard mailbox cards, inbox picker, per-row arrival domain | ✅ Implemented |
 | Row actions folded until engaged (tap / hover / focus), bulk actions only with a selection | ✅ E2E covered |
 | Inbound ingest is retryable: stage to R2 → queue → commit, with a dead-letter queue | ✅ +9 tests |
-| Unit + integration tests (177 passing: worker 123, web 54) | ✅ Green |
-| Playwright E2E (19 passing, live workerd + local D1/R2) | ✅ Green |
+| Open tabs learn about new mail over a per-owner Durable Object (nudge only, no content) | ✅ Handshake tested |
+| CI: typecheck + lint + tests + E2E on every push; manual versioned deploy; rollback | ✅ Green on GitHub |
+| Unit + integration tests (192 passing: worker 131, web 61) | ✅ Green |
+| Playwright E2E (20 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
 See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at

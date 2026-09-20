@@ -12,6 +12,20 @@ test("lists the seeded alias, then creates and removes one", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "Aliases" })).toBeVisible();
   await expect(page.getByText("github-x9f2@demo.example")).toBeVisible();
 
+  // A run that failed halfway leaves its alias behind, and the closing assertion counts
+  // rows by label — so start from a clean slate rather than from whatever is left over.
+  await page.evaluate(async () => {
+    const list = await (await fetch("/api/aliases?q=E2E%20alias&view=all")).json();
+    for (const a of list.items ?? []) {
+      await fetch(`/api/aliases/${a.id}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json", "x-mailvault": "1" },
+        body: JSON.stringify({ purgeMessages: true }),
+      });
+    }
+  });
+  await page.reload();
+
   // Create a random alias for the demo domain.
   await page.getByRole("button", { name: "+ Create alias" }).click();
   const modal = page.getByRole("dialog", { name: "Create alias" });

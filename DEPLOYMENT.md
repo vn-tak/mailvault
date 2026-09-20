@@ -60,6 +60,17 @@ of this system, so this addendum records the difference.
   single owner address in `ALLOWED_EMAILS`. `workers_dev` is off, so the Worker is reachable
   only through those Access-protected routes. The Cloudflare API token exists only as a
   Worker secret.
+- **Live updates run on a Durable Object** (`MailboxHub`, one instance per owner address).
+  Two things about it were only caught against production, so they are recorded here:
+  - This wrangler takes the code-side binding name in `name`, **not** `binding`. Writing
+    `{ "binding": "MAILBOX_HUB", ... }` is reported as an unexpected field and the binding
+    silently arrives as `MailboxHub`, so `env.MAILBOX_HUB` is undefined — `wrangler dev`
+    forgave it, production returned 500.
+  - A `101` handshake cannot be rebuilt: `new Response(body, { status: 101 })` throws
+    `RangeError` and would also drop the socket. `decorateResponse` passes 1xx through.
+  - The E2E that first "passed" only observed the browser *attempting* a socket. It now
+    completes a handshake and waits for the hub's `hello` frame, which is what fails when
+    either of the above regresses.
 - **Ingest is queue-backed:** `mail-ingest` (consumer = the same Worker, `max_retries: 3`)
   with `mail-ingest-dlq` behind it. The email handler stages to R2 and posts a job; the
   consumer commits to D1. Created 2026-09-20 with `wrangler queues create`, and the
