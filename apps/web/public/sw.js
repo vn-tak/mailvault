@@ -77,7 +77,37 @@ self.addEventListener("fetch", (event) => {
  * Anything missing (signed out, no session, odd response) falls back to the generic note.
  */
 const NEW_MAIL_WINDOW_MS = 5 * 60 * 1000;
-const GENERIC_NOTE = { title: "MailVault", body: "New mail arrived", tag: "mailvault-new-mail", url: "/#/inbox" };
+
+/*
+ * The strings the worker writes onto a lock screen. It shares no code with the app bundle
+ * and cannot read localStorage, so the app pushes its language choice in a message; until
+ * one arrives the worker falls back to the browser language, which is what the app itself
+ * would have started with.
+ */
+const NOTE_COPY = {
+  en: { arrived: "New mail arrived", noSubject: "(no subject)" },
+  vi: { arrived: "Thư mới đã tới", noSubject: "(không có chủ đề)" },
+};
+let uiLang = null;
+
+function noteCopy() {
+  if (uiLang === "en" || uiLang === "vi") return NOTE_COPY[uiLang];
+  const browser = (self.navigator && self.navigator.language) || "en";
+  return String(browser).toLowerCase().startsWith("vi") ? NOTE_COPY.vi : NOTE_COPY.en;
+}
+
+function genericNote() {
+  return { title: "MailVault", body: noteCopy().arrived, tag: "mailvault-new-mail", url: "/#/inbox" };
+}
+
+self.addEventListener("message", (event) => {
+  const data = event.data;
+  if (data && data.type === "mailvault-lang" && (data.value === "en" || data.value === "vi")) uiLang = data.value;
+});
+
+function setNoteLang(value) {
+  uiLang = value === "en" || value === "vi" ? value : null;
+}
 
 function senderLabel(item) {
   const raw = item.headerFrom || item.envelopeFrom || "";
@@ -109,7 +139,7 @@ function pickNewMail(items, now) {
  */
 function safeSubject(item) {
   let subject = String(item.subject || "").replace(/\s+/g, " ").trim();
-  if (!subject) return "(no subject)";
+  if (!subject) return noteCopy().noSubject;
   subject = subject.replace(/https?:\/\/\S+/gi, "[link]");
   const code = item.primaryCode;
   if (code && typeof code === "string" && subject.indexOf(code) !== -1) {
@@ -123,17 +153,17 @@ async function newMailNote() {
   try {
     response = await fetch("/api/messages?filter=unread&limit=10", { credentials: "same-origin", cache: "no-store" });
   } catch {
-    return GENERIC_NOTE; // offline, or the network refused
+    return genericNote(); // offline, or the network refused
   }
-  if (!response.ok) return GENERIC_NOTE; // signed out, or Access answered instead of the API
+  if (!response.ok) return genericNote(); // signed out, or Access answered instead of the API
   let body;
   try {
     body = await response.json();
   } catch {
-    return GENERIC_NOTE;
+    return genericNote();
   }
   const picked = pickNewMail(body && body.items, Date.now());
-  if (!picked) return GENERIC_NOTE;
+  if (!picked) return genericNote();
   return {
     title: senderLabel(picked),
     body: safeSubject(picked),
@@ -177,4 +207,4 @@ self.addEventListener("notificationclick", (event) => {
  * inside the real worker): the runtime never reads this. The push path cannot be driven
  * from a page, and these decisions are the security-relevant part of it.
  */
-self.__mailvaultNotify = { newMailNote, pickNewMail, senderLabel, safeSubject, GENERIC_NOTE };
+self.__mailvaultNotify = { newMailNote, pickNewMail, senderLabel, safeSubject, genericNote, setNoteLang };

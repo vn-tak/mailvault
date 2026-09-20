@@ -3,6 +3,7 @@ import { api, ApiClientError } from "../lib/api";
 import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { fullTime, relativeTime } from "../lib/format";
+import { t } from "../lib/i18n";
 import { CopyButton, ErrorBanner, Loading } from "../components/ui";
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -34,10 +35,10 @@ export function AliasDetail({ id }: { id: string }) {
   async function save() {
     try {
       await api.updateAlias(id, { label: label.trim() || null, notes: notes.trim() || null });
-      setNotice("Saved");
+      setNotice(t("common.saved"));
       reload();
     } catch (e) {
-      setNotice(e instanceof ApiClientError ? e.message : "Save failed");
+      setNotice(e instanceof ApiClientError ? e.message : t("common.saveFail"));
     }
   }
 
@@ -46,7 +47,7 @@ export function AliasDetail({ id }: { id: string }) {
       await api.updateAlias(id, changes);
       reload();
     } catch (e) {
-      setNotice(e instanceof ApiClientError ? e.message : "Update failed");
+      setNotice(e instanceof ApiClientError ? e.message : t("common.updateFail"));
     }
   }
 
@@ -58,7 +59,7 @@ export function AliasDetail({ id }: { id: string }) {
   return (
     <div className="page">
       <div style={{ marginBottom: 14 }}>
-        <Link to="/aliases">← Back to aliases</Link>
+        <Link to="/aliases">{t("alias.back")}</Link>
       </div>
 
       {notice && <div className="banner ok">{notice}</div>}
@@ -71,42 +72,43 @@ export function AliasDetail({ id }: { id: string }) {
               <div style={{ minWidth: 0 }}>
                 <h1 style={{ marginBottom: 4, wordBreak: "break-all" }}>
                   {a.pinned ? "📌 " : null}
-                  {a.label || "No label"}
+                  {a.label || t("aliases.noLabel")}
                 </h1>
                 <div className="addr muted">{a.address}</div>
                 <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
-                  {a.status === "ACTIVE" ? "Receiving" : "Not receiving"} · {a.domainName} · created {relativeTime(a.createdAt)}
+                  {t(a.status === "ACTIVE" ? "alias.receiving" : "alias.notReceiving")} · {a.domainName} ·{" "}
+                  {t("common.created", { at: relativeTime(a.createdAt) })}
                 </div>
               </div>
               <div className="row wrap" style={{ justifyContent: "flex-end" }}>
-                <CopyButton text={a.address} label="Copy address" />
+                <CopyButton text={a.address} label={t("common.copyAddress")} />
                 <button className="small" onClick={() => patch({ pinned: !a.pinned })}>
-                  {a.pinned ? "Unpin" : "Pin"}
+                  {t(a.pinned ? "aliases.unpin" : "aliases.pin")}
                 </button>
                 <button className="small" onClick={() => patch({ archived: !a.archived })}>
-                  {a.archived ? "Unarchive" : "Archive"}
+                  {t(a.archived ? "aliases.unarchive" : "aliases.archive")}
                 </button>
                 <button className="small" onClick={() => navigate(`/inbox?alias=${a.id}`)}>
-                  Open inbox
+                  {t("alias.openInbox")}
                 </button>
               </div>
             </div>
           </div>
 
           <div className="grid mt" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
-            <Stat label="Messages" value={String(stats.messages)} />
-            <Stat label="Unread" value={String(stats.unread)} />
-            <Stat label="First mail" value={stats.firstReceivedAt ? fullTime(stats.firstReceivedAt) : "—"} />
-            <Stat label="Last mail" value={stats.lastReceivedAt ? `${relativeTime(stats.lastReceivedAt)}` : "—"} />
+            <Stat label={t("alias.statMessages")} value={String(stats.messages)} />
+            <Stat label={t("alias.statUnread")} value={String(stats.unread)} />
+            <Stat label={t("alias.statFirst")} value={stats.firstReceivedAt ? fullTime(stats.firstReceivedAt) : t("common.dash")} />
+            <Stat label={t("alias.statLast")} value={stats.lastReceivedAt ? relativeTime(stats.lastReceivedAt) : t("common.dash")} />
           </div>
 
           <div className="mt">
-            <h2>Notes</h2>
+            <h2>{t("alias.notes")}</h2>
             <textarea
               className="search"
               rows={3}
               style={{ width: "100%", resize: "vertical" }}
-              placeholder="What is this address for, where it was handed out, when to retire it…"
+              placeholder={t("alias.notesPlaceholder")}
               value={notes}
               maxLength={1000}
               onChange={(e) => {
@@ -117,12 +119,12 @@ export function AliasDetail({ id }: { id: string }) {
           </div>
 
           <div className="mt">
-            <h2>Label</h2>
+            <h2>{t("alias.label")}</h2>
             <input
               className="search"
               value={label}
               maxLength={120}
-              placeholder="e.g. GitHub sign-in"
+              placeholder={t("alias.labelPlaceholder")}
               onChange={(e) => {
                 setLabel(e.target.value);
                 setDirty(true);
@@ -132,14 +134,14 @@ export function AliasDetail({ id }: { id: string }) {
 
           <div className="row-end mt">
             <button className="primary" disabled={!dirty} onClick={save}>
-              Save
+              {t("common.save")}
             </button>
           </div>
 
           <div className="mt">
-            <h2>Who writes to it</h2>
+            <h2>{t("alias.senders")}</h2>
             {stats.senders.length === 0 ? (
-              <p className="muted">Nothing has arrived yet.</p>
+              <p className="muted">{t("alias.noSenders")}</p>
             ) : (
               <div className="stack">
                 {stats.senders.map((s) => (

@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { t } from "./i18n";
 
 /**
  * Browser notifications. The subscription (endpoint + secrets) is handed to the Worker
@@ -40,13 +41,13 @@ export async function pushState(): Promise<PushState> {
 /** Ask the browser, subscribe, and register the subscription server-side. */
 export async function enablePush(): Promise<{ ok: boolean; message: string }> {
   if (pushSupport() !== "ready") {
-    return { ok: false, message: pushSupport() === "insecure" ? "Notifications need an HTTPS origin." : "This browser cannot receive notifications." };
+    return { ok: false, message: pushSupport() === "insecure" ? t("push.insecure") : t("push.unsupported") };
   }
   const permission = await Notification.requestPermission();
-  if (permission !== "granted") return { ok: false, message: "Notification permission was declined." };
+  if (permission !== "granted") return { ok: false, message: t("push.declined") };
 
   const { key } = await api.pushPublicKey();
-  if (!key) return { ok: false, message: "Push is not configured on this server." };
+  if (!key) return { ok: false, message: t("push.notConfigured") };
 
   const registration = await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.subscribe({
@@ -55,7 +56,7 @@ export async function enablePush(): Promise<{ ok: boolean; message: string }> {
   });
   const json = subscription.toJSON();
   if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) {
-    return { ok: false, message: "The browser returned an incomplete subscription." };
+    return { ok: false, message: t("push.incomplete") };
   }
   await api.pushSubscribe({
     endpoint: json.endpoint,
@@ -63,15 +64,15 @@ export async function enablePush(): Promise<{ ok: boolean; message: string }> {
     auth: json.keys.auth,
     userAgent: navigator.userAgent.slice(0, 256),
   });
-  return { ok: true, message: "You will be notified when new mail arrives." };
+  return { ok: true, message: t("push.subscribed") };
 }
 
 export async function disablePush(): Promise<{ ok: boolean; message: string }> {
   const registration = await navigator.serviceWorker.getRegistration();
   const subscription = await registration?.pushManager.getSubscription();
-  if (!subscription) return { ok: false, message: "This browser is not subscribed." };
+  if (!subscription) return { ok: false, message: t("push.notSubscribed") };
   const endpoint = subscription.endpoint;
   await subscription.unsubscribe().catch(() => undefined);
   await api.pushUnsubscribe(endpoint).catch(() => undefined);
-  return { ok: true, message: "Notifications turned off for this browser." };
+  return { ok: true, message: t("push.unsubscribed") };
 }

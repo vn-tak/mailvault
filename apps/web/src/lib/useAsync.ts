@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiClientError } from "./api";
+import { t } from "./i18n";
 import { NEW_MAIL_EVENT } from "./live";
 
 export interface AsyncState<T> {
@@ -40,7 +41,7 @@ export function useAsync<T>(run: () => Promise<T>, deps: readonly unknown[]): As
       .then((d) => !cancelled && setData(d))
       .catch((e: unknown) => {
         if (cancelled) return;
-        setError(e instanceof ApiClientError ? e.message : e instanceof Error ? e.message : "Something went wrong");
+        setError(e instanceof ApiClientError ? e.message : e instanceof Error ? e.message : t("common.error"));
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {

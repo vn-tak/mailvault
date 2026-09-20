@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 /*
  * The notification content is chosen by the service worker, not the server: the push is
@@ -14,7 +14,8 @@ interface Notify {
   pickNewMail: (items: Array<Summary | null> | null, now: number) => Summary | null;
   senderLabel: (item: Summary) => string;
   safeSubject: (item: Summary) => string;
-  GENERIC_NOTE: { title: string; body: string; tag: string; url: string };
+  genericNote: () => { title: string; body: string; tag: string; url: string };
+  setNoteLang: (value: string | null) => void;
 }
 
 function api(): Notify {
@@ -128,7 +129,8 @@ describe("building the notification", () => {
   });
 
   it("falls back to the generic note when signed out, offline, or holding nothing new", async () => {
-    const generic = api().GENERIC_NOTE;
+    const generic = api().genericNote();
+    expect(generic.body).toBe("New mail arrived");
     expect(await note(() => new Response("nope", { status: 403 }))).toEqual(generic);
     expect(await note(() => Promise.reject(new Error("offline")))).toEqual(generic);
     expect(await note(() => Response.json({ items: [mail("m9", { authVerdict: "UNVERIFIED" })] }))).toEqual(generic);
@@ -138,5 +140,33 @@ describe("building the notification", () => {
   it("says (no subject) rather than showing an empty notification", async () => {
     const items = [mail("m10", { subject: null })];
     expect((await note(() => Response.json({ items }))).body).toBe("(no subject)");
+  });
+
+  /*
+   * The worker cannot read localStorage, so a language the owner picked in Settings reaches
+   * it only as a message. Both notes a push can produce are checked here in each language.
+   */
+  describe("in the language the app was told", () => {
+    afterEach(() => api().setNoteLang(null));
+
+    it("writes the generic note in Vietnamese", async () => {
+      api().setNoteLang("vi");
+      expect((await note(() => new Response("nope", { status: 403 }))).body).toBe("Thư mới đã tới");
+    });
+
+    it("translates the empty-subject placeholder, but never the message's own subject", async () => {
+      api().setNoteLang("vi");
+      const empty = await note(() => Response.json({ items: [mail("m11", { subject: null })] }));
+      expect(empty.body).toBe("(không có chủ đề)");
+      const titled = await note(() =>
+        Response.json({ items: [mail("m12", { subject: "Invoice from the shop", receivedAt: new Date(NOW - 20_000).toISOString() })] }),
+      );
+      expect(titled.body).toBe("Invoice from the shop");
+    });
+
+    it("an unrecognized value falls back to the browser language, not to nothing", async () => {
+      api().setNoteLang("fr");
+      expect((await note(() => new Response("nope", { status: 403 }))).body).toBe("New mail arrived");
+    });
   });
 });

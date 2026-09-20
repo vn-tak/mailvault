@@ -121,6 +121,22 @@ of this system, so this addendum records the difference.
   verify that from inside a Worker without querying a public resolver on MailVault's behalf.
 - **Inbound proven with real mail**, including a live provider email whose 8-digit OTP was
   extracted at 0.85 confidence while a postal code in the same message was demoted to 0.47.
+- **The interface speaks Vietnamese now** (`apps/web/src/lib/i18n.ts`). Every string on every
+  screen goes through one dictionary; the language starts from the browser, is switchable in
+  Settings, and is remembered in `localStorage` (a display preference only — nothing secret or
+  session-shaped is stored there). A missing Vietnamese string falls back to English rather
+  than printing a key, and a key neither dictionary has prints its own name so a typo is
+  visible instead of blank. The new-mail notification follows the same choice: a service worker
+  cannot read `localStorage`, so the app posts it the language and the worker falls back to the
+  browser's.
+  Three things deliberately stay English, and the Settings card says so: technical names
+  (SPF, DKIM, MX, OTP, Email Routing), an error the Cloudflare API wrote verbatim, and
+  `appliedRuleNote` — the words a rule had at the moment it filed a message, stored with the
+  message, which cannot be rephrased later without rewriting history.
+  Layout consequence, measured rather than assumed: the five Domains filters no longer fit one
+  line at 412px in either language, so `.tabs` wraps instead of scrolling sideways behind a
+  hidden scrollbar. `e2e/vietnamese.spec.ts` asserts every filter is on screen, that no screen
+  prints a dictionary key, and that nothing overflows the viewport at the longest strings.
 - **Gates at this writing:** 103 tests (worker 81, web 22), 5 E2E; lint and typecheck clean.
   The five later slices — sender authentication, drift watchdog, FTS5 search, alias
   lifecycle, PWA + payload-free push — were each built, tested and deployed on

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { t } from "../lib/i18n";
 
 /**
  * Renders sanitized email HTML inside a `sandbox=""` iframe loaded from a Blob URL.
@@ -53,5 +54,5 @@ a{color:#0a58ca;overflow-wrap:break-word}
   if (!url) return <div className="email-frame" />;
   // sandbox="" => no scripts, no same-origin, no forms. allow-popups lets a link
   // (if any survived sanitization) open in a new tab without touching our origin.
-  return <iframe className="email-frame" title="Email content" sandbox="" src={url} referrerPolicy="no-referrer" />;
+  return <iframe className="email-frame" title={t("msg.frameTitle")} sandbox="" src={url} referrerPolicy="no-referrer" />;
 }

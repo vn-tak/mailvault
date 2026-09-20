@@ -1,6 +1,7 @@
 {
   "name": "MailVault",
   "short_name": "MailVault",
+  "lang": "en",
   "description": "Private, persistent inbox for your own domain's aliases.",
   "id": "/",
   "start_url": "/",

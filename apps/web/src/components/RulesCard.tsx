@@ -2,11 +2,12 @@ import { useState } from "react";
 import { api, ApiClientError } from "../lib/api";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
+import { rulePhrases, t } from "../lib/i18n";
 import { describeRule, type Rule, type RuleAction, type RuleMatch } from "@mailvault/shared";
 import { Menu } from "./ui";
 
 function ruleSummary(r: Rule): string {
-  return describeRule(r.match, r.action);
+  return describeRule(r.match, r.action, rulePhrases());
 }
 
 /**
@@ -45,7 +46,7 @@ export function RulesCard() {
       setArchive(true);
       reload();
     } catch (err) {
-      setProblem(err instanceof ApiClientError ? err.message : "Could not create the rule");
+      setProblem(err instanceof ApiClientError ? err.message : t("rule.createFail"));
     } finally {
       setBusy(false);
     }
@@ -57,7 +58,7 @@ export function RulesCard() {
       await api.deleteRule(r.id);
       reload();
     } catch (err) {
-      setProblem(err instanceof ApiClientError ? err.message : "Could not remove the rule");
+      setProblem(err instanceof ApiClientError ? err.message : t("rule.deleteFail"));
     } finally {
       setBusy(false);
     }
@@ -75,10 +76,11 @@ export function RulesCard() {
 
   return (
     <div className="card mt">
-      <h2 style={{ marginTop: 0 }}>Rules</h2>
+      <h2 style={{ marginTop: 0 }}>{t("rule.title")}</h2>
       <p className="muted" style={{ marginTop: 0 }}>
-        New mail that matches is filed for you. Filing takes it out of the inbox list — it
-        is still there under <em>Filed</em>, and no rule can delete anything.
+        {t("rule.introA")}
+        <em>{t("inbox.filed")}</em>
+        {t("rule.introB")}
       </p>
 
       {error && <div className="banner error">{error}</div>}
@@ -92,16 +94,16 @@ export function RulesCard() {
                 <div className="entity-id">
                   <div className="entity-name">{ruleSummary(r)}</div>
                   <div className="entity-facts">
-                    <span>{r.hits} time{r.hits === 1 ? "" : "s"}</span>
-                    {r.lastHitAt ? <span>last {relativeTime(r.lastHitAt)}</span> : <span>not used yet</span>}
-                    {!r.enabled ? <span className="pill neutral">paused</span> : null}
+                    <span>{t(r.hits === 1 ? "rule.hitOnce" : "rule.hits", { n: r.hits })}</span>
+                    {r.lastHitAt ? <span>{t("rule.last", { at: relativeTime(r.lastHitAt) })}</span> : <span>{t("rule.never")}</span>}
+                    {!r.enabled ? <span className="pill neutral">{t("rule.paused")}</span> : null}
                   </div>
                 </div>
                 <div className="row" style={{ gap: 6 }}>
                   <button className="ghost small" disabled={busy} onClick={() => toggleEnabled(r)}>
-                    {r.enabled ? "Pause" : "Resume"}
+                    {t(r.enabled ? "rule.pause" : "rule.resume")}
                   </button>
-                  <Menu small items={[{ label: "Delete rule", danger: true, disabled: busy, onSelect: () => drop(r) }]} />
+                  <Menu small items={[{ label: t("rule.delete"), danger: true, disabled: busy, onSelect: () => drop(r) }]} />
                 </div>
               </div>
             </li>
@@ -112,7 +114,7 @@ export function RulesCard() {
       <form onSubmit={add}>
         <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))" }}>
           <div className="field">
-            <label htmlFor="rule-sender">Sender domain</label>
+            <label htmlFor="rule-sender">{t("rule.sender")}</label>
             <input
               id="rule-sender"
               value={senderDomain}
@@ -122,24 +124,24 @@ export function RulesCard() {
             />
           </div>
           <div className="field">
-            <label htmlFor="rule-subject">Subject contains</label>
+            <label htmlFor="rule-subject">{t("rule.subject")}</label>
             <input id="rule-subject" value={subjectContains} onChange={(e) => setSubjectContains(e.target.value)} placeholder="receipt" maxLength={120} />
           </div>
           <div className="field">
-            <label htmlFor="rule-tag">Tag (optional)</label>
+            <label htmlFor="rule-tag">{t("rule.tag")}</label>
             <input id="rule-tag" value={tag} onChange={(e) => setTag(e.target.value)} placeholder="newsletters" maxLength={60} />
           </div>
         </div>
         <label className="row" style={{ cursor: "pointer", marginTop: 8 }}>
           <input type="checkbox" style={{ width: "auto" }} checked={archive} onChange={(e) => setArchive(e.target.checked)} />
-          File it out of the inbox list
+          {t("rule.file")}
         </label>
         <div className="row-end" style={{ marginTop: 10 }}>
           <button type="submit" className="primary" disabled={busy || nothingToMatch || nothingToDo}>
-            Add rule
+            {t("rule.add")}
           </button>
-          {nothingToMatch && <span className="field-problem">Say what to match on.</span>}
-          {nothingToDo && <span className="field-problem">Choose what the rule should do.</span>}
+          {nothingToMatch && <span className="field-problem">{t("rule.needsMatch")}</span>}
+          {nothingToDo && <span className="field-problem">{t("rule.needsAction")}</span>}
         </div>
       </form>
     </div>
@@ -158,10 +160,9 @@ export function AddressReuseCard() {
   if (items.length === 0) {
     return (
       <div className="card mt">
-        <h2 style={{ marginTop: 0 }}>Who holds my addresses</h2>
+        <h2 style={{ marginTop: 0 }}>{t("reuse.title")}</h2>
         <p className="muted" style={{ marginBottom: 0 }}>
-          No sender has written to more than one of your aliases. Every address is still
-          known to exactly one place.
+          {t("reuse.none")}
         </p>
       </div>
     );
@@ -169,21 +170,19 @@ export function AddressReuseCard() {
 
   return (
     <div className="card mt">
-      <h2 style={{ marginTop: 0 }}>Who holds my addresses</h2>
+      <h2 style={{ marginTop: 0 }}>{t("reuse.title")}</h2>
       <p className="muted" style={{ marginTop: 0 }}>
-        These senders have mail for more than one alias, so the address was reused or passed
-        on. Nothing here is a judgement — it is the list to check when you want to cut one
-        of them off.
+        {t("reuse.intro")}
       </p>
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Sender</th>
-              <th>Aliases</th>
-              <th>Mail</th>
-              <th>First seen</th>
-              <th>Last</th>
+              <th>{t("reuse.sender")}</th>
+              <th>{t("reuse.aliases")}</th>
+              <th>{t("reuse.mail")}</th>
+              <th>{t("reuse.first")}</th>
+              <th>{t("reuse.last")}</th>
             </tr>
           </thead>
           <tbody>

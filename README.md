@@ -30,8 +30,9 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Passkey step-up before anything irreversible (purge mail, detach domain, disable sender checks) | ✅ Gate tested |
 | Mailbox rules (file/tag on sender or subject) + who-holds-my-address report | ✅ 12 tests |
 | Semantic search (Workers AI + Vectorize) behind an explicit opt-in that defaults to off | ✅ 10 tests |
-| Unit + integration tests (230 passing: worker 165, web 65) | ✅ Green |
-| Playwright E2E (23 passing, live workerd + local D1/R2) | ✅ Green |
+| Vietnamese interface with an English fallback, chosen in Settings and remembered (also for the new-mail notification) | ✅ E2E at 412px |
+| Unit + integration tests (246 passing: worker 165, web 81) | ✅ Green |
+| Playwright E2E (27 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
 See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at

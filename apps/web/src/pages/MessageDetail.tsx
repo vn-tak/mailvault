@@ -4,6 +4,7 @@ import { attachmentHref } from "../lib/api";
 import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { formatBytes, fullTime, senderName } from "../lib/format";
+import { t } from "../lib/i18n";
 import { MessageHtml } from "../components/MessageHtml";
 import { TextBody } from "../components/TextBody";
 import { ConfirmDialog, CopyButton, ErrorBanner, Loading } from "../components/ui";
@@ -23,10 +24,10 @@ function CodeCard({ code }: { code: ExtractedCode }) {
       <div>
         <div className="code">{code.value}</div>
         <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
-          {code.kind === "numeric" ? "Numeric code" : "Code"} · {code.length} chars
+          {t(code.kind === "numeric" ? "msg.numericCode" : "msg.code")} · {t("msg.codeLength", { n: code.length })}
         </div>
       </div>
-      <CopyButton text={code.value} label="Copy code" />
+      <CopyButton text={code.value} label={t("msg.copyCode")} />
     </div>
   );
 }
@@ -45,33 +46,34 @@ function LinkCard({ link }: { link: VerificationLink }) {
   return (
     <div className="link-card">
       <div className="link-card-head">
-        <span className="link-title">{link.label || "Verification link"}</span>
+        <span className="link-title">{link.label || t("msg.verificationLink")}</span>
         <span className="link-host">{displayHost(link)}</span>
       </div>
       {wrapped && (
         <div className="link-via">
-          The message shows a tracking host (<span className="addr">{link.hostname}</span>). This is where the link actually
-          goes:
+          {t("msg.trackingA")}
+          <span className="addr">{link.hostname}</span>
+          {t("msg.trackingB")}
         </div>
       )}
       {/* The whole address, readable and selectable: a 400-char magic link behind an "Open"
           button tells the owner nothing about where their token is going. */}
       <div className="link-url">{target}</div>
       <div className="row wrap" style={{ gap: 8 }}>
-        <CopyButton text={target} label="Copy link" />
+        <CopyButton text={target} label={t("msg.copyLink")} />
         {/* Explicit user action only: never auto-followed, never prefetched. */}
         <a
           className="small"
           href={target}
           target="_blank"
           rel="noopener noreferrer nofollow"
-          aria-label={`Open ${displayHost(link)} in a new tab`}
+          aria-label={t("msg.openAria", { host: displayHost(link) })}
         >
-          Open ↗
+          {t("msg.open")}
         </a>
         {wrapped && (
           <a className="small ghost" href={link.url} target="_blank" rel="noopener noreferrer nofollow">
-            Open as sent
+            {t("msg.openAsSent")}
           </a>
         )}
       </div>
@@ -80,15 +82,15 @@ function LinkCard({ link }: { link: VerificationLink }) {
 }
 
 function outcomeLabel(auth: MessageAuth | null): string {
-  if (!auth) return "not assessed when this message arrived";
+  if (!auth) return t("msg.authNotAssessed");
   const mark = (mech: "spf" | "dkim" | "dmarc", value: string | null) =>
     value ? `${mech}=${value}${auth.alignedPass[mech] ? "*" : ""}` : null;
   const parts = [mark("spf", auth.spf), mark("dkim", auth.dkim), mark("dmarc", auth.dmarc)].filter(Boolean);
-  if (parts.length === 0) return "no authentication results reached us";
+  if (parts.length === 0) return t("msg.authNone");
   const aligned = auth.alignedPass.spf || auth.alignedPass.dkim || auth.alignedPass.dmarc;
   return aligned
-    ? `${parts.join("  ")}  (* vouches for the sender domain)`
-    : `${parts.join("  ")}  — none of it vouches for the sender domain`;
+    ? `${parts.join("  ")}  ${t("msg.authVouches")}`
+    : `${parts.join("  ")}  ${t("msg.authNoVouch")}`;
 }
 
 function AuthBanner({ verdict, auth }: { verdict: AuthVerdict; auth: MessageAuth | null }) {
@@ -98,22 +100,22 @@ function AuthBanner({ verdict, auth }: { verdict: AuthVerdict; auth: MessageAuth
   if (verdict === AuthVerdict.Trusted) {
     return (
       <div className="banner ok mt" style={{ fontSize: 13 }}>
-        Sender authenticated — {outcomeLabel(auth)}
+        {t("msg.authTrusted", { what: outcomeLabel(auth) })}
       </div>
     );
   }
   if (verdict === AuthVerdict.Spoofed) {
     return (
       <div className="banner error mt" style={{ fontSize: 13 }}>
-        <strong>Unauthenticated sender — treat this message as an attempt to impersonate.</strong>
+        <strong>{t("msg.authSpoofed")}</strong>
         <div style={{ marginTop: 4 }}>{outcomeLabel(auth)}</div>
-        {auth?.reasons.length ? <div className="faint">Why: {auth.reasons.join("; ")}</div> : null}
+        {auth?.reasons.length ? <div className="faint">{t("msg.authWhy", { reasons: auth.reasons.join("; ") })}</div> : null}
       </div>
     );
   }
   return (
     <div className="banner mt" style={{ fontSize: 13 }}>
-      Sender not verified — {outcomeLabel(auth)}
+      {t("msg.authUnverified", { what: outcomeLabel(auth) })}
     </div>
   );
 }
@@ -157,7 +159,7 @@ export function MessageDetail({ id }: { id: string }) {
       await api.deleteMessage(id);
       navigate("/inbox");
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : "Delete failed");
+      setNotice(e instanceof Error ? e.message : t("common.deleteFail"));
       setConfirmDelete(false);
     }
   }
@@ -165,7 +167,7 @@ export function MessageDetail({ id }: { id: string }) {
   return (
     <div className="page">
       <div className="backrow">
-        <Link className="backlink" to="/inbox">← Inbox</Link>
+        <Link className="backlink" to="/inbox">{t("msg.back")}</Link>
       </div>
 
       {notice && <div className="banner ok">{notice}</div>}
@@ -177,37 +179,33 @@ export function MessageDetail({ id }: { id: string }) {
           <div className="card">
             <div className="detail-head">
               <div style={{ minWidth: 0, flex: 1 }}>
-                <h1 style={{ marginBottom: 6 }}>{data.subject || "(no subject)"}</h1>
+                <h1 style={{ marginBottom: 6 }}>{data.subject || t("inbox.noSubject")}</h1>
                 <div className="row wrap" style={{ gap: "4px 16px", fontSize: 13 }}>
                   <span className="muted">
-                    From <strong style={{ color: "var(--text)" }}>{senderName(data.headerFrom, data.envelopeFrom)}</strong>
+                    {t("msg.from")} <strong style={{ color: "var(--text)" }}>{senderName(data.headerFrom, data.envelopeFrom)}</strong>
                     <span className="faint addr"> {data.envelopeFrom}</span>
                   </span>
                   <span className="muted">
-                    To <span className="addr">{data.headerTo || data.aliasAddress}</span>
+                    {t("msg.to")} <span className="addr">{data.headerTo || data.aliasAddress}</span>
                   </span>
                 </div>
                 <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
                   {fullTime(data.receivedAt)}
-                  {data.aliasLabel ? ` · ${data.aliasLabel}` : ""} · to {data.aliasAddress}
+                  {data.aliasLabel ? ` · ${data.aliasLabel}` : ""} {t("msg.arrivedAt", { address: data.aliasAddress })}
                 </div>
               </div>
               <div className="row wrap actions-cell">
                 <button className="small" onClick={toggleRead}>
-                  {data.isRead ? "Mark unread" : "Mark read"}
+                  {t(data.isRead ? "msg.markUnread" : "msg.markRead")}
                 </button>
                 <button className="small danger" onClick={() => setConfirmDelete(true)}>
-                  Delete
+                  {t("msg.delete")}
                 </button>
               </div>
             </div>
           </div>
 
-          {data.parseDegraded && (
-            <div className="banner error mt">
-              This message could not be fully parsed. The original is preserved and the readable parts are shown below.
-            </div>
-          )}
+          {data.parseDegraded && <div className="banner error mt">{t("msg.degraded")}</div>}
 
           <AuthBanner verdict={data.authVerdict} auth={data.auth ?? null} />
 
@@ -215,27 +213,26 @@ export function MessageDetail({ id }: { id: string }) {
               so an archive still explains itself after the rule is edited or deleted. */}
           {data.appliedRuleNote && (
             <div className="banner mt">
-              <span className="muted">Filed automatically — {data.appliedRuleNote}.</span>{" "}
-              <Link to="/aliases">Review rules</Link>
+              <span className="muted">{t("msg.filedAuto", { note: data.appliedRuleNote })}</span>{" "}
+              <Link to="/aliases">{t("msg.reviewRules")}</Link>
             </div>
           )}
 
           {hidingSecrets && (codes.length > 0 || links.length > 0) ? (
             <div className="banner error mt">
               <div>
-                <strong>Codes and verification links are hidden.</strong> A message that fails sender authentication can be
-                forged by anyone who learns an alias address, so nothing here is presented as a code or a link until you
-                choose to look.
+                <strong>{t("msg.secretsHidden")}</strong>
+                {t("msg.secretsHiddenBody")}
               </div>
               <button className="small danger" style={{ marginTop: 8 }} onClick={() => setRevealSpoofed(true)}>
-                Show anyway ({codes.length + links.length})
+                {t("msg.showAnyway", { n: codes.length + links.length })}
               </button>
             </div>
           ) : null}
 
           {codes.length > 0 && !hidingSecrets && (
             <div className="mt">
-              <h2>Codes</h2>
+              <h2>{t("msg.codes")}</h2>
               <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
                 {codes.map((c, i) => (
                   <CodeCard key={`${c.value}-${i}`} code={c} />
@@ -246,7 +243,7 @@ export function MessageDetail({ id }: { id: string }) {
 
           {links.length > 0 && !hidingSecrets && (
             <div className="mt">
-              <h2>Verification links</h2>
+              <h2>{t("msg.links")}</h2>
               <div className="stack">
                 {links.map((l, i) => (
                   <LinkCard key={`${l.url}-${i}`} link={l} />
@@ -257,7 +254,7 @@ export function MessageDetail({ id }: { id: string }) {
 
           {data.attachments.length > 0 && (
             <div className="mt">
-              <h2>Attachments</h2>
+              <h2>{t("msg.attachments")}</h2>
               <div className="stack">
                 {data.attachments.map((a) => (
                   <div key={a.id} className="attach">
@@ -269,7 +266,7 @@ export function MessageDetail({ id }: { id: string }) {
                     </span>
                     {/* Authenticated same-origin download; never a public URL. */}
                     <a className="small" href={attachmentHref(data.id, a.id)} rel="noreferrer" style={{ textDecoration: "none" }}>
-                      Download
+                      {t("msg.download")}
                     </a>
                   </div>
                 ))}
@@ -279,21 +276,21 @@ export function MessageDetail({ id }: { id: string }) {
 
           <div className="mt">
             <div className="row spread wrap" style={{ marginBottom: 8 }}>
-              <h2 style={{ margin: 0 }}>Message</h2>
+              <h2 style={{ margin: 0 }}>{t("msg.body")}</h2>
               <div className="row wrap" style={{ justifyContent: "flex-end", fontSize: 12 }}>
                 {data.htmlBody && (
                   <button className="small ghost" onClick={() => setShowText((s) => !s)}>
-                    {showText ? "Show HTML" : "Show plain text"}
+                    {t(showText ? "msg.showHtml" : "msg.showPlain")}
                   </button>
                 )}
                 {data.htmlBody && !remoteImages && (
                   <button className="small" onClick={() => setRemoteImages(true)}>
-                    Load remote images
+                    {t("msg.loadImages")}
                   </button>
                 )}
                 {remoteImages && (
                   <button className="small ghost" onClick={() => setRemoteImages(false)}>
-                    Hide remote images
+                    {t("msg.hideImages")}
                   </button>
                 )}
               </div>
@@ -301,7 +298,7 @@ export function MessageDetail({ id }: { id: string }) {
 
             {remoteImages && data.htmlBody && (
               <div className="banner" style={{ marginBottom: 10 }}>
-                Remote images loaded from their original servers. This can reveal your IP and that the message was opened.
+                {t("msg.imagesWarn")}
               </div>
             )}
 
@@ -309,7 +306,7 @@ export function MessageDetail({ id }: { id: string }) {
               data.textBody ? (
                 <TextBody text={data.textBody} />
               ) : (
-                <p className="muted">This message has no readable body.</p>
+                <p className="muted">{t("msg.noBody")}</p>
               )
             ) : (
               <MessageHtml html={data.htmlBody} />
@@ -320,9 +317,9 @@ export function MessageDetail({ id }: { id: string }) {
 
       {confirmDelete && (
         <ConfirmDialog
-          title="Delete message"
-          confirmLabel="Delete permanently"
-          description="This permanently deletes the message and any stored attachments. This cannot be undone."
+          title={t("msg.deleteTitle")}
+          confirmLabel={t("msg.deleteConfirm")}
+          description={t("msg.deleteBody")}
           onConfirm={remove}
           onClose={() => setConfirmDelete(false)}
         />

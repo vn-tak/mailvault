@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Link, matchRoute, useRoute } from "./lib/router";
 import { connectLive } from "./lib/live";
+import { t, useLang } from "./lib/i18n";
 import { Dashboard } from "./pages/Dashboard";
 import { Domains } from "./pages/Domains";
 import { Aliases } from "./pages/Aliases";
@@ -10,11 +11,11 @@ import { MessageDetail } from "./pages/MessageDetail";
 import { Settings } from "./pages/Settings";
 
 const NAV = [
-  { to: "/", label: "Dashboard" },
-  { to: "/domains", label: "Domains" },
-  { to: "/aliases", label: "Aliases" },
-  { to: "/inbox", label: "Inbox" },
-  { to: "/settings", label: "Settings" },
+  { to: "/", key: "nav.dashboard" },
+  { to: "/domains", key: "nav.domains" },
+  { to: "/aliases", key: "nav.aliases" },
+  { to: "/inbox", key: "nav.inbox" },
+  { to: "/settings", key: "nav.settings" },
 ];
 
 function isActive(path: string, to: string): boolean {
@@ -35,9 +36,9 @@ function Route() {
   if (path === "/" || path === "") return <Dashboard />;
   return (
     <div className="page">
-      <h1>Not found</h1>
+      <h1>{t("common.notFound")}</h1>
       <p className="muted">
-        <Link to="/">Back to dashboard</Link>
+        <Link to="/">{t("common.backToDashboard")}</Link>
       </p>
     </div>
   );
@@ -45,6 +46,7 @@ function Route() {
 
 export function App() {
   const { path } = useRoute();
+  useLang();
 
   useEffect(() => connectLive().stop, []);
 
@@ -57,7 +59,7 @@ export function App() {
         <nav className="nav">
           {NAV.map((n) => (
             <Link key={n.to} to={n.to} className={isActive(path, n.to) ? "active" : ""}>
-              {n.label}
+              {t(n.key)}
             </Link>
           ))}
         </nav>

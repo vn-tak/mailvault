@@ -1,26 +1,28 @@
+import { t } from "./i18n";
+
 /** Presentation-only formatting helpers. */
 
 export function relativeTime(iso: string | null | undefined): string {
   if (!iso) return "";
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return "";
-  const diff = Date.now() - t;
+  const t0 = new Date(iso).getTime();
+  if (Number.isNaN(t0)) return "";
+  const diff = Date.now() - t0;
   const s = Math.round(diff / 1000);
-  if (s < 60) return "just now";
+  if (s < 60) return t("time.justNow");
   const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60) return t("time.mAgo", { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return t("time.hAgo", { n: h });
   const d = Math.round(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(t).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  if (d < 7) return t("time.dAgo", { n: d });
+  return new Date(t0).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 export function fullTime(iso: string | null | undefined): string {
   if (!iso) return "";
-  const t = new Date(iso);
-  if (Number.isNaN(t.getTime())) return iso;
-  return t.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 export function formatBytes(n: number | null | undefined): string {

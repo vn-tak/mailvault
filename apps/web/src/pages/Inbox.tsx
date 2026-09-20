@@ -4,6 +4,7 @@ import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime, senderName } from "../lib/format";
 import { arrivalLabel, selectableMailboxes } from "../lib/mailboxes";
+import { t } from "../lib/i18n";
 import { ErrorBanner, Loading } from "../components/ui";
 import { AuthVerdict, type MessageSummary } from "@mailvault/shared";
 
@@ -15,18 +16,20 @@ function MsgItem({ m, scoped }: { m: MessageSummary; scoped: boolean }) {
       <Link to={`/messages/${m.id}`}>
         <span className="msg-sender">{senderName(m.headerFrom, m.envelopeFrom)}</span>
         <span className="msg-time">{relativeTime(m.receivedAt)}</span>
-        <span className="msg-subject">{m.subject || "(no subject)"}</span>
+        <span className="msg-subject">{m.subject || t("inbox.noSubject")}</span>
         <span className="msg-alias">{arrivalLabel(m, scoped)}</span>
         {m.preview ? <span className="msg-preview">{m.preview}</span> : null}
         <span className="msg-badges">
           {m.authVerdict === AuthVerdict.Spoofed ? (
             // Never echo a forger's payload in the list — the detail view explains it.
-            <span className="pill error">⚠ unverified sender</span>
+            <span className="pill error">{t("inbox.unverified")}</span>
           ) : m.primaryCode ? (
-            <span className="badge mono" title="Detected code">{m.primaryCode}</span>
+            <span className="badge mono" title={t("inbox.codeTitle")}>{m.primaryCode}</span>
           ) : null}
-          {m.ruleTag ? <span className="badge" title="Filed by a rule">{m.ruleTag}</span> : null}
-          {m.attachmentCount > 0 ? <span className="badge" title={`${m.attachmentCount} attachment(s)`}>📎 {m.attachmentCount}</span> : null}
+          {m.ruleTag ? <span className="badge" title={t("inbox.filedTag")}>{m.ruleTag}</span> : null}
+          {m.attachmentCount > 0 ? (
+            <span className="badge" title={t("inbox.nAttachments", { n: m.attachmentCount })}>📎 {m.attachmentCount}</span>
+          ) : null}
         </span>
       </Link>
     </li>
@@ -87,10 +90,10 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
   return (
     <div className="page">
       <div className="page-head">
-        <h1>Inbox</h1>
+        <h1>{t("inbox.title")}</h1>
         <div className="actions">
           <button className="ghost small" onClick={reload}>
-            Refresh
+            {t("common.refresh")}
           </button>
         </div>
       </div>
@@ -100,13 +103,13 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
       <form className="toolbar toolbar--sticky" onSubmit={submitSearch}>
         <div className="tabs">
           <button type="button" className={view === "all" ? "active" : ""} onClick={() => setView("all")}>
-            All
+            {t("inbox.all")}
           </button>
           <button type="button" className={view === "unread" ? "active" : ""} onClick={() => setView("unread")}>
-            Unread
+            {t("inbox.unreadTab")}
           </button>
           <button type="button" className={view === "archived" ? "active" : ""} onClick={() => setView("archived")}>
-            Filed
+            {t("inbox.filed")}
           </button>
         </div>
         {/* One mailbox at a time, because mail for different domains arriving in one
@@ -115,11 +118,11 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
         {!aliasId && (
           <select
             className="mailbox-select"
-            aria-label="Mailbox"
+            aria-label={t("inbox.mailbox")}
             value={domainId ?? ""}
             onChange={(e) => navigate(e.target.value ? `/inbox?domain=${e.target.value}` : "/inbox")}
           >
-            <option value="">All mailboxes</option>
+            <option value="">{t("inbox.allMailboxes")}</option>
             {mailboxes.map((m) => (
               <option key={m.domainId} value={m.domainId}>
                 {m.name}
@@ -127,11 +130,11 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
             ))}
           </select>
         )}
-        <input className="search" placeholder="Search subject, preview, sender, OTP code, alias…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button type="submit">Search</button>
+        <input className="search" placeholder={t("inbox.placeholder")} value={q} onChange={(e) => setQ(e.target.value)} />
+        <button type="submit">{t("common.search")}</button>
         {aliasId && (
           <button type="button" className="ghost small" onClick={() => navigate("/inbox")}>
-            Clear alias filter ✕
+            {t("inbox.clearAlias")}
           </button>
         )}
       </form>
@@ -140,8 +143,8 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
 
       {data && data.items.length === 0 && (
         <div className="empty">
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>{scope ? "No matching messages" : "Your inbox is empty"}</div>
-          <div className="muted">{scope ? "Try clearing the filters or search." : "Create an alias and use it on an external site to receive mail."}</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>{t(scope ? "inbox.noMatch" : "inbox.empty")}</div>
+          <div className="muted">{t(scope ? "inbox.filterHint" : "inbox.emptyHint")}</div>
         </div>
       )}
 
@@ -156,14 +159,14 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
           </div>
           <div className="pager">
             <span className="faint" style={{ fontSize: 13 }}>
-              Showing {offset + 1}–{Math.min(offset + PAGE, total)} of {total}
+              {t("inbox.showing", { from: offset + 1, to: Math.min(offset + PAGE, total), total })}
             </span>
             <div className="row">
               <button className="small" disabled={!hasPrev} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
-                ← Newer
+                {t("inbox.newer")}
               </button>
               <button className="small" disabled={!hasNext} onClick={() => setOffset(offset + PAGE)}>
-                Older →
+                {t("inbox.older")}
               </button>
             </div>
           </div>

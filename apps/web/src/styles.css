@@ -226,18 +226,18 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(8px);
 }
-/* A segmented control that outgrows the screen scrolls sideways instead of wrapping
-   every label onto two lines. */
+/*
+ * Wrapping, not scrolling: five filters do not fit one line on a handset, and a strip that
+ * scrolls without a scrollbar hides a control the owner cannot see to look for. Two rows of
+ * tabs is the honest layout — every filter is on screen at once.
+ */
 .tabs {
   display: inline-flex;
+  flex-wrap: wrap;
   max-width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  overscroll-behavior-x: contain;
 }
-.tabs::-webkit-scrollbar { display: none; }
 .tabs button { flex: 0 0 auto; border: 0; border-radius: 0; background: transparent; min-height: var(--tap); padding: 0 14px; white-space: nowrap; }
 .tabs button.active { background: var(--surface-2); color: var(--text); }
 

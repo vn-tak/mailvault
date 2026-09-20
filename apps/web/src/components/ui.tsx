@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { MailStatus } from "@mailvault/shared";
+import { t } from "../lib/i18n";
 
-export function Loading({ label = "Loading…" }: { label?: string }) {
+export function Loading({ label }: { label?: string }) {
   return (
     <div className="loading">
-      <span className="spinner" /> {label}
+      <span className="spinner" /> {label ?? t("common.loading")}
     </div>
   );
 }
@@ -22,20 +23,20 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   );
 }
 
-const STATUS_PILL: Record<string, { cls: string; text: string }> = {
-  [MailStatus.Ready]: { cls: "ready", text: "Ready" },
-  [MailStatus.Conflict]: { cls: "conflict", text: "Conflict" },
-  [MailStatus.Failed]: { cls: "error", text: "Error" },
-  [MailStatus.Provisioning]: { cls: "accent", text: "Provisioning" },
-  [MailStatus.Verifying]: { cls: "accent", text: "Verifying" },
-  [MailStatus.Preflight]: { cls: "accent", text: "Preflight" },
-  [MailStatus.Disabled]: { cls: "neutral", text: "Disabled" },
-  [MailStatus.Discovered]: { cls: "neutral", text: "Not configured" },
+const STATUS_PILL: Record<string, { cls: string; key: string }> = {
+  [MailStatus.Ready]: { cls: "ready", key: "status.ready" },
+  [MailStatus.Conflict]: { cls: "conflict", key: "status.conflict" },
+  [MailStatus.Failed]: { cls: "error", key: "status.error" },
+  [MailStatus.Provisioning]: { cls: "accent", key: "status.provisioning" },
+  [MailStatus.Verifying]: { cls: "accent", key: "status.verifying" },
+  [MailStatus.Preflight]: { cls: "accent", key: "status.preflight" },
+  [MailStatus.Disabled]: { cls: "neutral", key: "status.disabled" },
+  [MailStatus.Discovered]: { cls: "neutral", key: "status.discovered" },
 };
 
 export function StatusPill({ status }: { status: string }) {
-  const s = STATUS_PILL[status] ?? { cls: "neutral", text: status };
-  return <span className={`pill ${s.cls}`}>{s.text}</span>;
+  const s = STATUS_PILL[status];
+  return <span className={`pill ${s?.cls ?? "neutral"}`}>{s ? t(s.key) : status}</span>;
 }
 
 /**
@@ -94,7 +95,7 @@ export function Row({
             className="ghost small entity-toggle"
             aria-expanded={open}
             aria-controls={panel}
-            aria-label="Show actions"
+            aria-label={t("common.showActions")}
             onClick={() => onToggle(id)}
           >
             ⋯
@@ -112,12 +113,12 @@ export function Row({
 }
 
 /** Clipboard with a transient "Copied" confirmation. */
-export function CopyButton({ text, label = "Copy", small }: { text: string; label?: string; small?: boolean }) {
+export function CopyButton({ text, label, small }: { text: string; label?: string; small?: boolean }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1400);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setCopied(false), 1400);
+    return () => clearTimeout(timer);
   }, [copied]);
 
   async function copy() {
@@ -141,8 +142,8 @@ export function CopyButton({ text, label = "Copy", small }: { text: string; labe
   }
 
   return (
-    <button className={`small ${small ? "ghost" : ""}`} onClick={copy} aria-label={`Copy ${text}`}>
-      {copied ? "Copied" : label}
+    <button className={`small ${small ? "ghost" : ""}`} onClick={copy} aria-label={t("common.copyX", { what: text })}>
+      {copied ? t("common.copied") : (label ?? t("common.copy"))}
     </button>
   );
 }
@@ -159,7 +160,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="row spread">
           <h2>{title}</h2>
-          <button className="ghost small" onClick={onClose} aria-label="Close">
+          <button className="ghost small" onClick={onClose} aria-label={t("common.close")}>
             ✕
           </button>
         </div>
@@ -182,7 +183,7 @@ export interface MenuItem {
   disabled?: boolean;
 }
 
-export function Menu({ label = "More", items, small }: { label?: string; items: MenuItem[]; small?: boolean }) {
+export function Menu({ label, items, small }: { label?: string; items: MenuItem[]; small?: boolean }) {
   const [open, setOpen] = useState(false);
   const [up, setUp] = useState(false);
   const [left, setLeft] = useState(false);
@@ -254,7 +255,7 @@ export function Menu({ label = "More", items, small }: { label?: string; items: 
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
-        {label}
+        {label ?? t("common.more")}
       </button>
       {open && (
         <div ref={popRef} role="menu" className={`menu-pop ${up ? "menu-up" : ""} ${left ? "menu-left" : ""}`}>
@@ -298,7 +299,7 @@ export function ConfirmDialog({
     <Modal title={title} onClose={onClose}>
       <div className="muted" style={{ marginBottom: 18 }}>{description}</div>
       <div className="row-end">
-        <button onClick={onClose}>Cancel</button>
+        <button onClick={onClose}>{t("common.cancel")}</button>
         <button className={danger ? "danger" : "primary"} onClick={onConfirm}>
           {confirmLabel}
         </button>

@@ -4,6 +4,7 @@ import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime, senderName } from "../lib/format";
 import { arrivalLabel, splitMailboxes } from "../lib/mailboxes";
+import { t } from "../lib/i18n";
 import { ErrorBanner, Loading } from "../components/ui";
 import { MailStatus, type MailboxStat } from "@mailvault/shared";
 
@@ -13,12 +14,10 @@ function MailboxCard({ m }: { m: MailboxStat }) {
     <Link to={`/inbox?domain=${m.domainId}`} className="mailbox">
       <span className="mailbox-name">{m.name}</span>
       <span className="mailbox-facts">
-        <span>
-          {m.total} {m.total === 1 ? "message" : "messages"}
-        </span>
-        {m.unread > 0 ? <span className="pill accent">{m.unread} unread</span> : null}
-        {m.lastReceivedAt ? <span>last {relativeTime(m.lastReceivedAt)}</span> : null}
-        {!receiving ? <span className="pill conflict">not receiving</span> : null}
+        <span>{t("common.nMessages", { n: m.total })}</span>
+        {m.unread > 0 ? <span className="pill accent">{t("common.nUnread", { n: m.unread })}</span> : null}
+        {m.lastReceivedAt ? <span>{t("common.last", { at: relativeTime(m.lastReceivedAt) })}</span> : null}
+        {!receiving ? <span className="pill conflict">{t("dash.notReceiving")}</span> : null}
       </span>
     </Link>
   );
@@ -34,10 +33,10 @@ export function Dashboard() {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>Dashboard</h1>
+        <h1>{t("dash.title")}</h1>
         <div className="actions">
           <button className="primary" onClick={() => navigate("/aliases?new=1")}>
-            + Create alias
+            {t("dash.newAlias")}
           </button>
         </div>
       </div>
@@ -51,51 +50,54 @@ export function Dashboard() {
               a status that needs action should not be scannable as a footnote. */}
           <div className="statline">
             <span style={{ color: health?.ok === false ? "var(--warn)" : "var(--ok)", fontWeight: 600 }}>
-              {health ? (health.ok ? "● Online" : "● Degraded") : "● Checking…"}
+              {"● "}
+              {t(health ? (health.ok ? "dash.online" : "dash.degraded") : "dash.checking")}
             </span>
             <span>
-              <strong>{data.activeDomains}</strong> of {data.totalDomains} domains receive mail
+              <strong>{data.activeDomains}</strong> {t("dash.domainsReceive", { n: data.totalDomains })}
             </span>
             <span>
-              <strong>{data.totalAliases}</strong> aliases
+              <strong>{data.totalAliases}</strong> {t("dash.aliases")}
             </span>
             <span>
-              <strong>{data.unreadMessages}</strong> unread
+              <strong>{data.unreadMessages}</strong> {t("dash.unread")}
             </span>
             <span>
-              <strong>{data.totalMessages}</strong> stored
+              <strong>{data.totalMessages}</strong> {t("dash.stored")}
             </span>
           </div>
 
           {health && !health.ok && (
             <div className="banner error">
-              Something is not right: {[
-                health.checks?.d1 === "error" && "database",
-                health.checks?.r2 === "error" && "storage",
-                health.checks?.token === "error" && "Cloudflare token",
-              ]
-                .filter(Boolean)
-                .join(", ") || "a check"}{" "}
-              failed. See Settings.
+              {t("dash.healthFail", {
+                what:
+                  [
+                    health.checks?.d1 === "error" && t("dash.hcD1"),
+                    health.checks?.r2 === "error" && t("dash.hcR2"),
+                    health.checks?.token === "error" && t("dash.hcToken"),
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || t("dash.hcAny"),
+              })}
             </div>
           )}
 
           <div className="card card--flush">
             <div className="list-head">
-              <h2 style={{ margin: 0 }}>Mailboxes</h2>
+              <h2 style={{ margin: 0 }}>{t("dash.mailboxes")}</h2>
               <span className="faint" style={{ fontSize: 13 }}>
-                one domain, one mailbox
+                {t("dash.mailboxHint")}
               </span>
               <div className="head-actions">
                 <button className="ghost small" onClick={() => navigate("/inbox")}>
-                  All mail →
+                  {t("dash.allMail")}
                 </button>
               </div>
             </div>
             <div style={{ padding: "var(--space-2)" }}>
               {split.shown.length === 0 ? (
                 <div className="muted" style={{ fontSize: 14 }}>
-                  No mail has arrived yet. Create an alias, then use it somewhere external.
+                  {t("dash.empty")}
                 </div>
               ) : (
                 <div className="mailboxes">
@@ -107,10 +109,13 @@ export function Dashboard() {
               {hidden > 0 && (
                 <details className="more-mailboxes">
                   <summary>
-                    {hidden} other {hidden === 1 ? "domain" : "domains"}
+                    {t("dash.otherDomains", {
+                      n: hidden,
+                      plural: t(hidden === 1 ? "dash.wordDomain" : "dash.wordDomains"),
+                    })}
                     {/* Only worth saying when it is not obvious from the count above it. */}
                     {split.empty.length > 0 && split.empty.length !== hidden
-                      ? ` (${split.empty.length} with no mail yet)`
+                      ? ` ${t("dash.noMailYet", { n: split.empty.length })}`
                       : ""}
                   </summary>
                   <div className="chipset">
@@ -128,16 +133,16 @@ export function Dashboard() {
 
           <div className="card card--flush mt">
             <div className="list-head">
-              <h2 style={{ margin: 0 }}>Recent messages</h2>
+              <h2 style={{ margin: 0 }}>{t("dash.recent")}</h2>
               <div className="head-actions">
                 <button className="ghost small" onClick={() => navigate("/inbox")}>
-                  Open inbox →
+                  {t("dash.openInbox")}
                 </button>
               </div>
             </div>
             {data.recentMessages.length === 0 ? (
               <p className="muted" style={{ padding: "var(--space-2)" }}>
-                No messages yet. Create an alias and use it on an external site.
+                {t("dash.noMessages")}
               </p>
             ) : (
               <ul className="msglist">
@@ -146,7 +151,7 @@ export function Dashboard() {
                     <Link to={`/messages/${m.id}`}>
                       <span className="msg-sender">{senderName(m.headerFrom, m.envelopeFrom)}</span>
                       <span className="msg-time">{relativeTime(m.receivedAt)}</span>
-                      <span className="msg-subject">{m.subject || "(no subject)"}</span>
+                      <span className="msg-subject">{m.subject || t("inbox.noSubject")}</span>
                       <span className="msg-alias">{arrivalLabel(m, false)}</span>
                     </Link>
                   </li>

@@ -6,15 +6,15 @@ import {
   type ProvisionOutcome,
 } from "@mailvault/shared";
 
-/** Coarse bucket used by the Domains filter. */
+/** Coarse bucket used by the Domains filter. `labelKey` is a string-layer key, not a label. */
 export type Bucket = "ready" | "conflict" | "error" | "unconfigured" | "other";
 
-export const FILTERS: Array<{ id: Bucket | "all"; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "ready", label: "Ready" },
-  { id: "conflict", label: "Conflict" },
-  { id: "error", label: "Error" },
-  { id: "unconfigured", label: "Unconfigured" },
+export const FILTERS: Array<{ id: Bucket | "all"; labelKey: string }> = [
+  { id: "all", labelKey: "dom.filterAll" },
+  { id: "ready", labelKey: "dom.filterReady" },
+  { id: "conflict", labelKey: "dom.filterConflict" },
+  { id: "error", labelKey: "dom.filterError" },
+  { id: "unconfigured", labelKey: "dom.filterUnconfigured" },
 ];
 
 export function bucketOf(d: Domain, pf?: PreflightResult, oc?: ProvisionOutcome): Bucket {

@@ -45,6 +45,31 @@ export function normalizeLocalPartInput(input: string): string {
 }
 
 /**
+ * The wording of each reason, so the same rule can speak the reader's language. English is
+ * the default because the Worker validates in English; the app passes its own phrases so the
+ * live message under the input matches the rest of the screen.
+ */
+export interface LocalPartPhrases {
+  empty: string;
+  tooLong: (max: number, actual: number) => string;
+  badChar: (ch: string) => string;
+  doubleDot: string;
+  startsWith: string;
+  endsWith: string;
+  reserved: (value: string) => string;
+}
+
+export const EN_LOCAL_PART: LocalPartPhrases = {
+  empty: "Enter the name you want before the @",
+  tooLong: (max, actual) => `At most ${max} characters (this is ${actual})`,
+  badChar: (ch) => `“${ch}” is not allowed — use letters a-z, numbers, dot, dash or underscore`,
+  doubleDot: "No two dots in a row",
+  startsWith: "Cannot start with a dot, dash or underscore",
+  endsWith: "Cannot end with a dot, dash or underscore",
+  reserved: (value) => `“${value}” is reserved for system addresses`,
+};
+
+/**
  * Why a name typed by a person will not work, phrased so they can fix it. Null means the
  * normalized name is acceptable.
  *
@@ -52,16 +77,16 @@ export function normalizeLocalPartInput(input: string): string {
  * else the old single "Invalid local part" message hid is named separately here, because
  * the previous behaviour was a 400 with no way to know what to change.
  */
-export function localPartProblem(raw: string): string | null {
+export function localPartProblem(raw: string, phrases: LocalPartPhrases = EN_LOCAL_PART): string | null {
   const value = normalizeLocalPartInput(raw);
-  if (!value) return "Enter the name you want before the @";
-  if (value.length > LOCAL_PART_MAX_LENGTH) return `At most ${LOCAL_PART_MAX_LENGTH} characters (this is ${value.length})`;
+  if (!value) return phrases.empty;
+  if (value.length > LOCAL_PART_MAX_LENGTH) return phrases.tooLong(LOCAL_PART_MAX_LENGTH, value.length);
   const bad = value.match(/[^a-z0-9._-]/);
-  if (bad) return `“${bad[0]}” is not allowed — use letters a-z, numbers, dot, dash or underscore`;
-  if (value.includes("..")) return "No two dots in a row";
-  if (/^[._-]/.test(value)) return "Cannot start with a dot, dash or underscore";
-  if (/[._-]$/.test(value)) return "Cannot end with a dot, dash or underscore";
-  if (RESERVED_LOCAL_PARTS.includes(value)) return `“${value}” is reserved for system addresses`;
+  if (bad) return phrases.badChar(bad[0] as string);
+  if (value.includes("..")) return phrases.doubleDot;
+  if (/^[._-]/.test(value)) return phrases.startsWith;
+  if (/[._-]$/.test(value)) return phrases.endsWith;
+  if (RESERVED_LOCAL_PARTS.includes(value)) return phrases.reserved(value);
   return null;
 }
 
