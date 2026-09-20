@@ -1,6 +1,19 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { Miniflare } from "miniflare";
 import type { Env } from "../../src/env";
+import type { IngestJob } from "../../src/mail/ingest";
+
+/**
+ * In-memory stand-in for the queue binding. The harness runs application code in the Node
+ * test process, so there is no workerd queue to post to; what matters is that the producer
+ * handed over exactly one job per message, and that a consumer can commit it.
+ */
+export interface CapturedQueue {
+  readonly sent: IngestJob[];
+  send(message: IngestJob): Promise<void>;
+  sendBatch(messages: Array<{ body: IngestJob }>): Promise<void>;
+  reset(): void;
+}
 
 /**
  * Test harness. The Cloudflare vitest pool cannot boot from a project path that
@@ -14,6 +27,7 @@ export interface TestBindings {
   env: Env;
   db: D1Database;
   bucket: R2Bucket;
+  queue: CapturedQueue;
   dispose: () => Promise<void>;
 }
 
@@ -51,10 +65,19 @@ export async function getTestBindings(): Promise<TestBindings> {
   const statements = loadSchema();
   await db.batch(statements.map((sql) => db.prepare(sql)));
 
+  const sent: IngestJob[] = [];
+  const queue: CapturedQueue = {
+    sent,
+    send: async (message) => void sent.push(message),
+    sendBatch: async (messages) => void sent.push(...messages.map((m) => m.body)),
+    reset: () => void sent.splice(0, sent.length),
+  };
+
   const env = {
     DB: db,
     MAIL_BUCKET: bucket,
     ASSETS: {},
+    MAIL_INGEST_QUEUE: queue,
     ENVIRONMENT: "test",
     DEV_AUTH_BYPASS: "true",
     MAX_MESSAGE_BYTES: "20971520",
@@ -66,7 +89,7 @@ export async function getTestBindings(): Promise<TestBindings> {
     ALLOWED_EMAILS: "",
   } as unknown as Env;
 
-  const created: TestBindings = { env, db, bucket, dispose: async () => void (await mf.dispose()) };
+  const created: TestBindings = { env, db, bucket, queue, dispose: async () => void (await mf.dispose()) };
   cached = created;
   return created;
 }

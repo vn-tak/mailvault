@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { ExecutionContext } from "@cloudflare/workers-types";
 import type { Env } from "../../src/env";
-import { ingestEmail } from "../../src/mail/ingest";
+import worker from "../../src/index";
+import { commitIngest, ingestEmail, stageEmail } from "../../src/mail/ingest";
+import { getObject } from "../../src/storage/r2";
 import { deleteMessage, listMessages } from "../../src/db/messages";
 import { getTestBindings, type TestBindings } from "./_mf";
 
@@ -261,5 +264,210 @@ describe("search: FTS5 text + code + alias matching", () => {
     const row = await DB.prepare(`SELECT id FROM messages WHERE subject = 'temporary notice'`).first<{ id: string }>();
     await deleteMessage(DB, row!.id);
     expect((await list("temporary")).total).toBe(0);
+  });
+});
+
+/*
+ * The queue split. Staging writes the R2 objects first, so the D1 commit — the step that
+ * used to be able to lose a message with nothing left to retry from — can be redelivered
+ * against the same input.
+ */
+describe("staged ingest and its commit", () => {
+  it("stages to R2 without committing, and the job carries no message content", async () => {
+    await seedAlias("stage1@notify.example");
+    const { message } = makeMessage(
+      "stage1@notify.example",
+      emailRaw({
+        subject: "Sign in code",
+        body: "Your code is 246813.",
+        messageId: "st1",
+        to: "stage1@notify.example",
+      }),
+    );
+
+    const staged = await stageEmail(message, TEST_ENV, DB, BUCKET);
+    expect(staged.status).toBe("staged");
+    if (staged.status !== "staged") return;
+    expect(await countMessages()).toBe(0);
+
+    // A dead-lettered job must not become a second, unauthenticated copy of somebody's
+    // mail, so it carries keys and addressing only.
+    const wire = JSON.stringify(staged.job);
+    expect(wire).not.toContain("Sign in code");
+    expect(wire).not.toContain("246813");
+    expect(staged.job.rawKey).toMatch(/^raw\//);
+    expect(staged.job.parsedKey).toMatch(/^parsed\//);
+
+    const committed = await commitIngest(staged.job, DB, BUCKET);
+    expect(committed.status).toBe("stored");
+    const row = await DB.prepare(`SELECT extracted_codes_json FROM messages`).first<{ extracted_codes_json: string }>();
+    // Derived at commit from the staged bytes, not shipped across the queue.
+    expect(row?.extracted_codes_json).toContain("246813");
+  });
+
+  it("re-delivery of the same job cannot store the message twice", async () => {
+    await seedAlias("twice@notify.example");
+    const { message } = makeMessage(
+      "twice@notify.example",
+      emailRaw({ subject: "One", body: "Your code is 111111.", messageId: "tw", to: "twice@notify.example" }),
+    );
+    const staged = await stageEmail(message, TEST_ENV, DB, BUCKET);
+    if (staged.status !== "staged") throw new Error("expected staged");
+
+    expect((await commitIngest(staged.job, DB, BUCKET)).status).toBe("stored");
+    expect((await commitIngest(staged.job, DB, BUCKET)).status).toBe("duplicate");
+    expect(await countMessages()).toBe(1);
+  });
+
+  it("a failed commit leaves the staged objects alone so the retry has the same input", async () => {
+    await seedAlias("flaky@notify.example");
+    const { message } = makeMessage(
+      "flaky@notify.example",
+      emailRaw({ subject: "Retry me", body: "Your code is 333444.", messageId: "fl", to: "flaky@notify.example" }),
+    );
+    const staged = await stageEmail(message, TEST_ENV, DB, BUCKET);
+    if (staged.status !== "staged") throw new Error("expected staged");
+
+    let busy = true;
+    const flaky = new Proxy(DB, {
+      get(target, prop) {
+        if (prop === "prepare") {
+          return (sql: string) => {
+            if (busy && sql.includes("INSERT INTO messages")) throw new Error("d1 busy");
+            return target.prepare(sql);
+          };
+        }
+        return Reflect.get(target, prop, target);
+      },
+    }) as unknown as D1Database;
+
+    await expect(commitIngest(staged.job, flaky, BUCKET)).rejects.toThrow("d1 busy");
+    // The whole point: nothing was destroyed, so the redelivery can finish the job.
+    expect(await getObject(BUCKET, staged.job.rawKey)).not.toBeNull();
+    expect(await getObject(BUCKET, staged.job.parsedKey)).not.toBeNull();
+    expect(await countMessages()).toBe(0);
+
+    busy = false;
+    expect((await commitIngest(staged.job, DB, BUCKET)).status).toBe("stored");
+    expect(await countMessages()).toBe(1);
+  });
+
+  it("a vanished staged object is a failure, not a silently dropped message", async () => {
+    await seedAlias("ghost@notify.example");
+    const { message } = makeMessage(
+      "ghost@notify.example",
+      emailRaw({ subject: "Ghost", body: "body", messageId: "gh", to: "ghost@notify.example" }),
+    );
+    const staged = await stageEmail(message, TEST_ENV, DB, BUCKET);
+    if (staged.status !== "staged") throw new Error("expected staged");
+    await BUCKET.delete(staged.job.parsedKey);
+
+    // Throwing sends the job back for retry and eventually to the dead-letter queue,
+    // where the raw .eml is still retrievable by key.
+    await expect(commitIngest(staged.job, DB, BUCKET)).rejects.toThrow("staged_parse_missing");
+    expect(await countMessages()).toBe(0);
+  });
+
+  it("the email handler stages and posts exactly one job for the consumer", async () => {
+    await seedAlias("handler@notify.example");
+    const { message } = makeMessage(
+      "handler@notify.example",
+      emailRaw({ subject: "Through the handler", body: "Your code is 987654.", messageId: "hd", to: "handler@notify.example" }),
+    );
+    bindings.queue.reset();
+
+    await worker.email(message as never, TEST_ENV);
+    expect(bindings.queue.sent).toHaveLength(1);
+    expect(await countMessages()).toBe(0);
+
+    expect((await commitIngest(bindings.queue.sent[0]!, DB, BUCKET)).status).toBe("stored");
+    expect(await countMessages()).toBe(1);
+  });
+});
+
+/*
+ * The consumer itself. Its contract is what makes the retry safe: a job that commits is
+ * acknowledged, a job that fails is retried with its staged objects untouched, and a
+ * duplicate is acknowledged rather than retried forever.
+ */
+describe("ingest queue consumer", () => {
+  const ctx = {
+    waitUntil: (p: Promise<unknown>) => void p.catch(() => undefined),
+    passThroughOnException: () => undefined,
+    props: {},
+  } as unknown as ExecutionContext;
+
+  async function stagedJob(address: string, subject: string, body: string, id: string) {
+    await seedAlias(address);
+    const { message } = makeMessage(address, emailRaw({ subject, body, messageId: id, to: address }));
+    const staged = await stageEmail(message, TEST_ENV, DB, BUCKET);
+    if (staged.status !== "staged") throw new Error("expected staged");
+    return staged.job;
+  }
+
+  function fakeBatch(jobs: unknown[]) {
+    const decisions: string[] = [];
+    const messages = jobs.map((body, i) => ({
+      id: `m${i}`,
+      timestamp: new Date(),
+      attempts: 1,
+      ackTimeoutMs: 30_000,
+      body,
+      ack: () => void decisions.push(`ack:${i}`),
+      retry: () => void decisions.push(`retry:${i}`),
+      respond: async () => undefined,
+    }));
+    return {
+      messages,
+      decisions,
+      ackAll: () => void decisions.push("ackAll"),
+      retryAll: () => void decisions.push("retryAll"),
+    };
+  }
+
+  it("acknowledges a job it commits", async () => {
+    const job = await stagedJob("consume1@notify.example", "Consume me", "Your code is 123321.", "c1");
+    const batch = fakeBatch([job]);
+
+    await worker.queue(batch as never, TEST_ENV, ctx);
+
+    expect(batch.decisions).toEqual(["ack:0"]);
+    expect(await countMessages()).toBe(1);
+  });
+
+  it("retries a job whose commit failed, with the staged input intact", async () => {
+    const job = await stagedJob("consume2@notify.example", "Broken commit", "body", "c2");
+    await BUCKET.delete(job.parsedKey);
+    const batch = fakeBatch([job]);
+
+    await worker.queue(batch as never, TEST_ENV, ctx);
+
+    expect(batch.decisions).toEqual(["retry:0"]);
+    expect(await countMessages()).toBe(0);
+    // The raw is still there, so the redelivery (and later the dead-letter record) can
+    // still be resolved back to the actual message.
+    expect(await getObject(BUCKET, job.rawKey)).not.toBeNull();
+  });
+
+  it("acknowledges a duplicate instead of retrying it forever", async () => {
+    const job = await stagedJob("consume3@notify.example", "Twice delivered", "body", "c3");
+    expect((await commitIngest(job, DB, BUCKET)).status).toBe("stored");
+
+    const batch = fakeBatch([job]);
+    await worker.queue(batch as never, TEST_ENV, ctx);
+
+    expect(batch.decisions).toEqual(["ack:0"]);
+    expect(await countMessages()).toBe(1);
+  });
+
+  it("does not let one poisoned job stop the rest of the batch", async () => {
+    const good = await stagedJob("consume4@notify.example", "Good job", "body", "c4");
+    const bad = { ...good, messageId: "poison", parsedKey: "parsed/does-not-exist.json" };
+
+    const batch = fakeBatch([bad, good]);
+    await worker.queue(batch as never, TEST_ENV, ctx);
+
+    expect(batch.decisions).toEqual(["retry:0", "ack:1"]);
+    expect(await countMessages()).toBe(1);
   });
 });

@@ -4,11 +4,18 @@
  * (production) or `.dev.vars` (local). Nothing secret is ever read into a response.
  */
 import { log } from "./lib/logging";
+import type { IngestJob } from "./mail/ingest";
 
 export interface Env {
   DB: D1Database;
   MAIL_BUCKET: R2Bucket;
   ASSETS: Fetcher;
+  /**
+   * Staged messages waiting for their metadata commit. The email handler cannot retry a
+   * D1 write on its own, so it hands the job here; a commit that keeps failing ends up in
+   * the dead-letter queue with its R2 objects still in place.
+   */
+  MAIL_INGEST_QUEUE: Queue<IngestJob>;
 
   // Plain-text vars
   ENVIRONMENT?: string; // "development" | "production" (default production)

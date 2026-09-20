@@ -1,9 +1,16 @@
 import type { Env } from "./env";
-import type { ExportedHandler, ExecutionContext, ForwardableEmailMessage, ScheduledController } from "@cloudflare/workers-types";
+import type {
+  ExportedHandler,
+  ExecutionContext,
+  ForwardableEmailMessage,
+  MessageBatch,
+  ScheduledController,
+} from "@cloudflare/workers-types";
 import { createCloudflareClient } from "./cf/api-client";
 import { createApp } from "./app";
 import { decorateResponse } from "./security/headers";
-import { ingestEmail } from "./mail/ingest";
+import { stageEmail, commitIngest, type IngestJob } from "./mail/ingest";
+import { deleteKeys } from "./storage/r2";
 import { pushToAll } from "./push";
 import { log } from "./lib/logging";
 import { runWatchdog } from "./provisioning/watchdog";
@@ -30,21 +37,55 @@ export default {
   /**
    * Incoming mail from a Cloudflare Email Routing catch-all rule. Acceptance is
    * gated on an ACTIVE alias in D1; unknown recipients are rejected (never
-   * auto-created). A persistence throw propagates so Cloudflare retries delivery —
-   * ingestion is dedupe-safe. Startup/deploy performs no domain mutation (section 9).
+   * auto-created). Startup/deploy performs no domain mutation (section 9).
+   *
+   * This handler stages (parse + write R2) and hands the metadata commit to the queue.
+   * A throw before the hand-off means nothing was durably written, so Cloudflare's own
+   * delivery retry starts clean; after it, the message is safe in R2 either way.
    */
-  async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
+  async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
     try {
-      const result = await ingestEmail(message, env, env.DB, env.MAIL_BUCKET);
-      if (result.status === "stored") {
-        // Notify only after the mail is durable, and detached: a slow or dead push
-        // endpoint must never affect delivery or make the message retry.
-        ctx.waitUntil(pushToAll(env, env.DB).then(() => undefined));
+      const staged = await stageEmail(message, env, env.DB, env.MAIL_BUCKET);
+      if (staged.status !== "staged") return;
+      try {
+        await env.MAIL_INGEST_QUEUE.send(staged.job);
+      } catch (err) {
+        // The job never reached the queue, so the staged objects would be orphans with
+        // nothing pointing at them. Remove them and let delivery retry from the top.
+        await deleteKeys(env.MAIL_BUCKET, staged.keys);
+        throw err;
       }
     } catch (err) {
       // Rejected for retry; log without body/token (section 34). The throw is deliberate.
       log.error("email_handler_failed", { error: err instanceof Error ? err.message : "error" });
       throw err;
+    }
+  },
+
+  /**
+   * Commit staged messages to D1. This is the part that used to be able to lose a
+   * message: a transient database failure inside the email handler had no retry of its
+   * own. Here a failure re-delivers the job with the R2 objects untouched, and after the
+   * consumer's retry budget the job parks in the dead-letter queue — still recoverable,
+   * because the job carries keys only, never content.
+   */
+  async queue(batch: MessageBatch<IngestJob>, env: Env, ctx: ExecutionContext): Promise<void> {
+    for (const message of batch.messages) {
+      try {
+        const result = await commitIngest(message.body, env.DB, env.MAIL_BUCKET);
+        if (result.status === "stored") {
+          // Notify only after the mail is durable, and detached: a slow or dead push
+          // endpoint must never affect delivery or make the message retry.
+          ctx.waitUntil(pushToAll(env, env.DB).then(() => undefined));
+        }
+        message.ack();
+      } catch (err) {
+        log.error("ingest_commit_failed", {
+          attempt: message.attempts,
+          error: err instanceof Error ? err.message : "error",
+        });
+        message.retry();
+      }
     }
   },
 
@@ -75,4 +116,4 @@ export default {
       log.error("watchdog_run_failed", { error: err instanceof Error ? err.message : "error" });
     }
   },
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Env, IngestJob>;

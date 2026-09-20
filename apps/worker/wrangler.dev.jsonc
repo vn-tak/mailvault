@@ -35,6 +35,21 @@
     }
   ],
 
+  // Same shape as production; wrangler creates the queue locally.
+  "queues": {
+    "producers": [
+      { "binding": "MAIL_INGEST_QUEUE", "queue": "mail-ingest" }
+    ],
+    "consumers": [
+      {
+        "queue": "mail-ingest",
+        "max_batch_size": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "mail-ingest-dlq"
+      }
+    ]
+  },
+
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",

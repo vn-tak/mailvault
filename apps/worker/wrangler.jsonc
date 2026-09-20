@@ -50,6 +50,25 @@
     }
   ],
 
+  // Staged mail waits here for its D1 commit. A commit that keeps failing is retried
+  // three times and then parked in the dead-letter queue — the job carries R2 keys and
+  // addressing only, so a queue is never a second home for message content.
+  "queues": {
+    "producers": [
+      { "binding": "MAIL_INGEST_QUEUE", "queue": "mail-ingest" }
+    ],
+    "consumers": [
+      {
+        "queue": "mail-ingest",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "max_concurrency": 5,
+        "dead_letter_queue": "mail-ingest-dlq"
+      }
+    ]
+  },
+
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",

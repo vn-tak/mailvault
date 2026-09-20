@@ -24,7 +24,8 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Reading view: re-flowed plain text, folded magic links, tracking-wrapper destinations, HTML frame that fits the screen | ✅ Fixture + E2E covered |
 | One mailbox per domain: dashboard mailbox cards, inbox picker, per-row arrival domain | ✅ Implemented |
 | Row actions folded until engaged (tap / hover / focus), bulk actions only with a selection | ✅ E2E covered |
-| Unit + integration tests (168 passing: worker 114, web 54) | ✅ Green |
+| Inbound ingest is retryable: stage to R2 → queue → commit, with a dead-letter queue | ✅ +9 tests |
+| Unit + integration tests (177 passing: worker 123, web 54) | ✅ Green |
 | Playwright E2E (19 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 

@@ -60,6 +60,12 @@ of this system, so this addendum records the difference.
   single owner address in `ALLOWED_EMAILS`. `workers_dev` is off, so the Worker is reachable
   only through those Access-protected routes. The Cloudflare API token exists only as a
   Worker secret.
+- **Ingest is queue-backed:** `mail-ingest` (consumer = the same Worker, `max_retries: 3`)
+  with `mail-ingest-dlq` behind it. The email handler stages to R2 and posts a job; the
+  consumer commits to D1. Created 2026-09-20 with `wrangler queues create`, and the
+  producer/consumer wiring is confirmed on the queue itself (`producers: mail-vault`,
+  `consumers: worker:mail-vault`, `dead_letter_queue: mail-ingest-dlq`). The job body
+  carries R2 keys and envelope addressing only — see SECURITY.md §6.3.
 - **Real domain mutations: 3 zones, each one an explicit owner click in the app** —
   `omnipos.tech`, `datlichngay.com`, `tung.codes`. Email Routing was enabled by MailVault's
   own token, the catch-all points at the MailVault Worker, and `READY` was recorded only

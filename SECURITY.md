@@ -170,6 +170,30 @@ time and the judgement is stored (`messages.auth_verdict` + `auth_json`).
 - **Old mail is not re-judged with guesses.** Rows written before this existed carry
   `UNVERIFIED` with no assessment JSON, and the banner stays silent for them.
 
+### 6.3 Ingest durability — `apps/worker/src/index.ts` (`email` + `queue`)
+
+Inbound mail is committed in two invocations so a database hiccup cannot lose a message:
+
+- The **email handler** validates the recipient, parses, judges the sender and writes the
+  R2 objects (raw `.eml`, parsed JSON, attachments). Only then does it post an `IngestJob`
+  to the `mail-ingest` queue. Every `setReject()` decision — unknown recipient, oversize,
+  `REJECT` policy on a spoofed sender — still happens here, because this is the only place
+  still able to answer the sending server.
+- The **queue consumer** commits the D1 row and the FTS entry, then fires push. A failed
+  commit is retried (3 attempts) and then parked in `mail-ingest-dlq`. Nothing is deleted
+  on failure: the staged objects stay exactly where they are, so a redelivery works on the
+  same bytes, and a dead-lettered job still points at a retrievable `.eml`.
+
+**The queue carries keys and SMTP addressing only** — `rawKey`, `parsedKey`, alias/domain
+ids, dedupe key, envelope. No subject, body, extracted code or link crosses it, verified by
+test. That matters because a queue and its dead-letter are a second store the owner does
+not browse; they must not quietly become an unauthenticated copy of somebody's mail. R2
+remains the only place message content lives.
+
+Codes, links, preview and the auth verdict are *re-derived* at commit time from the staged
+parse by the same pure functions — one assessment per message, and the stored verdict
+cannot disagree with the one that was judged at the edge.
+
 ## 7. Attachments
 
 `apps/worker/src/routes/messages.ts` (download route) + `apps/worker/src/lib/filename.ts`:
