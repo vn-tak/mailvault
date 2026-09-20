@@ -212,8 +212,11 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 .toolbar .search { flex: 1 1 220px; min-width: 0; }
 .toolbar button[type="submit"] { flex: 0 0 auto; }
 /* The mailbox picker gets whatever width is left; a truncated domain name is still
-   selectable, and it never pushes the search box onto a third line by itself. */
-.toolbar .mailbox-select { flex: 1 1 190px; min-width: 0; width: auto; }
+   selectable, and it never pushes the search box onto a third line by itself. The small
+   basis is deliberate: a flex line breaks on base sizes before anything shrinks, so a
+   190px basis pushed the picker onto its own row as soon as the tab labels were wide
+   enough (which they are under Linux's default font, where this test failed). */
+.toolbar .mailbox-select { flex: 1 1 110px; min-width: 0; width: auto; }
 
 /* The inbox filters stay reachable while scrolling a long list of mail. */
 .toolbar--sticky {

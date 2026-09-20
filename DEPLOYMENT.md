@@ -137,6 +137,17 @@ of this system, so this addendum records the difference.
   line at 412px in either language, so `.tabs` wraps instead of scrolling sideways behind a
   hidden scrollbar. `e2e/vietnamese.spec.ts` asserts every filter is on screen, that no screen
   prints a dictionary key, and that nothing overflows the viewport at the longest strings.
+- **The E2E layout contract runs on Linux, and that is the only reason one of its
+  assertions was worth having.** `phone: the filters share two lines` failed on every CI run
+  from the semantic-search commit (`e7705fd`) through the Vietnamese one (`9a19be1`) while
+  passing locally: a flex line breaks on *base* sizes before anything shrinks, so the
+  mailbox picker's `flex: 1 1 190px` basis pushed it onto its own row as soon as the tab
+  labels were a few pixels wider — which they are under Linux's default font. The basis is
+  now 110px, and the picker holds the tabs' line with 144px of budget spare even when the
+  labels are forced 19px/18px-padding. **CI was therefore not green for those three
+  commits**, and the `✅ Green on GitHub` row in README.md described the job's intent rather
+  than its state; local gates were green throughout. The fix is in the same commit as this
+  note, and the CI run for it is the record of it being green again.
 - **Gates at this writing:** 103 tests (worker 81, web 22), 5 E2E; lint and typecheck clean.
   The five later slices — sender authentication, drift watchdog, FTS5 search, alias
   lifecycle, PWA + payload-free push — were each built, tested and deployed on

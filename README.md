@@ -26,7 +26,7 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Row actions folded until engaged (tap / hover / focus), bulk actions only with a selection | ✅ E2E covered |
 | Inbound ingest is retryable: stage to R2 → queue → commit, with a dead-letter queue | ✅ +9 tests |
 | Open tabs learn about new mail over a per-owner Durable Object (nudge only, no content) | ✅ Handshake tested |
-| CI: typecheck + lint + tests + E2E on every push; manual versioned deploy; rollback | ✅ Green on GitHub |
+| CI: typecheck + lint + tests + E2E on every push; manual versioned deploy; rollback | ✅ Runs on every push (Linux, Node 24) |
 | Passkey step-up before anything irreversible (purge mail, detach domain, disable sender checks) | ✅ Gate tested |
 | Mailbox rules (file/tag on sender or subject) + who-holds-my-address report | ✅ 12 tests |
 | Semantic search (Workers AI + Vectorize) behind an explicit opt-in that defaults to off | ✅ 10 tests |
