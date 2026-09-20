@@ -57,6 +57,10 @@
     { "tag": "v1", "new_sqlite_classes": ["MailboxHub"] }
   ],
 
+  "analytics_engine_datasets": [
+    { "binding": "ANALYTICS", "dataset": "mailvault-events" }
+  ],
+
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",

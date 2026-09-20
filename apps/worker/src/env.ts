@@ -18,6 +18,11 @@ export interface Env {
   MAIL_INGEST_QUEUE: Queue<IngestJob>;
   /** Per-owner websocket hub for "new mail" nudges to already-open tabs. */
   MAILBOX_HUB: DurableObjectNamespace;
+  /**
+   * Analytics Engine dataset for rates and percentiles over time. Optional by design:
+   * every write is best-effort, so a harness or a partial config without it still runs.
+   */
+  ANALYTICS?: AnalyticsEngineDataset;
 
   // Plain-text vars
   ENVIRONMENT?: string; // "development" | "production" (default production)

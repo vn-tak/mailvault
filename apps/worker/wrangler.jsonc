@@ -81,6 +81,12 @@
     { "tag": "v1", "new_sqlite_classes": ["MailboxHub"] }
   ],
 
+  // Rates and percentiles over time — see src/lib/metrics.ts for the column schema.
+  // Counts and durations only; no address, subject or message id is ever written here.
+  "analytics_engine_datasets": [
+    { "binding": "ANALYTICS", "dataset": "mailvault-events" }
+  ],
+
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",

@@ -3,6 +3,7 @@ import type { PushOutcome } from "@mailvault/shared";
 import type { Env } from "./env";
 import { vapidConfig } from "./env";
 import { log } from "./lib/logging";
+import { Elapsed, writeMetric } from "./lib/metrics";
 import { newId, nowIso } from "./lib/util";
 
 /**
@@ -137,8 +138,12 @@ export async function countSubscriptions(db: D1Database): Promise<number> {
  * convenience, and a dead endpoint must not fail mail ingestion or return a 500.
  */
 export async function pushToAll(env: Env, db: D1Database, fetchImpl: typeof fetch = fetch): Promise<PushOutcome> {
+  const timer = new Elapsed();
   const config = vapidConfig(env);
-  if (!config) return { sent: 0, pruned: 0, failed: 0, skipped: "not-configured" };
+  if (!config) {
+    writeMetric(env, "push", { outcome: "skipped", reason: "not-configured", stageMs: timer.stop() });
+    return { sent: 0, pruned: 0, failed: 0, skipped: "not-configured" };
+  }
   const cfg = { ...config, publicKey: vapidPublicKey(config.jwk) };
 
   const { results } = await db
@@ -151,7 +156,10 @@ export async function pushToAll(env: Env, db: D1Database, fetchImpl: typeof fetc
     auth: r.auth,
     userAgent: r.user_agent,
   }));
-  if (targets.length === 0) return { sent: 0, pruned: 0, failed: 0, skipped: "no-subscribers" };
+  if (targets.length === 0) {
+    writeMetric(env, "push", { outcome: "skipped", reason: "no-subscribers", stageMs: timer.stop() });
+    return { sent: 0, pruned: 0, failed: 0, skipped: "no-subscribers" };
+  }
 
   const outcome: PushOutcome = { sent: 0, pruned: 0, failed: 0 };
   for (const target of targets) {
@@ -179,5 +187,10 @@ export async function pushToAll(env: Env, db: D1Database, fetchImpl: typeof fetc
     }
   }
   log.info("push_run", { sent: outcome.sent, pruned: outcome.pruned, failed: outcome.failed });
+  writeMetric(env, "push", {
+    outcome: outcome.failed > 0 ? "partial" : "ok",
+    reason: `sent=${outcome.sent} pruned=${outcome.pruned} failed=${outcome.failed}`,
+    stageMs: timer.stop(),
+  });
   return outcome;
 }

@@ -12,6 +12,7 @@ import { decorateResponse } from "./security/headers";
 import { stageEmail, commitIngest, type IngestJob } from "./mail/ingest";
 import { deleteKeys } from "./storage/r2";
 import { pushToAll } from "./push";
+import { Elapsed, writeMetric } from "./lib/metrics";
 import { MailboxHub, notifyNewMail } from "./live/hub";
 import { log } from "./lib/logging";
 import { runWatchdog } from "./provisioning/watchdog";
@@ -48,9 +49,18 @@ export default {
    * delivery retry starts clean; after it, the message is safe in R2 either way.
    */
   async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
+    const timer = new Elapsed();
     try {
       const staged = await stageEmail(message, env, env.DB, env.MAIL_BUCKET);
-      if (staged.status !== "staged") return;
+      const stageMs = timer.stop();
+      if (staged.status !== "staged") {
+        writeMetric(env, "ingest", {
+          outcome: staged.status,
+          reason: "reason" in staged.result ? staged.result.reason : undefined,
+          stageMs,
+        });
+        return;
+      }
       try {
         await env.MAIL_INGEST_QUEUE.send(staged.job);
       } catch (err) {
@@ -59,8 +69,10 @@ export default {
         await deleteKeys(env.MAIL_BUCKET, staged.keys);
         throw err;
       }
+      writeMetric(env, "ingest", { outcome: "staged", stageMs });
     } catch (err) {
       // Rejected for retry; log without body/token (section 34). The throw is deliberate.
+      writeMetric(env, "ingest", { outcome: "failed", reason: "handler_error", stageMs: timer.stop() });
       log.error("email_handler_failed", { error: err instanceof Error ? err.message : "error" });
       throw err;
     }
@@ -75,8 +87,14 @@ export default {
    */
   async queue(batch: MessageBatch<IngestJob>, env: Env, ctx: ExecutionContext): Promise<void> {
     for (const message of batch.messages) {
+      const timer = new Elapsed();
       try {
         const result = await commitIngest(message.body, env.DB, env.MAIL_BUCKET);
+        writeMetric(env, "ingest_commit", {
+          outcome: result.status,
+          verdict: result.status === "stored" ? result.verdict : undefined,
+          commitMs: timer.stop(),
+        });
         if (result.status === "stored") {
           // Notify only after the mail is durable, and detached: a slow or dead push
           // endpoint must never affect delivery or make the message retry.
@@ -86,6 +104,7 @@ export default {
         }
         message.ack();
       } catch (err) {
+        writeMetric(env, "ingest_commit", { outcome: "failed", reason: "commit_error", commitMs: timer.stop() });
         log.error("ingest_commit_failed", {
           attempt: message.attempts,
           error: err instanceof Error ? err.message : "error",
@@ -108,9 +127,15 @@ export default {
       log.warn("watchdog_skipped", { reason: token ? "MAIL_WORKER_NAME unset" : "API token unset" });
       return;
     }
+    const timer = new Elapsed();
     try {
       const client = createCloudflareClient({ token, accountId: env.CF_ACCOUNT_ID || undefined });
       const report = await runWatchdog(env.DB, client, env.MAIL_WORKER_NAME);
+      writeMetric(env, "watchdog", {
+        outcome: report.drifted.length > 0 ? "drift" : "ok",
+        reason: `checked=${report.checked} drifted=${report.drifted.length} restored=${report.restored.length} failed=${report.failed.length}`,
+        commitMs: timer.stop(),
+      });
       log.info("watchdog_run", {
         cron: controller.cron,
         checked: report.checked,
@@ -119,6 +144,7 @@ export default {
         failed: report.failed.length,
       });
     } catch (err) {
+      writeMetric(env, "watchdog", { outcome: "failed", reason: "run_error", commitMs: timer.stop() });
       log.error("watchdog_run_failed", { error: err instanceof Error ? err.message : "error" });
     }
   },

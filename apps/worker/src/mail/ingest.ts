@@ -26,7 +26,7 @@ import { buildPreview, stripHtmlToText } from "./preview";
 import { normalizeLookupAddress, splitAddress } from "./normalize";
 
 export type IngestResult =
-  | { status: "stored"; messageId: string }
+  | { status: "stored"; messageId: string; verdict: AuthVerdict }
   | { status: "duplicate" }
   | {
       status: "rejected";
@@ -335,7 +335,7 @@ export async function commitIngest(job: IngestJob, db: D1Database, bucket: R2Buc
     degraded: staged.degraded,
     auth: auth.verdict,
   });
-  return { status: "stored", messageId: insertedId };
+  return { status: "stored", messageId: insertedId, verdict: auth.verdict };
 }
 
 /**
