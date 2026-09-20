@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { Link, matchRoute, useRoute } from "./lib/router";
+import { connectLive } from "./lib/live";
 import { Dashboard } from "./pages/Dashboard";
 import { Domains } from "./pages/Domains";
 import { Aliases } from "./pages/Aliases";
@@ -43,6 +45,8 @@ function Route() {
 
 export function App() {
   const { path } = useRoute();
+
+  useEffect(() => connectLive().stop, []);
 
   return (
     <div className="app">

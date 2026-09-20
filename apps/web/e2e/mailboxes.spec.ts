@@ -41,6 +41,23 @@ test("the inbox switcher narrows to one mailbox and back", async ({ page }) => {
   await expect(page.locator(".msg-alias").first()).toContainText("demo.example");
 });
 
+test("phone: an open tab connects to the live hub and refetches when nudged @mobile", async ({ page }) => {
+  const sockets: string[] = [];
+  page.on("websocket", (ws) => sockets.push(ws.url()));
+
+  await page.goto("/#/inbox");
+  await expect
+    .poll(() => sockets.filter((u) => u.endsWith("/api/live")).length, "the app should hold one socket to the hub")
+    .toBeGreaterThan(0);
+
+  // The nudge carries no data, so the visible effect is a refetch through the normal
+  // authenticated route — the same one the Refresh button uses.
+  const refetch = page.waitForResponse((r) => r.url().includes("/api/messages"));
+  await page.evaluate(() => window.dispatchEvent(new Event("mailvault:new-mail")));
+  await refetch;
+  await expect(page.locator(".msg")).toHaveCount(5);
+});
+
 test("phone: the filters share two lines so mail starts near the top @mobile", async ({ page }) => {
   await page.goto("/#/inbox");
   const top = await page.locator(".msg").first().boundingBox();

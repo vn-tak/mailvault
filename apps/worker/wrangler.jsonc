@@ -69,6 +69,17 @@
     ]
   },
 
+  // Per-owner websocket hub. `new_sqlite_classes` runs the one-time migration that
+  // creates the namespace; it is never re-applied on later deploys.
+  "durable_objects": {
+    "bindings": [
+      { "binding": "MAILBOX_HUB", "name": "MailboxHub", "class_name": "MailboxHub" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MailboxHub"] }
+  ],
+
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",

@@ -16,6 +16,8 @@ export interface Env {
    * the dead-letter queue with its R2 objects still in place.
    */
   MAIL_INGEST_QUEUE: Queue<IngestJob>;
+  /** Per-owner websocket hub for "new mail" nudges to already-open tabs. */
+  MAILBOX_HUB: DurableObjectNamespace;
 
   // Plain-text vars
   ENVIRONMENT?: string; // "development" | "production" (default production)

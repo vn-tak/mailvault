@@ -10,6 +10,7 @@ import { domainsRoute } from "./routes/domains";
 import { aliasesRoute } from "./routes/aliases";
 import { messagesRoute } from "./routes/messages";
 import { pushRoute } from "./routes/push";
+import { liveRoute } from "./routes/live";
 
 /**
  * Assembles the HTTP API. Ordering matters: the unauthenticated liveness probe is
@@ -53,6 +54,7 @@ export function createApp(): Hono<AppEnv> {
   app.route("/", aliasesRoute);
   app.route("/", messagesRoute);
   app.route("/", pushRoute);
+  app.route("/", liveRoute);
 
   return app;
 }

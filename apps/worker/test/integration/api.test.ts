@@ -106,6 +106,19 @@ describe("HTTP API", () => {
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
   });
 
+  it("rejects a non-websocket request to the live route instead of pretending to upgrade", async () => {
+    const res = await worker.fetch(req("/api/live"), TEST_ENV, CTX);
+    expect(res.status).toBe(426);
+    expect((await j(res)).error.code).toBe("PRECONDITION_FAILED");
+  });
+
+  it("requires a signed-in identity before the live route answers", async () => {
+    // The auth gate runs before the handler, so this is the same 401 every /api/* route
+    // gives — the socket cannot become an unauthenticated channel.
+    const res = await worker.fetch(new Request("http://localhost/api/live", { headers: { origin: "http://localhost" } }), { ...TEST_ENV, DEV_AUTH_BYPASS: "false", ENVIRONMENT: "production" } as unknown as Env, CTX);
+    expect(res.status).toBe(401);
+  });
+
   it("rejects a mutation lacking the CSRF header", async () => {
     const domainId = await seedDomain();
     const res = await worker.fetch(

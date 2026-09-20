@@ -12,8 +12,12 @@ import { decorateResponse } from "./security/headers";
 import { stageEmail, commitIngest, type IngestJob } from "./mail/ingest";
 import { deleteKeys } from "./storage/r2";
 import { pushToAll } from "./push";
+import { MailboxHub, notifyNewMail } from "./live/hub";
 import { log } from "./lib/logging";
 import { runWatchdog } from "./provisioning/watchdog";
+
+// Durable Object classes must be exported from the entry module.
+export { MailboxHub };
 
 // One router instance per isolate is safe: Hono is stateless and env is per-request.
 const app = createApp();
@@ -76,7 +80,9 @@ export default {
         if (result.status === "stored") {
           // Notify only after the mail is durable, and detached: a slow or dead push
           // endpoint must never affect delivery or make the message retry.
-          ctx.waitUntil(pushToAll(env, env.DB).then(() => undefined));
+          ctx.waitUntil(
+            Promise.allSettled([pushToAll(env, env.DB), notifyNewMail(env)]).then(() => undefined),
+          );
         }
         message.ack();
       } catch (err) {
