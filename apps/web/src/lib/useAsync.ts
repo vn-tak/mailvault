@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiClientError } from "./api";
+import { t } from "./i18n";
+import { NEW_MAIL_EVENT } from "./live";
 
 export interface AsyncState<T> {
   data: T | null;
@@ -23,6 +25,14 @@ export function useAsync<T>(run: () => Promise<T>, deps: readonly unknown[]): As
     };
   }, []);
 
+  // A new-mail nudge refetches through the same authenticated route the manual Refresh
+  // button uses — the socket carries no data, so there is nothing to patch in place.
+  useEffect(() => {
+    const onNewMail = () => setNonce((n) => n + 1);
+    window.addEventListener(NEW_MAIL_EVENT, onNewMail);
+    return () => window.removeEventListener(NEW_MAIL_EVENT, onNewMail);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -31,7 +41,7 @@ export function useAsync<T>(run: () => Promise<T>, deps: readonly unknown[]): As
       .then((d) => !cancelled && setData(d))
       .catch((e: unknown) => {
         if (cancelled) return;
-        setError(e instanceof ApiClientError ? e.message : e instanceof Error ? e.message : "Something went wrong");
+        setError(e instanceof ApiClientError ? e.message : e instanceof Error ? e.message : t("common.error"));
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {

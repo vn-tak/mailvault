@@ -52,6 +52,8 @@ export const ConflictType = {
   None: "NONE",
   Mx: "MX",
   CatchAll: "CATCH_ALL",
+  /** Config was changed outside MailVault so mail no longer reaches its Worker. */
+  Drift: "DRIFT",
 } as const;
 export type ConflictType = (typeof ConflictType)[keyof typeof ConflictType];
 
@@ -69,3 +71,19 @@ export const LocalPartMode = {
   Custom: "custom",
 } as const;
 export type LocalPartMode = (typeof LocalPartMode)[keyof typeof LocalPartMode];
+
+/** Sender-authentication verdict recorded on a message (SPF/DKIM/DMARC assessment). */
+export const AuthVerdict = {
+  Trusted: "TRUSTED",
+  Unverified: "UNVERIFIED",
+  Spoofed: "SPOOFED",
+} as const;
+export type AuthVerdict = (typeof AuthVerdict)[keyof typeof AuthVerdict];
+
+/** What MailVault does with a message whose sender authentication failed. */
+export const AuthPolicy = {
+  Off: "OFF",
+  Warn: "WARN",
+  Reject: "REJECT",
+} as const;
+export type AuthPolicy = (typeof AuthPolicy)[keyof typeof AuthPolicy];

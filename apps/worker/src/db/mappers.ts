@@ -3,6 +3,7 @@ import type {
   ConflictDetails,
   Domain,
   ExtractedCode,
+  MessageAuth,
   MessageSummary,
   VerificationLink,
 } from "@mailvault/shared";
@@ -30,6 +31,7 @@ export function toDomain(row: DomainRow): Domain {
     catchAllStatus: row.catch_all_status,
     conflictType: row.conflict_type,
     conflictDetails: parseJson<ConflictDetails | null>(row.conflict_details_json, null),
+    authPolicy: row.auth_policy,
     lastCheckedAt: row.last_checked_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -44,6 +46,9 @@ export function toAlias(row: AliasRow): Alias {
     localPart: row.local_part,
     address: row.address,
     label: row.label,
+    notes: row.notes ?? null,
+    pinned: row.pinned === 1,
+    archived: row.archived === 1,
     status: row.status,
     messageCount: row.message_count != null ? Number(row.message_count) : undefined,
     unreadCount: row.unread_count != null ? Number(row.unread_count) : undefined,
@@ -74,12 +79,21 @@ export function toMessageSummary(row: MessageRow): MessageSummary {
     preview: row.preview,
     receivedAt: row.received_at,
     isRead: row.is_read === 1,
+    archived: row.archived === 1,
+    ruleTag: row.rule_tag ?? null,
     hasAttachments: row.has_attachments === 1,
     attachmentCount: Number(row.attachment_count),
     primaryCode: primary ? primary.value : null,
     codeCount: codes.length,
     linkCount: links.length,
+    authVerdict: row.auth_verdict,
   };
+}
+
+/** The stored assessment, or null for mail that predates authentication recording. */
+export function toMessageAuth(row: Pick<MessageRow, "auth_json">): MessageAuth | null {
+  const raw = parseJson<MessageAuth | null>(row.auth_json, null);
+  return raw && typeof raw.verdict === "string" ? raw : null;
 }
 
 export { parseJson };

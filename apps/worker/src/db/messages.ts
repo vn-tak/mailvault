@@ -1,14 +1,23 @@
 import type {
   Attachment,
+  AuthVerdict,
   ExtractedCode,
+  MessageAuth,
   MessageDetail,
   MessageListQuery,
   MessageSummary,
   VerificationLink,
 } from "@mailvault/shared";
 import { newId, nowIso } from "../lib/util";
-import { parseJson, toMessageSummary } from "./mappers";
+import { parseJson, toMessageAuth, toMessageSummary } from "./mappers";
 import type { AttachmentRow, MessageRow } from "./rows";
+
+/**
+ * The validated query plus whatever the caller resolved first. `semanticIds` comes from
+ * Vectorize and is not something a client may send directly — it is looked up server-side
+ * only when the owner has turned semantic search on.
+ */
+export type ListInput = MessageListQuery & { semanticIds?: string[] };
 
 export interface InsertMessageInput {
   domainId: string;
@@ -29,6 +38,8 @@ export interface InsertMessageInput {
   attachmentCount: number;
   codes: ExtractedCode[];
   links: VerificationLink[];
+  authVerdict: AuthVerdict;
+  auth: MessageAuth | null;
 }
 
 export interface InsertAttachmentInput {
@@ -54,8 +65,9 @@ export async function insertMessage(db: D1Database, m: InsertMessageInput): Prom
           id, domain_id, alias_id, provider_message_id, dedupe_key,
           envelope_from, envelope_to, header_from, header_to, subject, preview,
           received_at, raw_size, raw_r2_key, parsed_r2_key, has_attachments,
-          attachment_count, is_read, extracted_codes_json, verification_links_json, created_at
-        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,0,?18,?19,?20)`,
+          attachment_count, is_read, extracted_codes_json, verification_links_json,
+          auth_verdict, auth_json, created_at
+        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,0,?18,?19,?20,?21,?22)`,
       )
       .bind(
         id,
@@ -77,6 +89,8 @@ export async function insertMessage(db: D1Database, m: InsertMessageInput): Prom
         m.attachmentCount,
         JSON.stringify(m.codes),
         JSON.stringify(m.links),
+        m.authVerdict,
+        m.auth ? JSON.stringify(m.auth) : null,
         nowIso(),
       )
       .run();
@@ -86,6 +100,23 @@ export async function insertMessage(db: D1Database, m: InsertMessageInput): Prom
     if (/UNIQUE constraint failed: messages.dedupe_key/i.test(msg)) return null;
     throw err;
   }
+}
+
+/**
+ * Keep the search index in step with a message. Delete-then-insert so a redelivered or
+ * re-indexed message cannot leave duplicate index rows behind.
+ */
+export async function indexMessage(
+  db: D1Database,
+  messageId: string,
+  text: { subject: string | null; preview: string | null; sender: string | null },
+): Promise<void> {
+  await db.batch([
+    db.prepare(`DELETE FROM messages_fts WHERE message_id = ?1`).bind(messageId),
+    db
+      .prepare(`INSERT INTO messages_fts (message_id, subject, preview, sender) VALUES (?1,?2,?3,?4)`)
+      .bind(messageId, text.subject ?? "", text.preview ?? "", text.sender ?? ""),
+  ]);
 }
 
 export async function dedupeKeyExists(db: D1Database, dedupeKey: string): Promise<boolean> {
@@ -114,29 +145,66 @@ export async function insertAttachments(
   await db.batch(stmts);
 }
 
-function buildListFilters(query: MessageListQuery): { where: string; params: unknown[] } {
+/**
+ * FTS5 query syntax is part of the user's input: an unbalanced quote or a stray operator
+ * is a syntax error, not a search. Keep only word-ish characters, quote each word, and
+ * cap the token count.
+ */
+export function ftsMatch(raw: string, maxWords = 8): string {
+  return raw
+    .toLowerCase()
+    .split(/[^a-z0-9@._-]+/)
+    .filter(Boolean)
+    .slice(0, maxWords)
+    .map((w) => `"${w}"`)
+    .join(" AND ");
+}
+
+function buildListFilters(query: ListInput): { where: string; params: unknown[]; rank: string } {
   const clauses: string[] = [];
   const params: unknown[] = [];
+  const push = (val: unknown) => {
+    params.push(val);
+    return params.length;
+  };
   if (query.filter === "unread") clauses.push("m.is_read = 0");
-  if (query.domainId) {
-    params.push(query.domainId);
-    clauses.push(`m.domain_id = ?${params.length}`);
-  }
-  if (query.aliasId) {
-    params.push(query.aliasId);
-    clauses.push(`m.alias_id = ?${params.length}`);
-  }
+  // Rules file mail out of the working list; they never remove it. `all` is what the
+  // archived view and any "show me everything" query uses.
+  if (query.archived === "active") clauses.push("m.archived = 0");
+  else if (query.archived === "archived") clauses.push("m.archived = 1");
+  if (query.domainId) clauses.push(`m.domain_id = ?${push(query.domainId)}`);
+  if (query.aliasId) clauses.push(`m.alias_id = ?${push(query.aliasId)}`);
+
+  let rank = "0";
   if (query.q) {
-    const like = `%${query.q.toLowerCase()}%`;
-    const i = params.length;
-    params.push(like, like, like, like);
-    clauses.push(
-      `(lower(m.header_from) LIKE ?${i + 1} OR lower(m.subject) LIKE ?${i + 2}
-        OR lower(COALESCE(a.address, m.envelope_to)) LIKE ?${i + 3}
-        OR lower(COALESCE(a.label,'')) LIKE ?${i + 4})`,
-    );
+    // Text comes from the FTS index; codes and alias text from LIKE, so searching an
+    // address or an OTP still finds mail stored before the index existed. A query with no
+    // usable words produces an empty MATCH, which FTS5 rejects — so the index is only
+    // consulted when there is something to look for in it.
+    const match = ftsMatch(query.q);
+    const like = push(`%${query.q.toLowerCase()}%`);
+    const terms = [
+      `lower(COALESCE(m.extracted_codes_json, '')) LIKE ?${like}`,
+      `lower(COALESCE(a.address, m.envelope_to)) LIKE ?${like}`,
+      `lower(COALESCE(a.label, '')) LIKE ?${like}`,
+    ];
+    if (match) {
+      const a = push(match);
+      const b = push(match);
+      // bm25 is negative and lower is better; rows found only by LIKE get 0, so text
+      // matches rank above code/alias matches and everything else stays newest-first.
+      rank = `COALESCE((SELECT bm25(messages_fts) FROM messages_fts WHERE message_id = m.id AND messages_fts MATCH ?${a}), 0)`;
+      terms.unshift(`EXISTS (SELECT 1 FROM messages_fts WHERE message_id = m.id AND messages_fts MATCH ?${b})`);
+    }
+    // Semantic hits arrive as ids from Vectorize. They join the same result set rather
+    // than replacing it, so a keyword match is never lost because the model disagreed.
+    if (query.semanticIds && query.semanticIds.length > 0) {
+      const placeholders = query.semanticIds.map((id) => `?${push(id)}`).join(", ");
+      terms.push(`m.id IN (${placeholders})`);
+    }
+    clauses.push(`(${terms.join(" OR ")})`);
   }
-  return { where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", params };
+  return { where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", params, rank };
 }
 
 const SELECT_LIST = `
@@ -146,9 +214,9 @@ const SELECT_LIST = `
 
 export async function listMessages(
   db: D1Database,
-  query: MessageListQuery,
+  query: ListInput,
 ): Promise<{ items: MessageSummary[]; total: number }> {
-  const { where, params } = buildListFilters(query);
+  const { where, params, rank } = buildListFilters(query);
   const countRow = await db
     .prepare(`SELECT COUNT(*) AS c ${SELECT_LIST} ${where}`)
     .bind(...params)
@@ -156,9 +224,9 @@ export async function listMessages(
   const total = Number(countRow?.c ?? 0);
   const { results } = await db
     .prepare(
-      `SELECT m.*, a.label AS alias_label, a.address AS alias_address, d.name AS domain_name
+      `SELECT m.*, ${rank} AS rank, a.label AS alias_label, a.address AS alias_address, d.name AS domain_name
        ${SELECT_LIST} ${where}
-       ORDER BY m.received_at DESC, m.id DESC
+       ORDER BY rank ASC, m.received_at DESC, m.id DESC
        LIMIT ?${params.length + 1} OFFSET ?${params.length + 2}`,
     )
     .bind(...params, query.limit, query.offset)
@@ -201,6 +269,7 @@ export async function getMessageDetail(db: D1Database, id: string): Promise<Mess
   const attachments = await getMessageAttachments(db, id);
   return {
     ...summary,
+    appliedRuleNote: row.applied_rule_note ?? null,
     providerMessageId: row.provider_message_id,
     rawSize: Number(row.raw_size),
     extractedCodes: parseJson<ExtractedCode[]>(row.extracted_codes_json, []),
@@ -209,6 +278,7 @@ export async function getMessageDetail(db: D1Database, id: string): Promise<Mess
     htmlBody: null, // filled by the route from R2 parsed content + sanitization
     textBody: null,
     parseDegraded: !row.parsed_r2_key,
+    auth: toMessageAuth(row),
   };
 }
 
@@ -238,11 +308,14 @@ export async function getRawKeysForMessage(db: D1Database, id: string): Promise<
   return [...set];
 }
 
-/** Deletes the message (attachments cascade via FK) and returns its R2 keys to purge. */
+/** Deletes the message, its index entry (attachments cascade via FK) and returns its R2 keys to purge. */
 export async function deleteMessage(db: D1Database, id: string): Promise<string[]> {
   const keys = await getRawKeysForMessage(db, id);
-  const res = await db.prepare(`DELETE FROM messages WHERE id = ?1`).bind(id).run();
-  return changes(res) === 0 ? [] : keys;
+  const [res] = await db.batch([
+    db.prepare(`DELETE FROM messages WHERE id = ?1`).bind(id),
+    db.prepare(`DELETE FROM messages_fts WHERE message_id = ?1`).bind(id),
+  ]);
+  return changes(res as { meta?: unknown }) === 0 ? [] : keys;
 }
 
 export async function findAttachment(

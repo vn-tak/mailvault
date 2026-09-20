@@ -7,6 +7,7 @@
   "workers_dev": false,
 
   "routes": [
+    { "pattern": "mail.tungjp.store", "custom_domain": true },
     { "pattern": "mail.omnipos.tech", "custom_domain": true }
   ],
 
@@ -14,15 +15,22 @@
     "enabled": true
   },
 
+  // Drift check only. This cron reads Cloudflare and updates MailVault's own rows; it
+  // never deletes mail, never mutates a zone, and never runs on deploy.
+  "triggers": {
+    "crons": ["7 * * * *"]
+  },
+
   "vars": {
     "ENVIRONMENT": "production",
     "CF_ACCOUNT_ID": "ef250a88911fd24073cb73d1c07e0218",
     "MAIL_WORKER_NAME": "mail-vault",
-    "APP_ORIGIN": "https://mail.omnipos.tech",
+    "APP_ORIGIN": "https://mail.tungjp.store",
     "CF_ACCESS_TEAM_DOMAIN": "https://little-bar-8ffa.cloudflareaccess.com",
     "CF_ACCESS_AUD": "61f4423b34844e1a86c2b4680a77549acab6026bb3a0ed78af75d78ff00d10b4",
     "MAX_MESSAGE_BYTES": "20971520",
     "ALLOWED_EMAILS": "tungbipdz@gmail.com",
+    "DOMAIN_DENYLIST": "tungjpstore.net,selinow.com,fball.vn,logivn.com",
     "DEV_AUTH_BYPASS": "false"
   },
 
@@ -40,6 +48,49 @@
       "binding": "MAIL_BUCKET",
       "bucket_name": "mail-vault-storage"
     }
+  ],
+
+  // Staged mail waits here for its D1 commit. A commit that keeps failing is retried
+  // three times and then parked in the dead-letter queue — the job carries R2 keys and
+  // addressing only, so a queue is never a second home for message content.
+  "queues": {
+    "producers": [
+      { "binding": "MAIL_INGEST_QUEUE", "queue": "mail-ingest" }
+    ],
+    "consumers": [
+      {
+        "queue": "mail-ingest",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "max_concurrency": 5,
+        "dead_letter_queue": "mail-ingest-dlq"
+      }
+    ]
+  },
+
+  // Per-owner websocket hub. `new_sqlite_classes` runs the one-time migration that
+  // creates the namespace; it is never re-applied on later deploys.
+  // NB: this wrangler takes the code-side binding name in `name` — adding a `binding`
+  // field is rejected as unexpected and silently renames the binding, which local dev
+  // forgives and production does not.
+  "durable_objects": {
+    "bindings": [{ "name": "MAILBOX_HUB", "class_name": "MailboxHub" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MailboxHub"] }
+  ],
+
+  // Rates and percentiles over time — see src/lib/metrics.ts for the column schema.
+  // Counts and durations only; no address, subject or message id is ever written here.
+  "analytics_engine_datasets": [
+    { "binding": "ANALYTICS", "dataset": "mailvault-events" }
+  ],
+
+  // Opt-in semantic search. Nothing is embedded until the owner turns it on in Settings.
+  "ai": { "binding": "AI" },
+  "vectorize": [
+    { "binding": "VECTORIZE", "index_name": "mailvault-messages" }
   ],
 
   "assets": {

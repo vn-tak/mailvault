@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { CatchAllStatus, ConflictType, MailStatus, RoutingStatus } from "@mailvault/shared";
+import {
+  AuthPolicy,
+  CatchAllStatus,
+  ConflictType,
+  MailStatus,
+  PreflightClassification,
+  RoutingStatus,
+} from "@mailvault/shared";
 import { CloudflareApiError, type CloudflareClient } from "../../src/cf/api-client";
 import type { DomainRow } from "../../src/db/rows";
-import { provisionDomain } from "../../src/provisioning/provisioner";
+import { preflightMany, provisionDomain } from "../../src/provisioning/provisioner";
 
 const row: DomainRow = {
   id: "d1",
@@ -16,22 +23,27 @@ const row: DomainRow = {
   catch_all_status: CatchAllStatus.Unknown,
   conflict_type: ConflictType.None,
   conflict_details_json: null,
+  auth_policy: AuthPolicy.Warn,
   last_checked_at: null,
   created_at: "2026-01-01T00:00:00.000Z",
   updated_at: "2026-01-01T00:00:00.000Z",
 };
 
-function stubDb() {
-  const writes: string[] = [];
+function stubDb(found = true) {
+  const writes: { sql: string; binds: unknown[] }[] = [];
   const db = {
     prepare(sql: string) {
       const isSelect = /^\s*SELECT/i.test(sql);
+      let binds: unknown[] = [];
       const api: Record<string, unknown> = {
-        bind: () => api,
-        first: async () => (isSelect ? row : null),
+        bind: (...args: unknown[]) => {
+          binds = args;
+          return api;
+        },
+        first: async () => (isSelect ? (found ? row : null) : null),
         all: async () => [],
         run: async () => {
-          writes.push(sql.trim().slice(0, 48));
+          writes.push({ sql: sql.replace(/\s+/g, " ").trim(), binds });
           return { success: true, meta: {} };
         },
       };
@@ -42,21 +54,32 @@ function stubDb() {
   return { db: db as unknown as D1Database, writes };
 }
 
-function stubClient(overrides: Partial<Record<"listDnsRecords" | "getEmailRoutingStatus", () => Promise<unknown>>> = {}) {
+function stubClient(
+  overrides: Partial<
+    Record<"listDnsRecords" | "getEmailRoutingStatus" | "enableEmailRouting", () => Promise<unknown>>
+  > = {},
+) {
   const mutations: string[] = [];
   const client = {
     hasToken: true,
     listAllZones: async () => [],
-    listDnsRecords: async () => (overrides.listDnsRecords ? (await overrides.listDnsRecords()) as never : []),
+    listDnsRecords: async () => (overrides.listDnsRecords ? ((await overrides.listDnsRecords()) as never) : []),
     getEmailRoutingStatus: async () =>
       overrides.getEmailRoutingStatus ? ((await overrides.getEmailRoutingStatus()) as never) : {},
     getEmailRoutingDns: async () => [],
     enableEmailRouting: async () => {
+      if (overrides.enableEmailRouting) {
+        await overrides.enableEmailRouting();
+        return;
+      }
       mutations.push("enableEmailRouting");
     },
     getCatchAll: async () => null,
     setCatchAllWorker: async () => {
       mutations.push("setCatchAllWorker");
+    },
+    deleteDnsRecord: async (_zoneId: string, id: string) => {
+      mutations.push(`deleteDnsRecord:${id}`);
     },
   } as unknown as CloudflareClient;
   return { client, mutations };
@@ -117,6 +140,30 @@ describe("provisionDomain allow-list gate (section 7/9)", () => {
     expect(out.steps.map((s) => s.step)).toContain("email_routing_dns");
   });
 
+  it("points at the token's zone scope when routing cannot be enabled", async () => {
+    const { client } = stubClient({
+      enableEmailRouting: async () => {
+        throw new CloudflareApiError(
+          "permission",
+          "Cloudflare API error: Authentication error",
+          403,
+          [10000],
+          "/zones/z1/email/routing/enable",
+        );
+      },
+    });
+    const { db } = stubDb();
+
+    const out = await provisionDomain(db, client, "z1", "mail-vault", {});
+
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("Email Routing is not enabled for this domain");
+    expect(out.error).toContain("Email Routing Rules → Edit");
+    expect(out.error).toContain("Zone Resources");
+    expect(out.error).toContain("No MX record was touched");
+    expect(out.error).not.toContain("Authentication error");
+  });
+
   it("proceeds for a clean zone", async () => {
     const { client, mutations } = stubClient();
     const { db } = stubDb();
@@ -129,5 +176,130 @@ describe("provisionDomain allow-list gate (section 7/9)", () => {
     // domain must NOT be marked READY off a single successful write.
     expect(out.status).toBe(MailStatus.Failed);
     expect(out.ok).toBe(false);
+  });
+
+  it("refuses a zone MailVault never imported, which is what bounds an account-wide token", async () => {
+    const { client, mutations } = stubClient();
+    const { db, writes } = stubDb(false);
+
+    const out = await provisionDomain(db, client, "z9", "mail-vault", { allowCatchAllTakeover: true });
+
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("Domain not synced yet");
+    expect(mutations).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+});
+
+describe("preflightMany remembers its verdict locally, never in Cloudflare", () => {
+  it("stores a foreign-MX conflict so the Domains table still shows it after a reload", async () => {
+    const { client, mutations } = stubClient({
+      listDnsRecords: async () => [{ content: "aspmx.l.google.com", priority: 1 }],
+    });
+    const { db, writes } = stubDb();
+
+    const [res] = await preflightMany(db, client, ["z1"], "mail-vault");
+    const upd = writes.find((w) => /UPDATE domains/.test(w.sql));
+
+    expect(res?.classification).toBe(PreflightClassification.MxConflict);
+    expect(mutations).toEqual([]); // Cloudflare untouched
+    expect(upd?.sql).toContain("mail_status");
+    expect(upd?.binds).toContain(MailStatus.Conflict);
+    expect(upd?.binds).toContain(ConflictType.Mx);
+  });
+
+  it("only stamps last_checked_at when Cloudflare refused the read", async () => {
+    const { client } = stubClient({ listDnsRecords: deniedRead });
+    const { db, writes } = stubDb();
+
+    const [res] = await preflightMany(db, client, ["z1"], "mail-vault");
+    const upd = writes.find((w) => /UPDATE domains/.test(w.sql));
+
+    expect(res?.classification).toBe(PreflightClassification.ApiPermissionError);
+    expect(upd?.sql).not.toContain("mail_status");
+    expect(upd?.sql).toContain("last_checked_at");
+  });
+});
+
+/*
+ * MX takeover is the one provisioning action that stops mail arriving somewhere else, so
+ * the tests are about who may pull that trigger and what is left behind to undo it.
+ */
+describe("owner-confirmed MX takeover", () => {
+  const zoneDns = async () => [
+    { id: "mx-google", type: "MX", name: "example.com", content: "aspmx.l.google.com", priority: 1 },
+    { id: "txt-old-spf", type: "TXT", name: "example.com", content: "v=spf1 include:_spf.google.com ~all" },
+    { id: "txt-cf-spf", type: "TXT", name: "example.com", content: "v=spf1 include:_spf.mx.cloudflare.net ~all" },
+    { id: "txt-dmarc", type: "TXT", name: "_dmarc.example.com", content: "v=DMARC1; p=reject" },
+    { id: "txt-key", type: "TXT", name: "google._domainkey.example.com", content: "v=DKIM1; k=rsa; p=AAA" },
+  ];
+  const deletes = (mutations: string[]) => mutations.filter((m) => m.startsWith("deleteDnsRecord"));
+
+  it("never deletes Cloudflare's own routing MX while clearing the rest", async () => {
+    const { client, mutations } = stubClient({
+      listDnsRecords: async () => [
+        { id: "mx-google", type: "MX", name: "example.com", content: "aspmx.l.google.com", priority: 1 },
+        { id: "mx-cf", type: "MX", name: "example.com", content: "route1.mx.cloudflare.net", priority: 36 },
+      ],
+    });
+    const { db } = stubDb();
+
+    await provisionDomain(db, client, "z1", "mail-vault", { allowMxTakeover: true });
+
+    expect(deletes(mutations)).toEqual(["deleteDnsRecord:mx-google"]);
+  });
+
+  it("removes the foreign MX and nothing else, then enables routing", async () => {
+    const { client, mutations } = stubClient({ listDnsRecords: zoneDns });
+    const { db, writes } = stubDb();
+
+    const out = await provisionDomain(db, client, "z1", "mail-vault", { allowMxTakeover: true });
+
+    expect(deletes(mutations)).toEqual(["deleteDnsRecord:mx-google"]);
+    expect(mutations).toContain("enableEmailRouting");
+    // Measured on a real takeover: enabling routing does not add a second SPF, so deleting
+    // the provider's SPF would break the owner's outbound mail for no gain. DKIM/DMARC too.
+    expect(mutations).not.toContain("deleteDnsRecord:txt-old-spf");
+    expect(mutations).not.toContain("deleteDnsRecord:txt-cf-spf");
+    expect(mutations).not.toContain("deleteDnsRecord:txt-dmarc");
+    expect(mutations).not.toContain("deleteDnsRecord:txt-key");
+
+    const audit = writes.filter((w) => /INSERT INTO provisioning_events/.test(w.sql)).map((w) => JSON.stringify(w.binds));
+    expect(audit.some((a) => a.includes("mx_takeover") && a.includes("aspmx.l.google.com"))).toBe(true);
+    expect(out.steps.map((s) => s.step)).toContain("mx_takeover");
+  });
+
+  it("deletes nothing without the confirmation", async () => {
+    const { client, mutations } = stubClient({ listDnsRecords: zoneDns });
+    const { db } = stubDb();
+
+    const out = await provisionDomain(db, client, "z1", "mail-vault", {});
+
+    expect(deletes(mutations)).toEqual([]);
+    expect(out.status).toBe(MailStatus.Conflict);
+  });
+
+  it("a catch-all confirmation does not buy an MX deletion as well", async () => {
+    const { client, mutations } = stubClient({ listDnsRecords: zoneDns });
+    const { db } = stubDb();
+
+    await provisionDomain(db, client, "z1", "mail-vault", { allowCatchAllTakeover: true });
+
+    expect(deletes(mutations)).toEqual([]);
+  });
+
+  it("refuses a domain the owner excluded, whatever the flags say", async () => {
+    const { client, mutations } = stubClient({ listDnsRecords: zoneDns });
+    const { db } = stubDb();
+
+    const out = await provisionDomain(db, client, "z1", "mail-vault", {
+      allowMxTakeover: true,
+      allowCatchAllTakeover: true,
+      denyDomains: ["EXAMPLE.COM"],
+    });
+
+    expect(mutations).toEqual([]);
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain("excluded from MailVault management");
   });
 });

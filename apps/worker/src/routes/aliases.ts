@@ -10,13 +10,14 @@ import {
 } from "@mailvault/shared";
 import type { AppEnv } from "../app-env";
 import {
+  aliasStats,
   aliasExists,
   createAlias,
   deleteAlias,
   getAliasById,
   listAliases,
   setAliasStatus,
-  updateAliasLabel,
+  updateAlias,
 } from "../db/aliases";
 import { getDomainById } from "../db/domains";
 import { conflict, notFound } from "../lib/errors";
@@ -24,9 +25,14 @@ import { log } from "../lib/logging";
 import { randomLocalPart } from "../lib/util";
 import { deleteKeys } from "../storage/r2";
 import { actorOf, parseQuery, readJson } from "./_helpers";
+import { requireStepUp } from "./security";
 
 const IdParam = z.object({ id: z.string().min(1) });
-const ListQuery = z.object({ q: z.string().max(200).optional() });
+const ListQuery = z.object({
+  q: z.string().max(200).optional(),
+  /** Archived aliases are hidden by default so the working list stays short. */
+  view: z.enum(["all", "active", "archived"]).default("active"),
+});
 
 /**
  * Generate a collision-free random local part. Random/service modes use CSPRNG
@@ -44,8 +50,16 @@ async function uniqueRandomPart(db: D1Database, domainId: string, prefix: string
 
 export const aliasesRoute = new Hono<AppEnv>()
   .get("/api/aliases", async (c) => {
-    const { q } = parseQuery(c, ListQuery);
-    return c.json({ items: await listAliases(c.env.DB, q) });
+    const { q, view } = parseQuery(c, ListQuery);
+    return c.json({ items: await listAliases(c.env.DB, q, view) });
+  })
+
+  /** One alias with its arrival history — counts, span and the senders that use it. */
+  .get("/api/aliases/:id", async (c) => {
+    const { id } = IdParam.parse({ id: c.req.param("id") });
+    const alias = await getAliasById(c.env.DB, id);
+    if (!alias) throw notFound("Alias not found");
+    return c.json({ alias, stats: await aliasStats(c.env.DB, id) });
   })
 
   .post("/api/aliases", async (c) => {
@@ -72,11 +86,13 @@ export const aliasesRoute = new Hono<AppEnv>()
     return c.json(alias, 201);
   })
 
+  /** Label, notes, pin and archive — only the fields present in the body change. */
   .patch("/api/aliases/:id", async (c) => {
     const { id } = IdParam.parse({ id: c.req.param("id") });
-    const { label } = await readJson(c, UpdateAliasSchema);
+    const patch = await readJson(c, UpdateAliasSchema);
     if (!(await getAliasById(c.env.DB, id))) throw notFound("Alias not found");
-    await updateAliasLabel(c.env.DB, id, label);
+    await updateAlias(c.env.DB, id, patch);
+    log.info("alias_updated", { actor: actorOf(c).email, aliasId: id, fields: Object.keys(patch) });
     return c.json(await getAliasById(c.env.DB, id));
   })
 
@@ -103,6 +119,9 @@ export const aliasesRoute = new Hono<AppEnv>()
     const { id } = IdParam.parse({ id: c.req.param("id") });
     const { purgeMessages } = await readJson(c, DeleteAliasSchema);
     if (!(await getAliasById(c.env.DB, id))) throw notFound("Alias not found");
+    // Purging stored mail is the one alias operation that cannot be undone, so it asks for
+    // the passkey. A plain delete keeps the mail and needs no second factor.
+    if (purgeMessages) await requireStepUp(c);
     const { rawKeys } = await deleteAlias(c.env.DB, id, purgeMessages);
     if (rawKeys.length) await deleteKeys(c.env.MAIL_BUCKET, rawKeys);
     log.info("alias_deleted", { actor: actorOf(c).email, aliasId: id, purgeMessages, r2Keys: rawKeys.length });

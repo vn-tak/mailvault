@@ -15,7 +15,8 @@
     "CF_ACCESS_TEAM_DOMAIN": "http://localhost:8787",
     "CF_ACCESS_AUD": "dev-bypass",
     "MAX_MESSAGE_BYTES": "20971520",
-    "ALLOWED_EMAILS": ""
+    "ALLOWED_EMAILS": "",
+    "DOMAIN_DENYLIST": "tungjpstore.net,selinow.com,fball.vn,logivn.com"
   },
 
   "d1_databases": [
@@ -33,6 +34,36 @@
       "bucket_name": "mail-vault-storage"
     }
   ],
+
+  // Same shape as production; wrangler creates the queue locally.
+  "queues": {
+    "producers": [
+      { "binding": "MAIL_INGEST_QUEUE", "queue": "mail-ingest" }
+    ],
+    "consumers": [
+      {
+        "queue": "mail-ingest",
+        "max_batch_size": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "mail-ingest-dlq"
+      }
+    ]
+  },
+
+  "durable_objects": {
+    "bindings": [{ "name": "MAILBOX_HUB", "class_name": "MailboxHub" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MailboxHub"] }
+  ],
+
+  "analytics_engine_datasets": [
+    { "binding": "ANALYTICS", "dataset": "mailvault-events" }
+  ],
+
+  // Local workerd has no Vectorize backend, so the settings screen reports
+  // "not available here" rather than pretending the index exists.
+  "ai": { "binding": "AI" },
 
   "assets": {
     "directory": "../web/dist",

@@ -1,0 +1,84 @@
+/*
+ * Motion. Everything here is short and decelerating: a mail client is opened hundreds of
+ * times a day, and animation that lasts is animation that gets in the way. Each one earns
+ * its place by explaining a change — where a row came from, what a panel belongs to, that
+ * a copy worked — rather than by decorating.
+ */
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Content arriving: a 6px lift, so a list reads as laid down rather than flashed. */
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/*
+ * A whole view swapping in, so tab changes have a beat of continuity. Deliberately short:
+ * this one runs on every navigation, and a page that takes 400ms to arrive feels sluggish
+ * even when the data is already there.
+ */
+@keyframes page-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Sheets and popovers grow from the edge they belong to, not from nowhere. */
+@keyframes sheet { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes pop { from { opacity: 0; transform: scale(0.94) translateY(-4px); } to { opacity: 1; transform: none; } }
+
+/* The active tab's indicator draws out from its centre. */
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* Skeleton sweep. */
+@keyframes shimmer { to { transform: translateX(100%); } }
+
+/*
+ * A message that arrived while the tab was open: the row lights once from the left. The
+ * nudge carries no content (SECURITY.md §6.4) — this only says "look here", nothing about
+ * what arrived.
+ */
+@keyframes sweep {
+  from { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+  to { background: transparent; }
+}
+
+/* The live status dot, three beats only — a blinking dot trains people to ignore it. */
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent); }
+  70% { box-shadow: 0 0 0 10px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/*
+ * Lists stagger their rows without any JS: the first eight rows get an increasing delay,
+ * and rows past the fold simply appear. `nth-child` rather than an inline style because the
+ * list is re-rendered by data, not by animation code.
+ */
+.msglist > :nth-child(1) { animation-delay: 0ms; }
+.msglist > :nth-child(2) { animation-delay: 22ms; }
+.msglist > :nth-child(3) { animation-delay: 44ms; }
+.msglist > :nth-child(4) { animation-delay: 66ms; }
+.msglist > :nth-child(5) { animation-delay: 88ms; }
+.msglist > :nth-child(6) { animation-delay: 110ms; }
+.msglist > :nth-child(7) { animation-delay: 132ms; }
+.msglist > :nth-child(8) { animation-delay: 154ms; }
+.msglist > li { animation: rise var(--dur-2) var(--ease-out) both; }
+.mailboxes > * { animation: rise var(--dur-2) var(--ease-out) both; }
+.mailboxes > :nth-child(2) { animation-delay: 30ms; }
+.mailboxes > :nth-child(3) { animation-delay: 60ms; }
+.mailboxes > :nth-child(4) { animation-delay: 90ms; }
+.mailboxes > :nth-child(5) { animation-delay: 120ms; }
+.mailboxes > :nth-child(6) { animation-delay: 150ms; }
+
+/*
+ * The contract with people who asked for less movement: nothing that translates, sweeps or
+ * loops. Opacity is kept where a state change would otherwise be invisible.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .msg.is-live { animation: none; background: var(--accent-tint); }
+  .skeleton::after { animation: none; }
+}

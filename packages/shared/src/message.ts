@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AuthVerdict } from "./enums";
 
 /**
  * Message DTOs. `extractedCodes` / `verificationLinks` are stored in D1 as JSON
@@ -18,8 +19,15 @@ export const ExtractedCodeSchema = z.object({
 export type ExtractedCode = z.infer<typeof ExtractedCodeSchema>;
 
 export const VerificationLinkSchema = z.object({
+  /** The address exactly as the message carried it — what "open as sent" uses. */
   url: z.string().url(),
   hostname: z.string(),
+  /**
+   * Where the link actually goes when a click-through wrapper (`/CL0/https:%2F%2F…`) was
+   * standing in front of it. Absent when `url` is already the destination, so rows stored
+   * before this existed keep parsing.
+   */
+  destination: z.string().url().optional(),
   /** Human label derived from nearby anchor text / context, e.g. "Verify account". */
   label: z.string().max(160).default(""),
   /** 0..1 ranking from contextual keywords. */
@@ -39,8 +47,37 @@ export const AttachmentSchema = z.object({
 });
 export type Attachment = z.infer<typeof AttachmentSchema>;
 
+/** One `Authentication-Results` entry as it reached us, with our alignment judgement. */
+export const AuthEvidenceSchema = z.object({
+  mechanism: z.enum(["spf", "dkim", "dmarc"]),
+  outcome: z.string(),
+  domain: z.string().nullable(),
+  aligned: z.boolean(),
+  reporter: z.string().nullable(),
+});
+export type AuthEvidence = z.infer<typeof AuthEvidenceSchema>;
+
+/**
+ * Sender authentication assessed at delivery time. A `pass` only counts as trusted when
+ * the vouched-for domain aligns with the header From — the header itself is attacker
+ * reachable, so `alignedPass` is the field the UI must trust, never `spf`/`dkim`.
+ */
+export const MessageAuthSchema = z.object({
+  verdict: z.nativeEnum(AuthVerdict),
+  spf: z.string().nullable(),
+  dkim: z.string().nullable(),
+  dmarc: z.string().nullable(),
+  alignedPass: z.object({ spf: z.boolean(), dkim: z.boolean(), dmarc: z.boolean() }),
+  envelopeMismatch: z.boolean().default(false),
+  observed: z.boolean().default(false),
+  reasons: z.array(z.string().max(120)).default([]),
+  evidence: z.array(AuthEvidenceSchema).max(8).default([]),
+});
+export type MessageAuth = z.infer<typeof MessageAuthSchema>;
+
 /** Row shape for the inbox list (never carries full bodies — section 44). */
 export const MessageSummarySchema = z.object({
+  authVerdict: z.nativeEnum(AuthVerdict).default(AuthVerdict.Unverified),
   id: z.string(),
   aliasId: z.string(),
   aliasAddress: z.string(),
@@ -53,6 +90,9 @@ export const MessageSummarySchema = z.object({
   preview: z.string().nullable(),
   receivedAt: z.string(),
   isRead: z.boolean(),
+  /** Out of the working list because a rule put it there. Never a deletion. */
+  archived: z.boolean().default(false),
+  ruleTag: z.string().nullable().default(null),
   hasAttachments: z.boolean(),
   attachmentCount: z.number().int().nonnegative(),
   /** Best OTP candidate, precomputed for the list badge. */
@@ -75,6 +115,10 @@ export const MessageDetailSchema = MessageSummarySchema.extend({
   textBody: z.string().nullable(),
   /** Whether a parse failure occurred (raw .eml preserved regardless). */
   parseDegraded: z.boolean().default(false),
+  /** Full authentication assessment, kept for the detail view's disclosure UI. */
+  auth: MessageAuthSchema.nullable().default(null),
+  /** Why a rule filed this message, in the words the rule had when it acted. */
+  appliedRuleNote: z.string().nullable().default(null),
 });
 export type MessageDetail = z.infer<typeof MessageDetailSchema>;
 

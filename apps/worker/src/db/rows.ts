@@ -1,5 +1,7 @@
 import type {
   AliasStatus,
+  AuthPolicy,
+  AuthVerdict,
   CatchAllStatus,
   ConflictType,
   MailStatus,
@@ -20,6 +22,7 @@ export interface DomainRow {
   catch_all_status: CatchAllStatus;
   conflict_type: ConflictType;
   conflict_details_json: string | null;
+  auth_policy: AuthPolicy;
   last_checked_at: string | null;
   created_at: string;
   updated_at: string;
@@ -31,6 +34,9 @@ export interface AliasRow {
   local_part: string;
   address: string;
   label: string | null;
+  notes: string | null;
+  pinned: number;
+  archived: number;
   status: AliasStatus;
   created_at: string;
   updated_at: string;
@@ -58,13 +64,21 @@ export interface MessageRow {
   has_attachments: number;
   attachment_count: number;
   is_read: number;
+  archived: number;
+  rule_tag: string | null;
+  applied_rule_id: string | null;
+  applied_rule_note: string | null;
   extracted_codes_json: string | null;
   verification_links_json: string | null;
+  auth_verdict: AuthVerdict;
+  auth_json: string | null;
   created_at: string;
   // Joined context columns
   alias_label?: string | null;
   alias_address?: string | null;
   domain_name?: string | null;
+  /** bm25 relevance from the search query; absent on unfiltered listing. */
+  rank?: number | null;
 }
 
 export interface AttachmentRow {

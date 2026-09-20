@@ -18,14 +18,28 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Worker (API + inbound email) | ✅ Implemented |
 | Shared types/validation (`packages/shared`) | ✅ Implemented |
 | D1 schema + migration | ✅ Implemented (`apps/worker/migrations/0001_init.sql`) |
-| React SPA (Dashboard / Domains / Aliases / Inbox / Message) | ✅ Implemented |
-| Unit + integration tests (49 passing) | ✅ Green |
-| Playwright E2E (5 passing, live workerd + local D1/R2) | ✅ Green |
-| Real deploy + live domain provisioning | ⛔ **Blocked: no Cloudflare credentials in this environment** |
+| React SPA (Dashboard / Domains / Aliases / Alias detail / Inbox / Message / Settings) | ✅ Implemented |
+| Installable PWA + payload-free new-mail notifications | ✅ Implemented |
+| Phone layout: bottom tab bar, card lists, safe-area insets, 44px targets | ✅ Mobile-first (E2E at 412px) |
+| Reading view: re-flowed plain text, folded magic links, tracking-wrapper destinations, HTML frame that fits the screen | ✅ Fixture + E2E covered |
+| One mailbox per domain: dashboard mailbox cards, inbox picker, per-row arrival domain | ✅ Implemented |
+| Row actions folded until engaged (tap / hover / focus), bulk actions only with a selection | ✅ E2E covered |
+| Inbound ingest is retryable: stage to R2 → queue → commit, with a dead-letter queue | ✅ +9 tests |
+| Open tabs learn about new mail over a per-owner Durable Object (nudge only, no content) | ✅ Handshake tested |
+| CI: typecheck + lint + tests + E2E on every push; manual versioned deploy; rollback | ✅ Runs on every push (Linux, Node 24) |
+| Passkey step-up before anything irreversible (purge mail, detach domain, disable sender checks) | ✅ Gate tested |
+| Mailbox rules (file/tag on sender or subject) + who-holds-my-address report | ✅ 12 tests |
+| Semantic search (Workers AI + Vectorize) behind an explicit opt-in that defaults to off | ✅ 10 tests |
+| Vietnamese interface with an English fallback, chosen in Settings and remembered (also for the new-mail notification) | ✅ E2E at 412px |
+| Interface redesign: graphite + paper themes, self-hosted Manrope/JetBrains Mono, icon nav, sender monograms, authentication rail per row, skeletons, motion | ✅ 27 E2E + AA contrast guard |
+| Unit + integration tests (250 passing: worker 165, web 85) | ✅ Green |
+| Playwright E2E (27 passing, live workerd + local D1/R2) | ✅ Green |
+| Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
-See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for the exact owner actions required to ship,
-and the implementation receipt (including the mandatory
-`REAL DOMAIN MUTATIONS: NONE` statement).
+See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at
+build time (no Cloudflare credentials existed in that environment, so it says
+`REAL DOMAIN MUTATIONS: NONE` and `DEPLOYMENT_BLOCKED_CREDENTIALS` rather than pretending
+otherwise), and its addendum records what has since been deployed and measured live.
 
 ---
 
@@ -81,7 +95,7 @@ apps/
     migrations/      D1 SQL
     test/            unit + integration + .eml fixtures
   web/               React 18 + Vite SPA (custom hash router, no UI framework)
-    src/pages/       Dashboard, Domains, Aliases, Inbox, MessageDetail
+    src/pages/       Dashboard, Domains, Aliases, AliasDetail, Inbox, MessageDetail, Settings
     src/components/  ui primitives, sandboxed MessageHtml
     e2e/             Playwright specs (against same-origin wrangler dev)
 packages/
@@ -140,16 +154,19 @@ state-changing methods, the `x-mailvault: 1` header + same-origin (CSRF).
 | POST | `/api/domains/provision` | Enable mail on selected zones (owner action; takes over catch-all only with explicit confirm) |
 | POST | `/api/domains/:id/retry` | Retry provisioning for one zone |
 | DELETE | `/api/domains/:id` | Forget a domain locally (**never** deletes the Cloudflare zone) |
-| GET | `/api/aliases` | List/search aliases |
+| GET | `/api/aliases` | List/search aliases (`?view=active\|archived\|all`, pinned first) |
 | POST | `/api/aliases` | Create alias (random / service_random / custom) |
-| PATCH | `/api/aliases/:id` | Update label |
+| GET | `/api/aliases/:id` | One alias + arrival history (counts, first/last, top senders) |
+| PATCH | `/api/aliases/:id` | Update label, notes, pinned, archived (partial) |
 | POST | `/api/aliases/:id/enable` \| `/disable` | Toggle receiving |
 | DELETE | `/api/aliases/:id` | Delete alias; purge messages only if `purgeMessages` |
-| GET | `/api/messages` | Paginated inbox with filters + search |
+| GET | `/api/messages` | Paginated inbox; filters + FTS5 search over subject/preview/sender, exact OTP-code and alias match |
 | GET | `/api/messages/:id` | Detail with sanitized HTML, codes, links, attachments |
 | PATCH | `/api/messages/:id/read` | Set read flag |
 | DELETE | `/api/messages/:id` | Delete a message (+ its R2 objects) |
 | GET | `/api/messages/:mid/attachments/:aid` | Authenticated attachment download (`Content-Disposition`, `nosniff`) |
+| GET | `/api/push/public-key` \| `/status` | VAPID public key + subscription count (never the endpoints) |
+| POST | `/api/push/subscribe` \| `/unsubscribe` \| `/test` | Register / drop a browser subscription; owner test send |
 
 ## Security posture (summary)
 

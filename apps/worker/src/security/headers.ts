@@ -49,16 +49,17 @@ function securityHeaders(env: Env | undefined, url: string): Array<[string, stri
   return headers;
 }
 
-/** Apply the security header set to the current Hono response. */
-export function applySecurityHeaders(c: Context): void {
-  for (const [k, v] of securityHeaders(c.env as Env, c.req.url)) c.res.headers.set(k, v);
-}
-
 /**
  * Return a new Response carrying the security headers, preserving status + body.
  * Used as a final wrapper so even onError/404/asset responses are hardened.
  */
 export function decorateResponse(env: Env | undefined, url: string, res: Response): Response {
+  // A websocket handshake answers 101 and carries the socket on the response itself.
+  // Rebuilding it would both throw (the Response constructor rejects 1xx) and sever the
+  // upgrade, so handshakes go through untouched — headers belong to the document that
+  // opened the socket, which was already hardened when it was served.
+  if (res.status < 200) return res;
+
   const headers = new Headers(res.headers);
   for (const [k, v] of securityHeaders(env, url)) headers.set(k, v);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });

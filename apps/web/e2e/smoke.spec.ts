@@ -3,8 +3,10 @@ import { expect, test } from "@playwright/test";
 test("dashboard loads and the API reports healthy", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-  // Sidebar health pill resolves from /api/health once it responds ok.
-  await expect(page.getByText("● Online")).toBeVisible();
+  // The vault band's status resolves from /api/health once it responds ok. It used to be a
+  // "●" glyph in the text; the mark is now an element, so the state is asserted on the band.
+  await expect(page.locator(".vault-top")).toContainText("Online");
+  await expect(page.locator(".vault-top .live-dot")).toHaveClass(/^(?!.*warn).*$/, "a healthy check is not flagged");
 });
 
 test("primary navigation switches views", async ({ page }) => {

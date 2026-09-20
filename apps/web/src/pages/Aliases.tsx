@@ -1,10 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiClientError } from "../lib/api";
-import { LocalPartMode, MailStatus, type Alias, type CreateAliasInput, type Domain } from "@mailvault/shared";
+import {
+  LocalPartMode,
+  MailStatus,
+  localPartProblem,
+  normalizeLocalPartInput,
+  type Alias,
+  type CreateAliasInput,
+  type Domain,
+  type UpdateAliasInput,
+} from "@mailvault/shared";
 import { navigate } from "../lib/router";
+import { withStepUp } from "../lib/passkeys";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
-import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Modal } from "../components/ui";
+import { localPartPhrases, t } from "../lib/i18n";
+import { ConfirmDialog, CopyButton, EmptyState, ErrorBanner, Menu, Modal, Row, SkeletonList, useOpenRow } from "../components/ui";
+import { AddressReuseCard, RulesCard } from "../components/RulesCard";
+
+function describeError(e: unknown): string {
+  if (!(e instanceof ApiClientError)) return t("aliases.createFail");
+  // The API already says which rule failed and why; showing only `message` gave the owner
+  // "Validation failed" with nothing to act on.
+  const details = e.details as Record<string, unknown> | undefined;
+  const reasons = Object.values(details ?? {}).flatMap((v) => (Array.isArray(v) ? v.map(String) : []));
+  return reasons.length ? reasons.join(" · ") : e.message;
+}
 
 function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreated: (a: Alias) => void }) {
   const { data: domains } = useAsync(() => api.listDomains(), []);
@@ -23,15 +44,19 @@ function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreat
   }, [ready, domainId]);
 
   const domain: Domain | undefined = ready.find((d) => d.id === domainId);
+  const problem = mode === LocalPartMode.Custom && localPart.trim() ? localPartProblem(localPart, localPartPhrases()) : null;
+  const missingName = mode === LocalPartMode.Custom && !localPart.trim();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setErr(null);
     const base = { domainId, label: label.trim() || null };
+    // Sent as typed: the API normalizes, so what the owner sees in the preview is exactly
+    // what the server will store.
     const input: CreateAliasInput =
       mode === LocalPartMode.Custom
-        ? { ...base, mode: LocalPartMode.Custom, localPart: localPart.trim() }
+        ? { ...base, mode: LocalPartMode.Custom, localPart }
         : mode === LocalPartMode.ServiceRandom
           ? { ...base, mode: LocalPartMode.ServiceRandom, service: service.trim() }
           : { ...base, mode: LocalPartMode.Random };
@@ -40,28 +65,28 @@ function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreat
       onCreated(created);
       onClose();
     } catch (e2) {
-      setErr(e2 instanceof ApiClientError ? e2.message : "Could not create alias");
+      setErr(describeError(e2));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Modal title="Create alias" onClose={onClose}>
+    <Modal title={t("aliases.createTitle")} onClose={onClose}>
       {ready.length === 0 ? (
         <>
           <div className="muted" style={{ marginBottom: 14 }}>
-            No domains are Ready for mail yet. Enable mail on a domain first.
+            {t("aliases.noReadyDomain")}
           </div>
           <button className="primary" onClick={() => (onClose(), navigate("/domains"))}>
-            Go to Domains
+            {t("aliases.goToDomains")}
           </button>
         </>
       ) : (
         <form onSubmit={submit}>
           {err && <ErrorBanner message={err} />}
           <div className="field">
-            <label>Domain</label>
+            <label>{t("aliases.domain")}</label>
             <select value={domainId} onChange={(e) => setDomainId(e.target.value)}>
               {ready.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -71,26 +96,26 @@ function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreat
             </select>
           </div>
           <div className="field">
-            <label>Label (optional)</label>
-            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="GitHub Personal" maxLength={120} />
+            <label>{t("aliases.label")}</label>
+            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t("aliases.labelExample")} maxLength={120} />
           </div>
           <div className="field">
-            <label>Type</label>
+            <label>{t("aliases.type")}</label>
             <div className="tabs">
               <button type="button" className={mode === LocalPartMode.ServiceRandom ? "active" : ""} onClick={() => setMode(LocalPartMode.ServiceRandom)}>
-                Service
+                {t("aliases.typeService")}
               </button>
               <button type="button" className={mode === LocalPartMode.Random ? "active" : ""} onClick={() => setMode(LocalPartMode.Random)}>
-                Random
+                {t("aliases.typeRandom")}
               </button>
               <button type="button" className={mode === LocalPartMode.Custom ? "active" : ""} onClick={() => setMode(LocalPartMode.Custom)}>
-                Custom
+                {t("aliases.typeCustom")}
               </button>
             </div>
           </div>
           {mode === LocalPartMode.ServiceRandom && (
             <div className="field">
-              <label>Service name</label>
+              <label>{t("aliases.serviceName")}</label>
               <input value={service} onChange={(e) => setService(e.target.value)} placeholder="github" />
               {domain && <Preview local={service ? `${service.replace(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase()}-…` : "service-…"} domain={domain.name} />}
             </div>
@@ -98,17 +123,32 @@ function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreat
           {mode === LocalPartMode.Random && domain && <Preview local="x7k29p" domain={domain.name} />}
           {mode === LocalPartMode.Custom && (
             <div className="field">
-              <label>Custom local part</label>
-              <input value={localPart} onChange={(e) => setLocalPart(e.target.value)} placeholder="github03" maxLength={64} />
-              {domain && <Preview local={localPart || "…"} domain={domain.name} />}
+              <label htmlFor="alias-local-part">{t("aliases.customName")}</label>
+              <input
+                id="alias-local-part"
+                value={localPart}
+                onChange={(e) => setLocalPart(e.target.value)}
+                placeholder="github03"
+                maxLength={64}
+                aria-invalid={!!problem}
+                aria-describedby={problem ? "alias-local-part-problem" : undefined}
+              />
+              {/* The reason appears while typing, not after a failed submit, and the preview
+                  shows the address the server will actually store (`Tung` → `tung`). */}
+              {problem && (
+                <div className="field-problem" id="alias-local-part-problem" role="alert">
+                  {problem}
+                </div>
+              )}
+              {domain && <Preview local={normalizeLocalPartInput(localPart) || "…"} domain={domain.name} />}
             </div>
           )}
-          <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
+          <div className="row-end" style={{ marginTop: 8 }}>
             <button type="button" onClick={onClose}>
-              Cancel
+              {t("common.cancel")}
             </button>
-            <button type="submit" className="primary" disabled={busy || !domainId}>
-              {busy ? "Creating…" : "Create alias"}
+            <button type="submit" className="primary" disabled={busy || !domainId || !!problem || missingName}>
+              {busy ? t("aliases.creating") : t("aliases.createSubmit")}
             </button>
           </div>
         </form>
@@ -120,18 +160,20 @@ function CreateAliasModal({ onClose, onCreated }: { onClose: () => void; onCreat
 function Preview({ local, domain }: { local: string; domain: string }) {
   return (
     <div className="muted" style={{ marginTop: 6, fontSize: 13 }}>
-      Will create: <span className="addr">{local}@{domain}</span>
+      {t("aliases.willCreate")} <span className="addr">{local}@{domain}</span>
     </div>
   );
 }
 
 export function Aliases({ openNew }: { openNew: boolean }) {
   const [q, setQ] = useState("");
-  const { data, error, loading, reload } = useAsync(() => api.listAliases(q || undefined), [q]);
+  const [view, setView] = useState<"active" | "archived" | "all">("active");
+  const { data, error, loading, reload } = useAsync(() => api.listAliases(q || undefined, view), [q, view]);
   const [showNew, setShowNew] = useState(openNew);
   const [deleting, setDeleting] = useState<Alias | null>(null);
   const [purge, setPurge] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const folded = useOpenRow();
 
   useEffect(() => {
     if (openNew) setShowNew(true);
@@ -140,29 +182,43 @@ export function Aliases({ openNew }: { openNew: boolean }) {
   async function toggleStatus(a: Alias) {
     if (a.status === "ACTIVE") await api.disableAlias(a.id);
     else await api.enableAlias(a.id);
+    folded.close();
     reload();
+  }
+
+  async function patch(a: Alias, changes: UpdateAliasInput) {
+    try {
+      await api.updateAlias(a.id, changes);
+      folded.close();
+      reload();
+    } catch (e) {
+      setNotice(e instanceof ApiClientError ? e.message : t("common.updateFail"));
+    }
   }
 
   async function confirmDelete() {
     if (!deleting) return;
     try {
-      await api.deleteAlias(deleting.id, purge);
+      await withStepUp(() => api.deleteAlias(deleting.id, purge));
       setDeleting(null);
-      setNotice(purge ? "Alias and its messages deleted" : "Alias deleted — existing mail kept");
+      setNotice(purge ? t("aliases.deletedPurged") : t("aliases.deleted"));
       setPurge(false);
       reload();
     } catch (e) {
-      setNotice(e instanceof ApiClientError ? e.message : "Delete failed");
+      setNotice(e instanceof ApiClientError ? e.message : t("common.deleteFail"));
     }
   }
 
   return (
     <div className="page">
       <div className="page-head">
-        <h1>Aliases</h1>
+        <div>
+          <span className="eyebrow">{t("aliases.eyebrow")}</span>
+          <h1>{t("aliases.title")}</h1>
+        </div>
         <div className="actions">
           <button className="primary" onClick={() => setShowNew(true)}>
-            + Create alias
+            {t("dash.newAlias")}
           </button>
         </div>
       </div>
@@ -171,69 +227,92 @@ export function Aliases({ openNew }: { openNew: boolean }) {
       {error && <ErrorBanner message={error} />}
 
       <div className="toolbar">
-        <input className="search" placeholder="Search address or label…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="search" placeholder={t("aliases.search")} value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="tabs" role="tablist">
+          {(["active", "archived", "all"] as const).map((v) => (
+            <button key={v} type="button" role="tab" aria-selected={view === v} className={view === v ? "active" : ""} onClick={() => setView(v)}>
+              {t(v === "active" ? "aliases.active" : v === "archived" ? "aliases.archived" : "aliases.all")}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {loading && !data && <Loading />}
+      {loading && !data && <SkeletonList rows={4} />}
       {data && data.items.length === 0 && (
         <Empty q={q} onCreate={() => setShowNew(true)} />
       )}
 
       {data && data.items.length > 0 && (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Label / address</th>
-                <th>Status</th>
-                <th>Messages</th>
-                <th>Created</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((a) => (
-                <tr key={a.id}>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{a.label || <span className="muted">No label</span>}</div>
-                    <div className="addr muted">{a.address}</div>
-                  </td>
-                  <td>
-                    <span className={`pill ${a.status === "ACTIVE" ? "ready" : "neutral"}`}>{a.status === "ACTIVE" ? "Active" : "Disabled"}</span>
-                  </td>
-                  <td className="muted">{a.messageCount ?? 0}</td>
-                  <td className="faint">{relativeTime(a.createdAt)}</td>
-                  <td>
-                    <div className="row" style={{ justifyContent: "flex-end" }}>
-                      <CopyButton text={a.address} label="Copy" small />
-                      <button className="small" onClick={() => navigate(`/inbox?alias=${a.id}`)}>
-                        Inbox
-                      </button>
-                      <button className="small" onClick={() => toggleStatus(a)}>
-                        {a.status === "ACTIVE" ? "Disable" : "Enable"}
-                      </button>
-                      <button className="small danger" onClick={() => setDeleting(a)}>
-                        Delete
-                      </button>
+        <div className="card card--flush">
+          {data.items.map((a) => (
+            <Row
+              key={a.id}
+              id={a.id}
+              open={folded.open === a.id}
+              onToggle={folded.toggle}
+              summary={
+                <>
+                  <div className="entity-title">
+                    <div className="entity-name">
+                      {a.pinned ? "📌 " : null}
+                      {a.label || <span className="muted">{t("aliases.noLabel")}</span>}
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <span className={`pill ${a.status === "ACTIVE" ? "ready" : "neutral"}`}>
+                      {t(a.status === "ACTIVE" ? "aliases.active" : "status.disabled")}
+                    </span>
+                  </div>
+                  <div className="addr entity-addr">{a.address}</div>
+                  {a.notes ? (
+                    <div className="entity-note" title={a.notes}>
+                      {a.notes}
+                    </div>
+                  ) : null}
+                  <div className="entity-facts">
+                    <span>{t("common.nMessages", { n: a.messageCount ?? 0 })}</span>
+                    <span>{a.unreadCount ? t("common.nUnread", { n: a.unreadCount }) : t("common.allRead")}</span>
+                    <span>{t("common.created", { at: relativeTime(a.createdAt) })}</span>
+                    {a.archived ? <span>{t("aliases.archived")}</span> : null}
+                  </div>
+                </>
+              }
+              actions={
+                <>
+                  <CopyButton text={a.address} label={t("common.copyAddress")} />
+                  <button className="small" onClick={() => navigate(`/inbox?alias=${a.id}`)}>
+                    {t("aliases.mailHere")}
+                  </button>
+                  <button className="small" onClick={() => toggleStatus(a)}>
+                    {t(a.status === "ACTIVE" ? "aliases.disable" : "aliases.enable")}
+                  </button>
+                  <Menu
+                    small
+                    items={[
+                      { label: t("aliases.openDetails"), onSelect: () => navigate(`/aliases/${a.id}`) },
+                      { label: t(a.pinned ? "aliases.unpin" : "aliases.pin"), onSelect: () => patch(a, { pinned: !a.pinned }) },
+                      { label: t(a.archived ? "aliases.unarchive" : "aliases.archive"), onSelect: () => patch(a, { archived: !a.archived }) },
+                      { label: t("common.delete"), danger: true, onSelect: () => setDeleting(a) },
+                    ]}
+                  />
+                </>
+              }
+            />
+          ))}
         </div>
       )}
+
+      <RulesCard />
+      <AddressReuseCard />
 
       {showNew && <CreateAliasModal onClose={() => setShowNew(false)} onCreated={() => reload()} />}
 
       {deleting && (
         <ConfirmDialog
-          title="Delete alias"
-          confirmLabel={purge ? "Delete alias + all messages" : "Delete alias"}
+          title={t("aliases.deleteTitle")}
+          confirmLabel={t(purge ? "aliases.deleteConfirmPurge" : "aliases.deleteConfirm")}
           description={
             <>
               <div style={{ marginBottom: 10 }}>
-                Remove <span className="addr">{deleting.address}</span>? New mail to this address will stop being accepted.
+                {t("aliases.deleteBody", { address: deleting.address })}
               </div>
               <label className="row" style={{ cursor: "pointer" }}>
                 <input
@@ -242,11 +321,11 @@ export function Aliases({ openNew }: { openNew: boolean }) {
                   checked={purge}
                   onChange={(e) => setPurge(e.target.checked)}
                 />
-                Also permanently delete all existing messages for this alias
+                {t("aliases.purgeChoice")}
               </label>
               {purge && (
                 <div className="banner error" style={{ marginTop: 10, marginBottom: 0 }}>
-                  This permanently deletes {deleting.messageCount ?? 0} stored message(s). This cannot be undone.
+                  {t("aliases.purgeWarning", { n: deleting.messageCount ?? 0 })}
                 </div>
               )}
             </>
@@ -261,16 +340,17 @@ export function Aliases({ openNew }: { openNew: boolean }) {
 
 function Empty({ q, onCreate }: { q: string; onCreate: () => void }) {
   return (
-    <div className="empty">
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>{q ? "No matching aliases" : "No aliases yet"}</div>
-      <div className="muted" style={{ marginBottom: 14 }}>
-        {q ? "Try a different search." : "Create your first alias to start receiving mail."}
-      </div>
-      {!q && (
-        <button className="primary" onClick={onCreate}>
-          + Create alias
-        </button>
-      )}
-    </div>
+    <EmptyState
+      art={q ? "search" : "alias"}
+      title={t(q ? "aliases.emptySearch" : "aliases.emptyTitle")}
+      hint={t(q ? "aliases.emptySearchHint" : "aliases.emptyHint")}
+      action={
+        q ? null : (
+          <button className="primary" onClick={onCreate}>
+            {t("dash.newAlias")}
+          </button>
+        )
+      }
+    />
   );
 }

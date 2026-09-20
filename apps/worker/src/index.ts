@@ -1,9 +1,25 @@
-import type { ExportedHandler, ExecutionContext, ForwardableEmailMessage } from "@cloudflare/workers-types";
 import type { Env } from "./env";
+import type {
+  ExportedHandler,
+  ExecutionContext,
+  ForwardableEmailMessage,
+  MessageBatch,
+  ScheduledController,
+} from "@cloudflare/workers-types";
+import { createCloudflareClient } from "./cf/api-client";
 import { createApp } from "./app";
 import { decorateResponse } from "./security/headers";
-import { ingestEmail } from "./mail/ingest";
+import { stageEmail, commitIngest, type IngestJob } from "./mail/ingest";
+import { deleteKeys } from "./storage/r2";
+import { pushToAll } from "./push";
+import { Elapsed, writeMetric } from "./lib/metrics";
+import { indexIfEnabled } from "./lib/semantic";
+import { MailboxHub, notifyNewMail } from "./live/hub";
 import { log } from "./lib/logging";
+import { runWatchdog } from "./provisioning/watchdog";
+
+// Durable Object classes must be exported from the entry module.
+export { MailboxHub };
 
 // One router instance per isolate is safe: Hono is stateless and env is per-request.
 const app = createApp();
@@ -27,17 +43,112 @@ export default {
   /**
    * Incoming mail from a Cloudflare Email Routing catch-all rule. Acceptance is
    * gated on an ACTIVE alias in D1; unknown recipients are rejected (never
-   * auto-created). A persistence throw propagates so Cloudflare retries delivery —
-   * ingestion is dedupe-safe. Startup/deploy performs no domain mutation (section 9).
+   * auto-created). Startup/deploy performs no domain mutation (section 9).
+   *
+   * This handler stages (parse + write R2) and hands the metadata commit to the queue.
+   * A throw before the hand-off means nothing was durably written, so Cloudflare's own
+   * delivery retry starts clean; after it, the message is safe in R2 either way.
    */
-  async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
-    void ctx;
+  async email(message: ForwardableEmailMessage, env: Env): Promise<void> {
+    const timer = new Elapsed();
     try {
-      await ingestEmail(message, env, env.DB, env.MAIL_BUCKET);
+      const staged = await stageEmail(message, env, env.DB, env.MAIL_BUCKET);
+      const stageMs = timer.stop();
+      if (staged.status !== "staged") {
+        writeMetric(env, "ingest", {
+          outcome: staged.status,
+          reason: "reason" in staged.result ? staged.result.reason : undefined,
+          stageMs,
+        });
+        return;
+      }
+      try {
+        await env.MAIL_INGEST_QUEUE.send(staged.job);
+      } catch (err) {
+        // The job never reached the queue, so the staged objects would be orphans with
+        // nothing pointing at them. Remove them and let delivery retry from the top.
+        await deleteKeys(env.MAIL_BUCKET, staged.keys);
+        throw err;
+      }
+      writeMetric(env, "ingest", { outcome: "staged", stageMs });
     } catch (err) {
       // Rejected for retry; log without body/token (section 34). The throw is deliberate.
+      writeMetric(env, "ingest", { outcome: "failed", reason: "handler_error", stageMs: timer.stop() });
       log.error("email_handler_failed", { error: err instanceof Error ? err.message : "error" });
       throw err;
     }
   },
-} satisfies ExportedHandler<Env>;
+
+  /**
+   * Commit staged messages to D1. This is the part that used to be able to lose a
+   * message: a transient database failure inside the email handler had no retry of its
+   * own. Here a failure re-delivers the job with the R2 objects untouched, and after the
+   * consumer's retry budget the job parks in the dead-letter queue — still recoverable,
+   * because the job carries keys only, never content.
+   */
+  async queue(batch: MessageBatch<IngestJob>, env: Env, ctx: ExecutionContext): Promise<void> {
+    for (const message of batch.messages) {
+      const timer = new Elapsed();
+      try {
+        const result = await commitIngest(message.body, env.DB, env.MAIL_BUCKET);
+        writeMetric(env, "ingest_commit", {
+          outcome: result.status,
+          verdict: result.status === "stored" ? result.verdict : undefined,
+          commitMs: timer.stop(),
+        });
+        if (result.status === "stored") {
+          // Notify only after the mail is durable, and detached: a slow or dead push
+          // endpoint must never affect delivery or make the message retry.
+          ctx.waitUntil(
+            Promise.allSettled([pushToAll(env, env.DB), notifyNewMail(env), indexIfEnabled(env, result.messageId)]).then(
+              () => undefined,
+            ),
+          );
+        }
+        message.ack();
+      } catch (err) {
+        writeMetric(env, "ingest_commit", { outcome: "failed", reason: "commit_error", commitMs: timer.stop() });
+        log.error("ingest_commit_failed", {
+          attempt: message.attempts,
+          error: err instanceof Error ? err.message : "error",
+        });
+        message.retry();
+      }
+    }
+  },
+
+  /**
+   * Drift check. Cloudflare config can be changed from the dashboard by anyone, and then
+   * mail silently stops arriving. This re-reads only what MailVault already believes
+   * works and updates its own rows — it never enables routing, edits DNS or touches a
+   * zone (section 9: no automatic domain mutation).
+   */
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    void ctx;
+    const token = env.CLOUDFLARE_API_TOKEN;
+    if (!token || !env.MAIL_WORKER_NAME) {
+      log.warn("watchdog_skipped", { reason: token ? "MAIL_WORKER_NAME unset" : "API token unset" });
+      return;
+    }
+    const timer = new Elapsed();
+    try {
+      const client = createCloudflareClient({ token, accountId: env.CF_ACCOUNT_ID || undefined });
+      const report = await runWatchdog(env.DB, client, env.MAIL_WORKER_NAME);
+      writeMetric(env, "watchdog", {
+        outcome: report.drifted.length > 0 ? "drift" : "ok",
+        reason: `checked=${report.checked} drifted=${report.drifted.length} restored=${report.restored.length} failed=${report.failed.length}`,
+        commitMs: timer.stop(),
+      });
+      log.info("watchdog_run", {
+        cron: controller.cron,
+        checked: report.checked,
+        drifted: report.drifted.length,
+        restored: report.restored.length,
+        failed: report.failed.length,
+      });
+    } catch (err) {
+      writeMetric(env, "watchdog", { outcome: "failed", reason: "run_error", commitMs: timer.stop() });
+      log.error("watchdog_run_failed", { error: err instanceof Error ? err.message : "error" });
+    }
+  },
+} satisfies ExportedHandler<Env, IngestJob>;

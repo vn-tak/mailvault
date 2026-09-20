@@ -3,10 +3,33 @@
  * Boundings come from wrangler.jsonc; secrets are injected via `wrangler secret put`
  * (production) or `.dev.vars` (local). Nothing secret is ever read into a response.
  */
+import { log } from "./lib/logging";
+import type { IngestJob } from "./mail/ingest";
+
 export interface Env {
   DB: D1Database;
   MAIL_BUCKET: R2Bucket;
   ASSETS: Fetcher;
+  /**
+   * Staged messages waiting for their metadata commit. The email handler cannot retry a
+   * D1 write on its own, so it hands the job here; a commit that keeps failing ends up in
+   * the dead-letter queue with its R2 objects still in place.
+   */
+  MAIL_INGEST_QUEUE: Queue<IngestJob>;
+  /** Per-owner websocket hub for "new mail" nudges to already-open tabs. */
+  MAILBOX_HUB: DurableObjectNamespace;
+  /**
+   * Analytics Engine dataset for rates and percentiles over time. Optional by design:
+   * every write is best-effort, so a harness or a partial config without it still runs.
+   */
+  ANALYTICS?: AnalyticsEngineDataset;
+  /**
+   * Workers AI + Vectorize, for opt-in semantic search. Both optional: the feature is off
+   * until the owner turns it on, and stays usable as plain keyword search if either is
+   * unavailable.
+   */
+  AI?: Ai;
+  VECTORIZE?: VectorizeIndex;
 
   // Plain-text vars
   ENVIRONMENT?: string; // "development" | "production" (default production)
@@ -17,10 +40,19 @@ export interface Env {
   CF_ACCESS_AUD?: string;
   MAX_MESSAGE_BYTES?: string;
   ALLOWED_EMAILS?: string; // comma-separated owner allowlist (empty = any Access user)
+  /**
+   * Comma-separated domains the owner has ruled out of MailVault management because they
+   * serve another mail product. No Cloudflare mutation is ever issued for them, whatever
+   * takeover flags the request carries.
+   */
+  DOMAIN_DENYLIST?: string;
   DEV_AUTH_BYPASS?: string;
 
   // Secrets
   CLOUDFLARE_API_TOKEN?: string;
+  /** JSON private JWK (P-256) used to sign VAPID assertions. */
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string; // contact for the VAPID JWT `sub` claim
 }
 
 export const DEFAULT_MAX_MESSAGE_BYTES = 20 * 1024 * 1024; // 20 MiB safety ceiling
@@ -53,6 +85,43 @@ export function allowedEmails(env: Env): string[] {
     .filter(Boolean);
 }
 
+/** Domains the owner ruled out of management. Empty means nothing is excluded. */
+export function domainDenylist(env: Env): string[] {
+  return (env.DOMAIN_DENYLIST ?? "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 export function appOrigin(env: Env): string {
   return (env.APP_ORIGIN ?? "").replace(/\/+$/, "");
+}
+
+/**
+ * VAPID configuration, or null when push is not configured (the feature stays off).
+ * The secret is the whole private JWK, because `x`/`y` are needed to sign and to derive
+ * the public key the browser subscribes with — one secret cannot then disagree with itself.
+ */
+export function vapidConfig(env: Env): { jwk: JsonWebKey; subject: string } | null {
+  const raw = env.VAPID_PRIVATE_KEY?.trim();
+  if (!raw) return null;
+  let jwk: JsonWebKey;
+  try {
+    jwk = JSON.parse(raw) as JsonWebKey;
+  } catch {
+    log.warn("vapid_secret_unparseable");
+    return null;
+  }
+  if (jwk.kty !== "EC" || jwk.crv !== "P-256" || !jwk.d || !jwk.x || !jwk.y) {
+    log.warn("vapid_secret_invalid", { kty: jwk.kty ?? null, crv: jwk.crv ?? null });
+    return null;
+  }
+  // RFC 8292 allows either a mailto: contact or an https: origin in the JWT `sub`.
+  const configured = env.VAPID_SUBJECT?.trim();
+  const subject = configured
+    ? configured.includes(":")
+      ? configured
+      : `mailto:${configured}`
+    : appOrigin(env) || "https://localhost";
+  return { jwk, subject };
 }

@@ -1,0 +1,70 @@
+name: Roll back production
+
+# Pin 100% of traffic back to a Worker version that is already known good. This does not
+# rebuild anything: it points production at an uploaded version, which is what makes it
+# usable at 2am when the current build is the problem.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_id:
+        description: "Worker version id to roll back to (see `wrangler versions list`)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-mail-vault
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Recent versions
+        working-directory: apps/worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler versions list --config wrangler.jsonc --json > /tmp/versions.json
+          node -e '
+            const v = require("/tmp/versions.json");
+            for (const x of v.slice(0, 10)) console.log(x.id, x.number, x.metadata?.created_on);
+          '
+
+      - name: Pin production to the requested version
+        working-directory: apps/worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler versions deploy \
+            --config wrangler.jsonc \
+            --version-id "${{ inputs.version_id }}" \
+            --percentage 100 \
+            --message "rollback ${{ github.actor }} via CI" \
+            --yes
+
+      - name: Confirm what is live
+        working-directory: apps/worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deployments status --config wrangler.jsonc

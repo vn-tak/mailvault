@@ -1,16 +1,23 @@
-import type { PreflightResult, ProvisionOutcome } from "@mailvault/shared";
+import type { Domain, PreflightResult, ProvisionOutcome } from "@mailvault/shared";
 import { CatchAllStatus, ConflictType, MailStatus, PreflightClassification, RoutingStatus } from "@mailvault/shared";
 import type { CloudflareClient } from "../cf/api-client";
 import { CloudflareApiError } from "../cf/api-client";
 import { getDomainByZoneId, patchDomainProvisioning, recordProvisioningEvent } from "../db/domains";
 import { log } from "../lib/logging";
 import { mapWithConcurrency, newId } from "../lib/util";
-import { preflightZone } from "./preflight";
+import { preflightZone, verifyDeliveryPath } from "./preflight";
 import { assessMx } from "./mx";
 
 export interface ProvisionOptions {
-  /** Owner explicitly confirmed replacing a foreign catch-all. Never enables MX takeover. */
+  /** Owner explicitly confirmed replacing a foreign catch-all. */
   allowCatchAllTakeover?: boolean;
+  /** Owner explicitly confirmed deleting another provider's MX records on this domain. */
+  allowMxTakeover?: boolean;
+  /**
+   * Domains the owner has ruled out (they serve another mail product). Nothing is
+   * mutated for them regardless of the takeover flags.
+   */
+  denyDomains?: string[];
 }
 
 interface Step {
@@ -20,9 +27,43 @@ interface Step {
 }
 
 /**
+ * Delete the MX records belonging to another provider, writing them to the event log first
+ * so the domain can be handed back. Matching is by record type and normalised exchange, so
+ * Cloudflare's own routing MX can never be caught here even when a zone has both.
+ *
+ * Deliberately narrow, and measured on a real takeover (abitovn.info, 2026-09-20):
+ * enabling Email Routing added its MX and its DKIM record but did NOT add a second SPF, so
+ * the provider's `v=spf1 include:_spf-us.ionos.com ~all` was left as the only SPF. Deleting
+ * it would have bought nothing for inbound and silently broken anything the owner still
+ * sends through the old provider. DKIM and `_dmarc` are left alone for the same reason.
+ */
+async function removeForeignMx(
+  db: D1Database,
+  client: CloudflareClient,
+  domain: Domain,
+  pf: PreflightResult,
+): Promise<string[]> {
+  const zoneId = domain.cloudflareZoneId;
+  const foreignMx = new Set((pf.conflict?.mxRecords ?? []).map((r) => r.exchange.toLowerCase()));
+  if (foreignMx.size === 0) return [];
+
+  const records = await client.listDnsRecords(zoneId, "MX");
+  const doomed = records.filter((r) => r.type === "MX" && foreignMx.has((r.content ?? "").trim().replace(/\.$/, "").toLowerCase()));
+  if (doomed.length === 0) return [];
+
+  const removing = doomed.map((r) => ({ id: r.id, type: r.type, name: r.name, content: r.content, priority: Number(r.priority ?? 0) }));
+  await recordProvisioningEvent(db, domain.id, "provision:mx_takeover", "RUNNING", { removing });
+  for (const rec of doomed) await client.deleteDnsRecord(zoneId, rec.id);
+  log.warn("domain_mx_removed", { domain: domain.name, zoneId, count: doomed.length });
+  return doomed.map((r) => `MX ${r.content}`);
+}
+
+/**
  * Idempotent provisioning state machine (section 8). Runs only after an explicit,
- * authenticated owner action — never on startup. Existing third-party MX is ALWAYS
- * skipped (safe-stop); a foreign catch-all may be replaced only with confirmation.
+ * authenticated owner action — never on startup. Another provider's MX is removed only
+ * when the owner asked for exactly that (`allowMxTakeover`), and every record is written
+ * to the domain's event log first so it can be put back. Domains the owner ruled out are
+ * refused whatever the flags say.
  */
 export async function provisionDomain(
   db: D1Database,
@@ -36,14 +77,23 @@ export async function provisionDomain(
     return outcome(zoneId, "", null, MailStatus.Failed, false, "Domain not synced yet — run Sync first", []);
   }
   const steps: Step[] = [];
+
+  const denied = (opts.denyDomains ?? []).some((d) => d.trim().toLowerCase() === domain.name.toLowerCase());
+  if (denied) {
+    await recordProvisioningEvent(db, domain.id, "provision:denied", "BLOCKED", { reason: "excluded by owner" });
+    return outcome(zoneId, domain.name, domain.id, MailStatus.Conflict, false, `${domain.name} is excluded from MailVault management — nothing was changed`, steps);
+  }
+
   await patchDomainProvisioning(db, zoneId, { mailStatus: MailStatus.Provisioning });
   await recordProvisioningEvent(db, domain.id, "provision:start", "RUNNING");
 
   try {
     const pf = await preflightZone(client, { zoneId, name: domain.name, status: domain.zoneStatus, type: domain.zoneType }, workerName);
+    const mxTakeover = pf.classification === PreflightClassification.MxConflict && opts.allowMxTakeover === true;
 
-    // Blocking conflicts: MX is never auto-overwritten. Catch-all only with confirm.
-    if (pf.classification === PreflightClassification.MxConflict) {
+    // Blocking conflicts: MX is removed only on this explicit confirm; a foreign catch-all
+    // only on its own.
+    if (pf.classification === PreflightClassification.MxConflict && !mxTakeover) {
       await patchDomainProvisioning(db, zoneId, {
         mailStatus: MailStatus.Conflict,
         conflictType: ConflictType.Mx,
@@ -62,14 +112,16 @@ export async function provisionDomain(
       return outcome(zoneId, domain.name, domain.id, MailStatus.Conflict, false, pf.conflict?.message ?? "Catch-all conflict", steps);
     }
 
-    // Allow-list gate: mutate ONLY for classifications we have positively cleared.
-    // Anything else — MX conflict, inactive/unsupported zone, and especially a
-    // permission/auth error from a preflight read — stops here. A token that cannot
-    // *see* the zone must never be allowed to *change* it (section 7/9).
+    // Allow-list gate: mutate ONLY for classifications we have positively cleared, plus the
+    // two conflicts the owner has just confirmed taking over. Anything else — an
+    // inactive/unsupported zone, and especially a permission/auth error from a preflight
+    // read — stops here. A token that cannot *see* the zone must never be allowed to
+    // *change* it (section 7/9).
     const provisionable =
       pf.classification === PreflightClassification.ReadyToProvision ||
       pf.classification === PreflightClassification.AlreadyConfigured ||
-      (pf.classification === PreflightClassification.CatchAllConflict && opts.allowCatchAllTakeover === true);
+      (pf.classification === PreflightClassification.CatchAllConflict && opts.allowCatchAllTakeover === true) ||
+      mxTakeover;
     if (!provisionable) {
       await patchDomainProvisioning(db, zoneId, {
         mailStatus: pf.conflict ? MailStatus.Conflict : MailStatus.Failed,
@@ -80,11 +132,16 @@ export async function provisionDomain(
       return outcome(zoneId, domain.name, domain.id, MailStatus.Failed, false, `Not safe to provision (${pf.classification})`, steps);
     }
 
+    if (mxTakeover) {
+      const removed = await removeForeignMx(db, client, domain, pf);
+      steps.push({ step: "mx_takeover", ok: true, detail: removed.length ? `removed ${removed.join("; ")}` : "nothing to remove" });
+    }
+
     const skipDns = pf.classification === PreflightClassification.AlreadyConfigured;
 
     // ensureEmailRoutingDns — adds+locks CF MX/SPF + enables. Skipped when the zone
-    // already publishes Cloudflare's routing MX: re-enabling is a redundant mutation
-    // (and the enable endpoint is not token-authorizable in every account).
+    // already publishes Cloudflare's routing MX: re-enabling is a redundant mutation and
+    // a needless write against a live zone.
     let routingOn = skipDns;
     if (!routingOn) {
       const mxNow = await client.listDnsRecords(zoneId, "MX");
@@ -104,19 +161,11 @@ export async function provisionDomain(
     steps.push({ step: "catch_all_worker", ok: true, detail: opts.allowCatchAllTakeover && pf.classification === PreflightClassification.CatchAllConflict ? "took over foreign catch-all" : null });
     await patchDomainProvisioning(db, zoneId, { mailStatus: MailStatus.Verifying });
 
-    // verify (section 33) — do not claim READY off a single 200.
-    let routingOk: boolean;
-    try {
-      const routing = await client.getEmailRoutingStatus(zoneId);
-      routingOk = routing.enabled === true || /ready/i.test(routing.status ?? "");
-    } catch (err) {
-      if (!(err instanceof CloudflareApiError) || (err.kind !== "auth" && err.kind !== "permission")) throw err;
-      // Same fallback as preflight: Cloudflare only publishes routing MX when on.
-      routingOk = assessMx(await client.listDnsRecords(zoneId, "MX")).cloudflareRouting > 0;
-    }
-    const catchAll = await client.getCatchAll(zoneId);
-    const ca = catchAll?.actions?.[0];
-    const catchAllOk = !!ca && ca.type === "worker" && ca.value?.[0] === workerName;
+    // verify (section 33) — do not claim READY off a single 200. Re-read the whole
+    // delivery path with the same judgement the watchdog uses.
+    const verified = await verifyDeliveryPath(client, zoneId, workerName);
+    const routingOk = verified.routing;
+    const catchAllOk = verified.catchAllOurs;
     steps.push({ step: "verify", ok: routingOk && catchAllOk, detail: `routing=${routingOk} catch_all=${catchAllOk}` });
 
     const routingStatus = routingOk ? RoutingStatus.Ready : RoutingStatus.Misconfigured;
@@ -158,7 +207,28 @@ export async function provisionDomain(
     });
     await recordProvisioningEvent(db, domain.id, "provision:error", "FAILED", { kind });
     log.error("domain_provision_failed", { zoneId, kind });
-    return outcome(zoneId, domain.name, domain.id, MailStatus.Failed, false, message, steps);
+
+    // Two measured shapes of this failure. `enable` succeeds with an API token when the
+    // zone is inside its Zone Resources, and Cloudflare answers 403 / cfCode 10000 — the
+    // same code it uses for a missing permission — when it is not. On 2026-09-20 a token
+    // that deleted DNS records on a zone was still refused `enable` on that same zone, so
+    // the permission itself can be the gap: name both, and say what happens to the MX.
+    const enablePath = err instanceof CloudflareApiError && /\/email\/routing\/(enable|dns)$/.test(err.path ?? "");
+    const mxAlreadyGone = steps.some((s) => s.step === "mx_takeover");
+    const actionable =
+      enablePath && (kind === "permission" || kind === "auth")
+        ? "Email Routing is not enabled for this domain, and MailVault's API token was refused when it tried. " +
+          "The token needs Zone → Email Routing Rules → Edit, and its Zone Resources set to 'All zones from an " +
+          "account' — Cloudflare reports both problems with this same auth error. Enabling Email Routing once for " +
+          "the zone in the Cloudflare dashboard also works; MailVault will then set the catch-all and verify. " +
+          (mxAlreadyGone
+            ? "Note: this domain's previous MX records were already removed for the take-over you confirmed, so " +
+              "inbound mail has nowhere to go until routing is enabled. The removed records are in the domain's " +
+              "event log."
+            : "No MX record was touched.")
+        : message;
+
+    return outcome(zoneId, domain.name, domain.id, MailStatus.Failed, false, actionable, steps);
   }
 }
 
@@ -172,6 +242,37 @@ function outcome(
   steps: Step[],
 ): ProvisionOutcome {
   return { domainId: domainId ?? "", zoneId, name, status, ok, error, steps };
+}
+
+/**
+ * Verdicts safe to remember on the domain row. Classifications Cloudflare refused
+ * (inactive zone, unsupported type, permission error) are deliberately absent: an
+ * unreadable zone must not be rewritten into a different state.
+ */
+const PREFLIGHT_VERDICT: Partial<Record<PreflightClassification, { status: MailStatus; conflict: ConflictType }>> = {
+  [PreflightClassification.MxConflict]: { status: MailStatus.Conflict, conflict: ConflictType.Mx },
+  [PreflightClassification.CatchAllConflict]: { status: MailStatus.Conflict, conflict: ConflictType.CatchAll },
+  [PreflightClassification.ReadyToProvision]: { status: MailStatus.Preflight, conflict: ConflictType.None },
+  [PreflightClassification.AlreadyConfigured]: { status: MailStatus.Ready, conflict: ConflictType.None },
+};
+
+/**
+ * Store a read-only verdict on MailVault's own row so the conflict a preflight found
+ * survives a page reload instead of collapsing back to "Not configured". This writes to
+ * D1 only — no Cloudflare mutation.
+ */
+async function rememberVerdict(db: D1Database, domain: Domain, pf: PreflightResult): Promise<void> {
+  const verdict = PREFLIGHT_VERDICT[pf.classification];
+  const zoneId = domain.cloudflareZoneId;
+  if (!verdict) {
+    await patchDomainProvisioning(db, zoneId, {});
+    return;
+  }
+  await patchDomainProvisioning(db, zoneId, {
+    mailStatus: verdict.status,
+    conflictType: verdict.conflict,
+    conflictDetails: pf.conflict ?? null,
+  });
 }
 
 /** Bulk preflight — independent per-domain results (section 32). */
@@ -195,6 +296,7 @@ export async function preflightMany(
       } as PreflightResult;
     }
     const pf = await preflightZone(client, { zoneId, name: domain.name, status: domain.zoneStatus, type: domain.zoneType }, workerName);
+    await rememberVerdict(db, domain, pf);
     return { ...pf, domainId: domain.id };
   });
 }

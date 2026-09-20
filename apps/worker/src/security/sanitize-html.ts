@@ -18,8 +18,14 @@ const ALLOWED_TAGS = new Set([
   "hr", "img", "figure", "figcaption",
 ]);
 
-// Tags whose entire subtree (including text) is discarded.
-const DROP_WITH_CONTENT = /<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|option|svg|math|link|meta|base|noscript|template|applet|marquee|frame|frameset)\b[\s\S]*?(?:<\/\s*\1\s*>|>)/gi;
+// Tags whose entire subtree (including text) is discarded. The opening tag is consumed up
+// to its own ">" first: an earlier pattern allowed ">" alone to close the match, which left
+// a script's source visible as text after the tag was removed.
+const NEVER_RENDER = "script|style|iframe|object|embed|form|input|button|textarea|select|option|svg|math|link|meta|base|noscript|template|applet|marquee|frame|frameset";
+const DROP_WITH_CONTENT = new RegExp(`<\\s*(${NEVER_RENDER})\\b[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>`, "gi");
+// Raw-text elements swallow the rest of the document when never closed, which is also what
+// a browser would do — so dropping it here cannot hide real content.
+const DROP_UNCLOSED_RAW = new RegExp(`<\\s*(?:script|style)\\b[^>]*>[\\s\\S]*$`, "gi");
 
 const SAFE_HREF = /^(?:https?:|mailto:|tel:)/i;
 
@@ -88,7 +94,7 @@ function filterAttributes(tag: string, raw: string, allowRemoteImages: boolean):
 }
 
 function escapeAttr(v: string): string {
-  return v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return v.replace(BARE_AMP, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 export interface SanitizeOptions {
@@ -102,7 +108,7 @@ export function sanitizeEmailHtml(input: string, opts: SanitizeOptions = {}): st
   if (!input) return "";
 
   let html = input.replace(/<!--[\s\S]*?-->/g, "");
-  html = html.replace(DROP_WITH_CONTENT, "");
+  html = html.replace(DROP_WITH_CONTENT, "").replace(DROP_UNCLOSED_RAW, "");
 
   let out = "";
   let last = 0;
@@ -133,6 +139,12 @@ export function sanitizeEmailHtml(input: string, opts: SanitizeOptions = {}): st
 }
 
 // Escape raw text between tags so stray < > never start markup in the iframe.
+// A bare `&` must become `&amp;`, but an existing character reference must survive —
+// escaping it twice is what made real GitHub mail print "&#160;" everywhere.
+// Entities only ever decode to characters, and the iframe is `sandbox=""`, so keeping
+// them cannot introduce script execution.
+const BARE_AMP = /&(?!#x[0-9a-f]{1,8};|#[0-9]{1,8};|[a-zA-Z][a-zA-Z0-9]{1,31};)/gi;
+
 function escapeText(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text.replace(BARE_AMP, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

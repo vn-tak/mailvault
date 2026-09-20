@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CreateAliasSchema, LocalPartMode, localPartProblem, normalizeLocalPartInput } from "@mailvault/shared";
 import { extractOtp } from "../../src/mail/otp";
 import { extractLinks } from "../../src/mail/links";
 import { normalizeDomain, normalizeLookupAddress, splitAddress } from "../../src/mail/normalize";
@@ -87,10 +88,39 @@ describe("MX assessment (section 7)", () => {
     expect(a.cloudflareRouting).toBe(1);
     expect(a.clearForUs).toBe(true);
   });
+  it("does not mistake an SPF record that mentions our include target for routing MX", () => {
+    // A takeover reads every record type in the zone; a substring match here would make
+    // the provisioner believe Cloudflare's MX is already published and skip enabling it.
+    expect(isCloudflareRoutingMx("v=spf1 include:_spf.mx.cloudflare.net ~all")).toBe(false);
+    expect(assessMx([{ content: "v=spf1 include:_spf.mx.cloudflare.net ~all", priority: 0 }]).cloudflareRouting).toBe(0);
+  });
   it("treats an empty MX set as clear to provision", () => {
     const a = assessMx([]);
     expect(a.clearForUs).toBe(true);
     expect(a.total).toBe(0);
+  });
+  it("names the providers seen in a real account rather than calling them unknown", () => {
+    // Hostnames captured from live zones during V1 onboarding.
+    const byHost: Array<[string, string]> = [
+      ["mx00.ionos.com", "IONOS"],
+      ["mx01.ionos.com", "IONOS"],
+      ["feedback-smtp.ap-northeast-1.amazonses.com", "Amazon SES"],
+      ["inbound-smtp.ap-northeast-1.amazonaws.com", "Amazon SES"],
+      ["mx.zoho.com", "Zoho"],
+    ];
+    for (const [host, provider] of byHost) {
+      expect(detectProvider(host), host).toBe(provider);
+    }
+  });
+  it("refuses a zone whose MX mixes Cloudflare routing with a foreign provider", () => {
+    const a = assessMx([
+      { content: "route1.mx.cloudflare.net", priority: 36 },
+      { content: "mx.zoho.com", priority: 10 },
+    ]);
+    expect(a.cloudflareRouting).toBe(1);
+    expect(a.foreign.length).toBe(1);
+    expect(a.clearForUs).toBe(false);
+    expect(a.providers).toContain("Zoho");
   });
 });
 
@@ -104,6 +134,18 @@ describe("email HTML sanitization (section 19)", () => {
     expect(out).not.toContain("onerror");
     expect(out).toContain("Hello");
   });
+  it("removes a dropped element's text, not just its tag", () => {
+    const out = sanitizeEmailHtml(
+      '<p>Hi</p><script>alert("debris")</script><style>a{color:red}</style><iframe>fallback</iframe><p>Bye</p>',
+    );
+    expect(out).not.toContain("debris");
+    expect(out).not.toContain("fallback");
+    expect(out).not.toContain("color:red");
+    expect(out).toContain("Hi");
+    expect(out).toContain("Bye");
+    // An unclosed raw-text element swallows the rest, exactly as a browser would.
+    expect(sanitizeEmailHtml("<p>Hi</p><script>alert(1)")).not.toContain("alert");
+  });
   it("blocks remote images by default, allows when opted in", () => {
     const blocked = sanitizeEmailHtml('<img src="https://track.example/o.gif">');
     expect(blocked).not.toContain("track.example");
@@ -114,5 +156,61 @@ describe("email HTML sanitization (section 19)", () => {
     const out = sanitizeEmailHtml('<a href="https://example.com/verify">go</a>');
     expect(out).toContain('rel="');
     expect(out).toContain("noopener");
+  });
+  it("keeps character references and escapes only bare ampersands", () => {
+    // Real GitHub footers are full of these; double-escaping printed them as literal text.
+    const out = sanitizeEmailHtml("GitHub, Inc. &#183; 88 Street&#160;CA & more &amp; done &#x30FB; &#107;");
+    expect(out).toContain("&#183;");
+    expect(out).toContain("&#160;");
+    expect(out).toContain("&#x30FB;");
+    expect(out).toContain("&#107;");
+    expect(out).toContain("&amp; more");
+    expect(out).toContain("&amp; done");
+    expect(out).not.toContain("&amp;#");
+  });
+  it("still neutralises markup smuggled as text", () => {
+    const out = sanitizeEmailHtml("a &lt;b&gt; c <b>bold</b> & d");
+    expect(out).toContain("&lt;b&gt;");
+    expect(out).toContain("<b>bold</b>");
+    expect(out).toContain("&amp; d");
+  });
+});
+
+/*
+ * A custom alias name is the one place the owner types an address by hand, so the rules
+ * have to be both forgiving (case is not a mistake) and specific (one message per rule).
+ * The previous behaviour was a single "Invalid local part" for six different causes, which
+ * read as "the feature is broken".
+ */
+describe("custom alias names", () => {
+  it("normalizes instead of rejecting", () => {
+    expect(localPartProblem("Tung")).toBeNull();
+    expect(normalizeLocalPartInput("  Tung JP  ")).toBe("tung jp");
+    const parsed = CreateAliasSchema.safeParse({ domainId: "d1", mode: LocalPartMode.Custom, localPart: "Tung" });
+    expect(parsed.success).toBe(true);
+    expect((parsed.data as { localPart: string }).localPart).toBe("tung");
+  });
+
+  it("accepts the punctuation an address may legitimately contain", () => {
+    for (const ok of ["github03", "a.b-c_1", "notify-85c7i9", "x"]) expect(localPartProblem(ok)).toBeNull();
+  });
+
+  it("names the one rule each rejection breaks", () => {
+    expect(localPartProblem("")).toMatch(/enter the name/i);
+    expect(localPartProblem("tùng")).toMatch(/“ù” is not allowed/);
+    expect(localPartProblem("two words")).toMatch(/“\s” is not allowed|is not allowed/);
+    expect(localPartProblem("a..b")).toMatch(/two dots/i);
+    expect(localPartProblem("-lead")).toMatch(/cannot start/i);
+    expect(localPartProblem("trail.")).toMatch(/cannot end/i);
+    expect(localPartProblem("postmaster")).toMatch(/reserved/i);
+    expect(localPartProblem("z".repeat(65))).toMatch(/at most 64/i);
+  });
+
+  it("returns the specific reason through the API schema, not a generic one", () => {
+    const parsed = CreateAliasSchema.safeParse({ domainId: "d1", mode: LocalPartMode.Custom, localPart: "postmaster" });
+    if (parsed.success) throw new Error("expected the reserved name to be rejected");
+    const message = parsed.error.issues.map((i) => i.message).join(" ");
+    expect(message).toMatch(/reserved for system addresses/i);
+    expect(message).not.toContain("Invalid local part");
   });
 });

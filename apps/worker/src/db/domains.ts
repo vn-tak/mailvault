@@ -1,4 +1,5 @@
 import type {
+  AuthPolicy,
   ConflictDetails,
   DiscoveredZone,
   Domain,
@@ -53,6 +54,15 @@ export async function getDomainByZoneId(db: D1Database, zoneId: string): Promise
 export async function getDomainById(db: D1Database, id: string): Promise<Domain | null> {
   const row = await db.prepare(`SELECT * FROM domains WHERE id = ?1`).bind(id).first<DomainRow>();
   return row ? toDomain(row) : null;
+}
+
+/** Owner-controlled enforcement level for unauthenticated senders on this domain. */
+export async function setDomainAuthPolicy(db: D1Database, id: string, policy: AuthPolicy): Promise<number> {
+  const res = await db
+    .prepare(`UPDATE domains SET auth_policy = ?2, updated_at = ?3 WHERE id = ?1`)
+    .bind(id, policy, nowIso())
+    .run();
+  return Number((res.meta as { changes?: number } | undefined)?.changes ?? 0);
 }
 
 export interface ProvisionPatch {

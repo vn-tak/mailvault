@@ -1,4 +1,4 @@
-import type { Alias, AliasStatus } from "@mailvault/shared";
+import type { Alias, AliasStats, AliasStatus } from "@mailvault/shared";
 import { conflict } from "../lib/errors";
 import { newId, nowIso } from "../lib/util";
 import { toAlias } from "./mappers";
@@ -47,17 +47,51 @@ export async function getAliasById(db: D1Database, id: string): Promise<Alias | 
   return row ? toAlias(row) : null;
 }
 
-export async function listAliases(db: D1Database, q?: string): Promise<Alias[]> {
+export type AliasListView = "all" | "active" | "archived";
+
+export async function listAliases(db: D1Database, q?: string, view: AliasListView = "active"): Promise<Alias[]> {
   const like = q ? `%${q.toLowerCase().replace(/\s+/g, "%")}%` : null;
   const sql = `
     SELECT a.*, d.name AS domain_name,
       (SELECT COUNT(*) FROM messages m WHERE m.alias_id = a.id) AS message_count,
       (SELECT COUNT(*) FROM messages m WHERE m.alias_id = a.id AND m.is_read = 0) AS unread_count
     FROM aliases a JOIN domains d ON d.id = a.domain_id
-    WHERE (?1 IS NULL OR lower(a.address) LIKE ?1 OR lower(COALESCE(a.label,'')) LIKE ?1)
-    ORDER BY a.created_at DESC`;
-  const { results } = await db.prepare(sql).bind(like).all<AliasRow>();
+    WHERE (?2 = 'all' OR (?2 = 'archived' AND a.archived = 1) OR (?2 = 'active' AND a.archived = 0))
+      AND (?1 IS NULL OR lower(a.address) LIKE ?1 OR lower(COALESCE(a.label,'')) LIKE ?1 OR lower(COALESCE(a.notes,'')) LIKE ?1)
+    ORDER BY a.pinned DESC, a.created_at DESC`;
+  const { results } = await db.prepare(sql).bind(like, view).all<AliasRow>();
   return (results ?? []).map(toAlias);
+}
+
+/** Arrival history for one alias: counts, span and who actually writes to it. */
+export async function aliasStats(db: D1Database, id: string): Promise<AliasStats> {
+  const totals = await db
+    .prepare(
+      `SELECT COUNT(*) AS messages,
+              COALESCE(SUM(is_read = 0), 0) AS unread,
+              MIN(received_at) AS first_received_at,
+              MAX(received_at) AS last_received_at
+       FROM messages WHERE alias_id = ?1`,
+    )
+    .bind(id)
+    .first<{ messages: number; unread: number; first_received_at: string | null; last_received_at: string | null }>();
+  const { results } = await db
+    .prepare(
+      `SELECT COALESCE(header_from, envelope_from) AS name, COUNT(*) AS count
+       FROM messages WHERE alias_id = ?1
+       GROUP BY name ORDER BY count DESC, name ASC LIMIT 6`,
+    )
+    .bind(id)
+    .all<{ name: string | null; count: number }>();
+  return {
+    messages: Number(totals?.messages ?? 0),
+    unread: Number(totals?.unread ?? 0),
+    firstReceivedAt: totals?.first_received_at ?? null,
+    lastReceivedAt: totals?.last_received_at ?? null,
+    senders: (results ?? [])
+      .filter((r) => r.name)
+      .map((r) => ({ name: r.name as string, count: Number(r.count) })),
+  };
 }
 
 /** Used by the inbound handler: only ACTIVE aliases receive mail. */
@@ -92,8 +126,29 @@ export async function setAliasStatus(
   await db.prepare(`UPDATE aliases SET status = ?2, updated_at = ?3 WHERE id = ?1`).bind(id, status, nowIso()).run();
 }
 
-export async function updateAliasLabel(db: D1Database, id: string, label: string | null): Promise<void> {
-  await db.prepare(`UPDATE aliases SET label = ?2, updated_at = ?3 WHERE id = ?1`).bind(id, label, nowIso()).run();
+export interface AliasPatch {
+  label?: string | null;
+  notes?: string | null;
+  pinned?: boolean;
+  archived?: boolean;
+}
+
+/** Field-preserving update: pinning an alias must not blank its notes, and vice versa. */
+export async function updateAlias(db: D1Database, id: string, patch: AliasPatch): Promise<void> {
+  const sets: string[] = [];
+  const binds: unknown[] = [id];
+  const put = (col: string, val: unknown) => {
+    binds.push(val);
+    sets.push(`${col} = ?${binds.length}`);
+  };
+  if ("label" in patch) put("label", patch.label ?? null);
+  if ("notes" in patch) put("notes", patch.notes ?? null);
+  if ("pinned" in patch) put("pinned", patch.pinned ? 1 : 0);
+  if ("archived" in patch) put("archived", patch.archived ? 1 : 0);
+  if (sets.length === 0) return;
+  binds.push(nowIso());
+  sets.push(`updated_at = ?${binds.length}`);
+  await db.prepare(`UPDATE aliases SET ${sets.join(", ")} WHERE id = ?1`).bind(...binds).run();
 }
 
 /** Returns the R2 keys that must be removed after the DB rows are deleted. */

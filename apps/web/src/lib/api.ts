@@ -1,16 +1,48 @@
 import type {
+  AddressReuse,
   Alias,
+  AliasDetail,
+  AuthPolicy,
   CreateAliasInput,
   DashboardStats,
   Domain,
+  DriftReport,
   Health,
   MessageDetail,
   MessageListQuery,
   Paginated,
+  Passkey,
   PreflightResult,
   ProvisionOutcome,
+  PushOutcome,
   MessageSummary,
+  Rule,
+  RuleAction,
+  RuleMatch,
+  UpdateAliasInput,
 } from "@mailvault/shared";
+import { grantHeaders } from "./grant";
+
+/**
+ * WebAuthn option objects as they travel over the wire. The browser types for them are
+ * tied to `BufferSource`, which is not what JSON carries, so they stay loose here and the
+ * WebAuthn library does the conversion at the boundary.
+ */
+export interface PasskeyOptions {
+  options: unknown;
+  challenge: string;
+}
+
+export interface StepUpOptions {
+  options: unknown;
+  challenge: string;
+}
+
+export interface SecurityStatus {
+  passkeys: Passkey[];
+  enrolled: boolean;
+  rpId: string | null;
+}
 
 const BASE = "/api";
 
@@ -44,11 +76,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
-// The Worker requires this custom header on state-changing calls as a CSRF signal.
-function mutation(body?: unknown): RequestInit {
+// The Worker requires this custom header on state-changing calls as a CSRF signal, and
+// looks for the step-up grant on the ones that cannot be undone.
+function mutation(body?: unknown, method = "POST"): RequestInit {
   return {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-mailvault": "1" },
+    method,
+    headers: { "content-type": "application/json", "x-mailvault": "1", ...grantHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
   };
 }
@@ -66,34 +99,39 @@ export const api = {
 
   listDomains: () => request<{ items: Domain[] }>("/domains"),
   syncDomains: () => request<{ discovered: number; items: Domain[] }>("/domains/sync", mutation()),
+  verifyDomains: () => request<{ report: DriftReport; items: Domain[] }>("/domains/verify", mutation()),
   preflightDomains: (zoneIds: string[]) =>
     request<{ results: PreflightResult[] }>("/domains/preflight", mutation({ zoneIds })),
-  provisionDomains: (zoneIds: string[], allowCatchAllTakeover = false) =>
-    request<{ results: ProvisionOutcome[] }>("/domains/provision", mutation({ zoneIds, allowCatchAllTakeover })),
+  /** Both takeover flags are explicit, per-request confirmations of a destructive change. */
+  provisionDomains: (
+    zoneIds: string[],
+    flags: { allowCatchAllTakeover?: boolean; allowMxTakeover?: boolean } = {},
+  ) =>
+    request<{ results: ProvisionOutcome[] }>("/domains/provision", mutation({
+      zoneIds,
+      allowCatchAllTakeover: flags.allowCatchAllTakeover ?? false,
+      allowMxTakeover: flags.allowMxTakeover ?? false,
+    })),
   retryDomain: (zoneId: string, allowCatchAllTakeover = false) =>
     request<ProvisionOutcome>(`/domains/${encodeURIComponent(zoneId)}/retry`, mutation({ allowCatchAllTakeover })),
   removeDomain: (zoneId: string) =>
-    request<{ removed: boolean }>(`/domains/${encodeURIComponent(zoneId)}`, {
-      method: "DELETE",
-      headers: { "x-mailvault": "1" },
-    }),
+    request<{ removed: boolean }>(`/domains/${encodeURIComponent(zoneId)}`, mutation(undefined, "DELETE")),
+  setAuthPolicy: (zoneId: string, policy: AuthPolicy) =>
+    request<{ zoneId: string; authPolicy: AuthPolicy }>(
+      `/domains/${encodeURIComponent(zoneId)}/auth-policy`,
+      mutation({ policy }, "PATCH"),
+    ),
 
-  listAliases: (q?: string) => request<{ items: Alias[] }>(`/aliases${qs({ q })}`),
+  listAliases: (q?: string, view: "all" | "active" | "archived" = "active") =>
+    request<{ items: Alias[] }>(`/aliases${qs({ q, view })}`),
+  getAlias: (id: string) => request<AliasDetail>(`/aliases/${encodeURIComponent(id)}`),
+  updateAlias: (id: string, patch: UpdateAliasInput) =>
+    request<Alias>(`/aliases/${encodeURIComponent(id)}`, mutation(patch, "PATCH")),
   createAlias: (input: CreateAliasInput) => request<Alias>("/aliases", mutation(input)),
-  updateAlias: (id: string, label: string | null) =>
-    request<Alias>(`/aliases/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json", "x-mailvault": "1" },
-      body: JSON.stringify({ label }),
-    }),
   enableAlias: (id: string) => request<Alias>(`/aliases/${encodeURIComponent(id)}/enable`, mutation()),
   disableAlias: (id: string) => request<Alias>(`/aliases/${encodeURIComponent(id)}/disable`, mutation()),
   deleteAlias: (id: string, purgeMessages: boolean) =>
-    request<{ deleted: boolean }>(`/aliases/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      headers: { "content-type": "application/json", "x-mailvault": "1" },
-      body: JSON.stringify({ purgeMessages }),
-    }),
+    request<{ deleted: boolean }>(`/aliases/${encodeURIComponent(id)}`, mutation({ purgeMessages }, "DELETE")),
 
   listMessages: (query: Partial<MessageListQuery>) =>
     request<Paginated<MessageSummary>>(`/messages${qs({ ...query })}`),
@@ -110,7 +148,46 @@ export const api = {
       method: "DELETE",
       headers: { "x-mailvault": "1" },
     }),
+
+  pushPublicKey: () => request<{ key: string | null }>("/push/public-key"),
+  pushStatus: () => request<{ enabled: boolean; subscriptions: number }>("/push/status"),
+  pushSubscribe: (input: { endpoint: string; p256dh: string; auth: string; userAgent?: string }) =>
+    request<{ id: string }>("/push/subscribe", mutation(input)),
+  pushUnsubscribe: (endpoint: string) => request<{ removed: number }>("/push/unsubscribe", mutation({ endpoint })),
+  pushTest: () => request<PushOutcome>("/push/test", mutation()),
+
+  securityStatus: () => request<SecurityStatus>("/security/status"),
+  passkeyOptions: () => request<PasskeyOptions>("/security/passkeys/options", mutation()),
+  passkeyVerify: (input: { response: unknown; challenge: string; deviceLabel?: string }) =>
+    request<{ passkey: Passkey }>("/security/passkeys/verify", mutation(input)),
+  deletePasskey: (id: string) =>
+    request<{ removed: boolean }>(`/security/passkeys/${encodeURIComponent(id)}`, mutation(undefined, "DELETE")),
+  stepUpOptions: () => request<StepUpOptions>("/security/step-up/options", mutation()),
+  stepUpVerify: (input: { response: unknown; challenge: string }) =>
+    request<{ token: string; expiresAt: string; seconds: number }>("/security/step-up/verify", mutation(input)),
+
+  listRules: () => request<{ items: Rule[] }>("/rules"),
+  createRule: (input: { match: RuleMatch; action: RuleAction; enabled?: boolean }) =>
+    request<Rule>("/rules", mutation(input)),
+  updateRule: (id: string, patch: { match?: RuleMatch; action?: RuleAction; enabled?: boolean }) =>
+    request<Rule>(`/rules/${encodeURIComponent(id)}`, mutation(patch, "PATCH")),
+  deleteRule: (id: string) => request<{ removed: boolean }>(`/rules/${encodeURIComponent(id)}`, mutation(undefined, "DELETE")),
+  addressReuse: () => request<{ items: AddressReuse[] }>("/report/address-reuse"),
+
+  semanticStatus: () => request<SemanticStatus>("/semantic"),
+  semanticSet: (enabled: boolean) =>
+    request<{ enabled: boolean; indexed: number; total: number; purged: number }>("/semantic", mutation({ enabled })),
+  semanticBackfill: () => request<{ indexed: number; remaining: number }>("/semantic/backfill", mutation()),
 };
+
+export interface SemanticStatus {
+  enabled: boolean;
+  indexed: number;
+  total: number;
+  model: string;
+  dimensions: number;
+  available: boolean;
+}
 
 /** Authenticated, same-origin download URL for an attachment (never a public URL). */
 export function attachmentHref(messageId: string, attachmentId: string): string {
