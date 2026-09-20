@@ -23,6 +23,13 @@ export interface Env {
    * every write is best-effort, so a harness or a partial config without it still runs.
    */
   ANALYTICS?: AnalyticsEngineDataset;
+  /**
+   * Workers AI + Vectorize, for opt-in semantic search. Both optional: the feature is off
+   * until the owner turns it on, and stays usable as plain keyword search if either is
+   * unavailable.
+   */
+  AI?: Ai;
+  VECTORIZE?: VectorizeIndex;
 
   // Plain-text vars
   ENVIRONMENT?: string; // "development" | "production" (default production)

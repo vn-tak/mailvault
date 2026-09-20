@@ -236,6 +236,28 @@ landed without waiting for a pull-to-refresh.
   assumed, and covered by an E2E test that completes a real handshake and waits for the
   first frame.
 
+### 6.5 Semantic search — off until the owner turns it on (`apps/worker/src/lib/semantic.ts`)
+
+Keyword search (FTS5) needs the exact words. Semantic search does not, and the price is a
+**second copy of message content**: enabling it embeds the sender, subject and the first
+~900 characters of the body into a Vectorize index in this Cloudflare account.
+
+So it is a deliberate switch in Settings, off by default, and:
+
+- nothing is embedded while it is off — not on ingest, not on search, not on backfill
+  (`POST /api/semantic/backfill` refuses);
+- a client cannot ask for semantic ids. `semanticIds` is a server-side parameter resolved
+  from the index only when the setting is on, so the opt-in cannot be bypassed by crafting
+  a query;
+- turning it off **deletes the vectors** and clears `messages.embedded_at`, so "off" means
+  the copies are gone rather than merely unused;
+- deleting a message deletes its vector;
+- the excerpt is truncated on purpose — less text in the index is less text to explain.
+
+`indexed / total` is shown in Settings, so the claim is checkable rather than taken on
+trust. The residual risk is the obvious one: an index of derived representations of mail
+sits in the same account as the mail itself, protected by the same Access policy.
+
 ## 7. Attachments
 
 `apps/worker/src/routes/messages.ts` (download route) + `apps/worker/src/lib/filename.ts`:

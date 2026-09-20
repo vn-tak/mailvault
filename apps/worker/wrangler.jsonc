@@ -87,6 +87,12 @@
     { "binding": "ANALYTICS", "dataset": "mailvault-events" }
   ],
 
+  // Opt-in semantic search. Nothing is embedded until the owner turns it on in Settings.
+  "ai": { "binding": "AI" },
+  "vectorize": [
+    { "binding": "VECTORIZE", "index_name": "mailvault-messages" }
+  ],
+
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",

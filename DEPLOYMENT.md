@@ -82,6 +82,13 @@ of this system, so this addendum records the difference.
   `rule_tag`, `applied_rule_id`, `applied_rule_note` on messages). Verified live:
   `/api/report/address-reuse` already answers a real question — `github.com` holds **four**
   of the owner's aliases across 14 messages, and `cf-bounce.selinow.com` holds two.
+- **Semantic search is provisioned but switched off.** Vectorize index
+  `mailvault-messages` (1024 dims, cosine) + a Workers AI binding exist, and
+  `migration 0008_semantic.sql` is applied (`app_settings`, `messages.embedded_at`).
+  Verified live: `GET /api/semantic` reports `enabled: false, indexed: 0, available: true`
+  and `POST /api/semantic/backfill` refuses while off. **No message content has been
+  copied into the index** — turning it on is the owner's call in Settings, and turning it
+  off deletes the vectors again (SECURITY.md §6.5).
 - **Ingest is queue-backed:** `mail-ingest` (consumer = the same Worker, `max_retries: 3`)
   with `mail-ingest-dlq` behind it. The email handler stages to R2 and posts a job; the
   consumer commits to D1. Created 2026-09-20 with `wrangler queues create`, and the

@@ -14,6 +14,7 @@ import { notFound } from "../lib/errors";
 import { log } from "../lib/logging";
 import { sanitizeFilename } from "../lib/filename";
 import { deleteKeys, getObject } from "../storage/r2";
+import { removeIndex, searchMessageIds, semanticEnabled } from "../lib/semantic";
 import { sanitizeEmailHtml } from "../security/sanitize-html";
 import { actorOf, parseQuery, readJson } from "./_helpers";
 
@@ -41,7 +42,11 @@ async function readParsed(bucket: R2Bucket, key: string | null): Promise<ParsedE
 export const messagesRoute = new Hono<AppEnv>()
   .get("/api/messages", async (c) => {
     const query = parseQuery(c, MessageListQuerySchema);
-    const { items, total } = await listMessages(c.env.DB, query);
+    // Only the owner's opt-in turns a search into an embedding request; a client cannot
+    // ask for semantic ids directly.
+    const semanticIds =
+      query.q && (await semanticEnabled(c.env.DB)) ? await searchMessageIds(c.env, query.q) : [];
+    const { items, total } = await listMessages(c.env.DB, { ...query, semanticIds });
     return c.json(paginated(items, { limit: query.limit, offset: query.offset, total }));
   })
 
@@ -83,6 +88,8 @@ export const messagesRoute = new Hono<AppEnv>()
     if (!(await getMessageRow(c.env.DB, id))) throw notFound("Message not found");
     const keys = await deleteMessage(c.env.DB, id);
     const removed = await deleteKeys(c.env.MAIL_BUCKET, keys);
+    // The embedding is a copy of content the owner just deleted; it goes with it.
+    await removeIndex(c.env, id);
     log.info("message_deleted", { actor: actorOf(c).email, messageId: id, r2Attempted: removed.attempted });
     return c.json({ deleted: true, r2ObjectsRemoved: removed.attempted - removed.failed.length });
   })

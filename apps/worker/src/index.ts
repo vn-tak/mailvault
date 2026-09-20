@@ -13,6 +13,7 @@ import { stageEmail, commitIngest, type IngestJob } from "./mail/ingest";
 import { deleteKeys } from "./storage/r2";
 import { pushToAll } from "./push";
 import { Elapsed, writeMetric } from "./lib/metrics";
+import { indexIfEnabled } from "./lib/semantic";
 import { MailboxHub, notifyNewMail } from "./live/hub";
 import { log } from "./lib/logging";
 import { runWatchdog } from "./provisioning/watchdog";
@@ -99,7 +100,9 @@ export default {
           // Notify only after the mail is durable, and detached: a slow or dead push
           // endpoint must never affect delivery or make the message retry.
           ctx.waitUntil(
-            Promise.allSettled([pushToAll(env, env.DB), notifyNewMail(env)]).then(() => undefined),
+            Promise.allSettled([pushToAll(env, env.DB), notifyNewMail(env), indexIfEnabled(env, result.messageId)]).then(
+              () => undefined,
+            ),
           );
         }
         message.ack();

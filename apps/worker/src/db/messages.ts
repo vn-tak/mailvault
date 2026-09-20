@@ -12,6 +12,13 @@ import { newId, nowIso } from "../lib/util";
 import { parseJson, toMessageAuth, toMessageSummary } from "./mappers";
 import type { AttachmentRow, MessageRow } from "./rows";
 
+/**
+ * The validated query plus whatever the caller resolved first. `semanticIds` comes from
+ * Vectorize and is not something a client may send directly — it is looked up server-side
+ * only when the owner has turned semantic search on.
+ */
+export type ListInput = MessageListQuery & { semanticIds?: string[] };
+
 export interface InsertMessageInput {
   domainId: string;
   aliasId: string | null;
@@ -153,7 +160,7 @@ export function ftsMatch(raw: string, maxWords = 8): string {
     .join(" AND ");
 }
 
-function buildListFilters(query: MessageListQuery): { where: string; params: unknown[]; rank: string } {
+function buildListFilters(query: ListInput): { where: string; params: unknown[]; rank: string } {
   const clauses: string[] = [];
   const params: unknown[] = [];
   const push = (val: unknown) => {
@@ -189,6 +196,12 @@ function buildListFilters(query: MessageListQuery): { where: string; params: unk
       rank = `COALESCE((SELECT bm25(messages_fts) FROM messages_fts WHERE message_id = m.id AND messages_fts MATCH ?${a}), 0)`;
       terms.unshift(`EXISTS (SELECT 1 FROM messages_fts WHERE message_id = m.id AND messages_fts MATCH ?${b})`);
     }
+    // Semantic hits arrive as ids from Vectorize. They join the same result set rather
+    // than replacing it, so a keyword match is never lost because the model disagreed.
+    if (query.semanticIds && query.semanticIds.length > 0) {
+      const placeholders = query.semanticIds.map((id) => `?${push(id)}`).join(", ");
+      terms.push(`m.id IN (${placeholders})`);
+    }
     clauses.push(`(${terms.join(" OR ")})`);
   }
   return { where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", params, rank };
@@ -201,7 +214,7 @@ const SELECT_LIST = `
 
 export async function listMessages(
   db: D1Database,
-  query: MessageListQuery,
+  query: ListInput,
 ): Promise<{ items: MessageSummary[]; total: number }> {
   const { where, params, rank } = buildListFilters(query);
   const countRow = await db

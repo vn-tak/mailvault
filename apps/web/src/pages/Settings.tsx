@@ -113,6 +113,109 @@ function PasskeysCard() {
   );
 }
 
+/**
+ * The one setting that copies message content somewhere else, so the card says what it
+ * does before it offers a button.
+ */
+function SemanticCard() {
+  const { data, reload } = useAsync(() => api.semanticStatus(), []);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<Status>(null);
+
+  async function set(on: boolean) {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const r = await api.semanticSet(on);
+      setStatus({
+        tone: "ok",
+        text: on
+          ? "On. New mail is indexed as it arrives; use Index existing mail for what is already stored."
+          : `Off. ${r.purged} stored vector(s) were deleted along with their copies of your text.`,
+      });
+      reload();
+    } catch (e) {
+      setStatus({ tone: "error", text: errText(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fill() {
+    setBusy(true);
+    setStatus(null);
+    try {
+      let r = await api.semanticBackfill();
+      let done = r.indexed;
+      // 50 at a time keeps each request short; the loop stops when nothing is left.
+      while (r.indexed > 0 && r.remaining > 0 && done < 500) {
+        r = await api.semanticBackfill();
+        done += r.indexed;
+      }
+      setStatus({ tone: "ok", text: `Indexed ${done}. ${r.remaining} still to go.` });
+      reload();
+    } catch (e) {
+      setStatus({ tone: "error", text: errText(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card mt">
+      <h2 style={{ marginTop: 0 }}>Search by meaning</h2>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Off by default. Turning it on copies a short excerpt of each message — sender,
+        subject and the first few hundred characters — into a vector index in this
+        Cloudflare account, so &ldquo;the invoice from the phone shop&rdquo; finds mail even
+        when those exact words are not in it. Keyword search keeps working either way.
+        Turning it off deletes those copies.
+      </p>
+
+      <table style={{ marginBottom: 12 }}>
+        <tbody>
+          <tr>
+            <td className="muted">State</td>
+            <td>{data ? (data.enabled ? "On" : "Off") : "—"}</td>
+          </tr>
+          <tr>
+            <td className="muted">Indexed</td>
+            <td>{data ? `${data.indexed} of ${data.total} messages` : "—"}</td>
+          </tr>
+          <tr>
+            <td className="muted">Model</td>
+            <td className="addr">{data?.model ?? "—"} · {data?.dimensions ?? "—"} dims</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {status && <div className={`banner ${status.tone === "ok" ? "ok" : "error"}`}>{status.text}</div>}
+
+      <div className="row wrap" style={{ marginTop: 12 }}>
+        {data?.enabled ? (
+          <button disabled={busy} onClick={() => set(false)}>
+            Turn off and delete the index
+          </button>
+        ) : (
+          <button className="primary" disabled={busy || !data?.available} onClick={() => set(true)}>
+            Turn on
+          </button>
+        )}
+        {data?.enabled && (
+          <button className="small" disabled={busy} onClick={fill}>
+            Index existing mail
+          </button>
+        )}
+      </div>
+      {data && !data.available && (
+        <p className="faint" style={{ fontSize: 12 }}>
+          This deployment has no AI or vector index bound, so the feature cannot be turned on here.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function Settings() {
   const [state, setState] = useState<PushState | null>(null);
   const [server, setServer] = useState<{ enabled: boolean; subscriptions: number } | null>(null);
@@ -221,6 +324,7 @@ export function Settings() {
       </div>
 
       <PasskeysCard />
+      <SemanticCard />
 
       <div className="card mt">
         <h2 style={{ marginTop: 0 }}>Install</h2>

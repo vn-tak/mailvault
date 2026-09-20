@@ -173,7 +173,21 @@ export const api = {
     request<Rule>(`/rules/${encodeURIComponent(id)}`, mutation(patch, "PATCH")),
   deleteRule: (id: string) => request<{ removed: boolean }>(`/rules/${encodeURIComponent(id)}`, mutation(undefined, "DELETE")),
   addressReuse: () => request<{ items: AddressReuse[] }>("/report/address-reuse"),
+
+  semanticStatus: () => request<SemanticStatus>("/semantic"),
+  semanticSet: (enabled: boolean) =>
+    request<{ enabled: boolean; indexed: number; total: number; purged: number }>("/semantic", mutation({ enabled })),
+  semanticBackfill: () => request<{ indexed: number; remaining: number }>("/semantic/backfill", mutation()),
 };
+
+export interface SemanticStatus {
+  enabled: boolean;
+  indexed: number;
+  total: number;
+  model: string;
+  dimensions: number;
+  available: boolean;
+}
 
 /** Authenticated, same-origin download URL for an attachment (never a public URL). */
 export function attachmentHref(messageId: string, attachmentId: string): string {

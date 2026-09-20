@@ -61,6 +61,10 @@
     { "binding": "ANALYTICS", "dataset": "mailvault-events" }
   ],
 
+  // Local workerd has no Vectorize backend, so the settings screen reports
+  // "not available here" rather than pretending the index exists.
+  "ai": { "binding": "AI" },
+
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",

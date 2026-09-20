@@ -29,7 +29,8 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | CI: typecheck + lint + tests + E2E on every push; manual versioned deploy; rollback | ✅ Green on GitHub |
 | Passkey step-up before anything irreversible (purge mail, detach domain, disable sender checks) | ✅ Gate tested |
 | Mailbox rules (file/tag on sender or subject) + who-holds-my-address report | ✅ 12 tests |
-| Unit + integration tests (220 passing: worker 155, web 65) | ✅ Green |
+| Semantic search (Workers AI + Vectorize) behind an explicit opt-in that defaults to off | ✅ 10 tests |
+| Unit + integration tests (230 passing: worker 165, web 65) | ✅ Green |
 | Playwright E2E (23 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
