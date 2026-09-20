@@ -1,4 +1,11 @@
 import { expect, test } from "@playwright/test";
+import type { Locator } from "@playwright/test";
+
+/** A row keeps its actions folded until it is engaged — so engage it. */
+async function engage(row: Locator) {
+  await row.locator(".entity-summary").click();
+  await expect(row.locator(".entity-actions")).toBeVisible();
+}
 
 test("lists the seeded alias, then creates and removes one", async ({ page }) => {
   await page.goto("/#/aliases");
@@ -17,9 +24,11 @@ test("lists the seeded alias, then creates and removes one", async ({ page }) =>
   await expect(row).toBeVisible();
 
   // Disable then delete it to keep runs independent.
+  await engage(row);
   await row.getByRole("button", { name: "Disable" }).click();
   await expect(row.getByText("Disabled")).toBeVisible();
 
+  await engage(row);
   await row.getByRole("button", { name: "More" }).click();
   await row.getByRole("menuitem", { name: "Delete" }).click();
   await page.getByRole("button", { name: "Delete alias" }).click();
@@ -64,6 +73,7 @@ test("a custom name is normalized, explained, and creates what it previewed", as
 
   const row = page.locator(".entity").filter({ hasText: "e2e.tung@demo.example" });
   await expect(row).toBeVisible();
+  await engage(row);
   await row.getByRole("button", { name: "More" }).click();
   await row.getByRole("menuitem", { name: "Delete" }).click();
   await page.getByRole("button", { name: "Delete alias" }).click();

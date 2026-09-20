@@ -3,7 +3,7 @@ import { api, ApiClientError } from "../lib/api";
 import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
-import { ConfirmDialog, ErrorBanner, Loading, Menu, Modal, StatusPill } from "../components/ui";
+import { ConfirmDialog, ErrorBanner, Loading, Menu, Modal, Row, StatusPill, useOpenRow } from "../components/ui";
 import { FILTERS, bucketOf, isRoutingNotEnabledReceipt, routingConsoleUrl, type Bucket } from "../lib/domains";
 import {
   AuthPolicy,
@@ -117,6 +117,7 @@ export function Domains() {
   const [mxTakeover, setMxTakeover] = useState(false);
   const [removing, setRemoving] = useState<Domain | null>(null);
   const [retryTakeover, setRetryTakeover] = useState<Domain | null>(null);
+  const folded = useOpenRow();
 
   const allZones = useMemo(() => domains.map((d) => d.cloudflareZoneId), [domains]);
   const selectedZones = useMemo(() => [...selected], [selected]);
@@ -328,25 +329,11 @@ export function Domains() {
           <button onClick={runSync} disabled={busy}>
             {busy ? "Working…" : "↻ Sync from Cloudflare"}
           </button>
-          <button onClick={() => runPreflight(allZones, "Preflighting")} disabled={busy || allZones.length === 0}>
+          <button className="ghost small" onClick={() => runPreflight(allZones, "Preflighting")} disabled={busy || allZones.length === 0}>
             Preflight all
           </button>
-          <button onClick={runVerify} disabled={busy} title="Re-check that Ready domains still deliver to this Worker">
+          <button className="ghost small" onClick={runVerify} disabled={busy} title="Re-check that Ready domains still deliver to this Worker">
             Verify delivery
-          </button>
-          <button onClick={() => runPreflight(selectedZones, "Preflighting")} disabled={busy || selectedZones.length === 0}>
-            Preflight ({selectedZones.length})
-          </button>
-          <button
-            className="primary"
-            onClick={() => {
-              setTakeover(false);
-              setMxTakeover(false);
-              setConfirmProvision(true);
-            }}
-            disabled={busy || selectedZones.length === 0}
-          >
-            Enable mail ({selectedZones.length})
           </button>
         </div>
       </div>
@@ -378,14 +365,6 @@ export function Domains() {
                 </button>
               ))}
             </div>
-            <button className="small" onClick={selectVisibleEligible} disabled={busy}>
-              Select eligible
-            </button>
-            {selected.size > 0 && (
-              <button className="ghost small" onClick={() => setSelected(new Set())}>
-                Clear selection ({selected.size}) ✕
-              </button>
-            )}
           </div>
 
           {visible.length === 0 ? (
@@ -418,6 +397,35 @@ export function Domains() {
                     {selected.size} of {visible.length} selected
                   </span>
                 </label>
+                {/* Bulk actions live next to the selection they act on, and only exist while
+                    something is selected — two permanently-disabled buttons above an
+                    unselected list is noise that reads as the page's main job. */}
+                <div className="head-actions">
+                  <button className="ghost small" onClick={selectVisibleEligible} disabled={busy}>
+                    Select eligible
+                  </button>
+                  {selected.size > 0 && (
+                    <>
+                      <button className="ghost small" onClick={() => setSelected(new Set())}>
+                        Clear ✕
+                      </button>
+                      <button className="small" onClick={() => runPreflight(selectedZones, "Preflighting")} disabled={busy}>
+                        Preflight ({selectedZones.length})
+                      </button>
+                      <button
+                        className="primary small"
+                        onClick={() => {
+                          setTakeover(false);
+                          setMxTakeover(false);
+                          setConfirmProvision(true);
+                        }}
+                        disabled={busy}
+                      >
+                        Enable mail ({selectedZones.length})
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
               {visible.map((d) => {
                 const zoneId = d.cloudflareZoneId;
@@ -426,67 +434,81 @@ export function Domains() {
                 const open = expanded.has(zoneId);
                 const hasEvidence = !!pf?.conflict || !!oc;
                 return (
-                  <div key={d.id} className="entity">
-                    <div className="entity-title">
-                      <div className="row" style={{ gap: 10, minWidth: 0 }}>
-                        <input
-                          type="checkbox"
-                          style={{ width: "auto", minHeight: 0 }}
-                          checked={selected.has(zoneId)}
-                          onChange={() => toggle(zoneId)}
-                          aria-label={`Select ${d.name}`}
-                        />
-                        <span className="entity-name">{d.name}</span>
-                      </div>
-                      <StatusPill status={d.mailStatus} />
-                    </div>
-                    <div className="entity-facts">
-                      <span>
-                        {d.zoneStatus} · {d.zoneType === "full" ? "Full" : d.zoneType}
-                      </span>
-                      {pf ? <ClassPill c={pf.classification} /> : null}
-                      <span>checked {relativeTime(d.lastCheckedAt)}</span>
-                    </div>
-                    <div className="entity-actions">
-                      {hasEvidence ? (
-                        <button onClick={() => toggleExpand(zoneId)} aria-expanded={open}>
-                          {open ? "Hide details" : "Show details"}
-                        </button>
-                      ) : null}
-                      {d.mailStatus === MailStatus.Ready && (
-                        <>
-                          <button onClick={() => navigate(`/inbox?domain=${d.id}`)}>Inbox</button>
-                          <select
-                            value={d.authPolicy}
-                            disabled={busy}
-                            style={{ width: "auto" }}
-                            title="What to do with mail whose sender failed SPF/DKIM/DMARC checks"
-                            onChange={(e) => void changeAuthPolicy(d, e.target.value as AuthPolicy)}
-                          >
-                            <option value={AuthPolicy.Warn}>unverified: flag</option>
-                            <option value={AuthPolicy.Reject}>unverified: reject</option>
-                            <option value={AuthPolicy.Off}>unverified: allow</option>
-                          </select>
-                        </>
-                      )}
-                      <Menu
-                        items={[
-                          ...(d.mailStatus === MailStatus.Failed || d.mailStatus === MailStatus.Conflict
-                            ? [
-                                {
-                                  label: "Retry",
-                                  disabled: busy,
-                                  onSelect: () => {
-                                    if (d.conflictType === ConflictType.CatchAll) setRetryTakeover(d);
-                                    else void runRetry(d, false);
+                  <Row
+                    key={d.id}
+                    id={d.id}
+                    open={folded.open === d.id}
+                    onToggle={folded.toggle}
+                    summary={
+                      <>
+                        <div className="entity-title">
+                          <div className="row" style={{ gap: 10, minWidth: 0 }}>
+                            <input
+                              type="checkbox"
+                              style={{ width: "auto", minHeight: 0 }}
+                              checked={selected.has(zoneId)}
+                              onChange={() => toggle(zoneId)}
+                              aria-label={`Select ${d.name}`}
+                            />
+                            <span className="entity-name">{d.name}</span>
+                          </div>
+                          <StatusPill status={d.mailStatus} />
+                        </div>
+                        <div className="entity-facts">
+                          <span>
+                            {d.zoneStatus} · {d.zoneType === "full" ? "Full" : d.zoneType}
+                          </span>
+                          {pf ? <ClassPill c={pf.classification} /> : null}
+                          <span>checked {relativeTime(d.lastCheckedAt)}</span>
+                        </div>
+                      </>
+                    }
+                    actions={
+                      <>
+                        {hasEvidence ? (
+                          <button className="small" onClick={() => toggleExpand(zoneId)} aria-expanded={open}>
+                            {open ? "Hide details" : "Show details"}
+                          </button>
+                        ) : null}
+                        {d.mailStatus === MailStatus.Ready && (
+                          <>
+                            <button className="small" onClick={() => navigate(`/inbox?domain=${d.id}`)}>
+                              Open mailbox
+                            </button>
+                            <select
+                              className="small"
+                              value={d.authPolicy}
+                              disabled={busy}
+                              title="What to do with mail whose sender failed SPF/DKIM/DMARC checks"
+                              onChange={(e) => void changeAuthPolicy(d, e.target.value as AuthPolicy)}
+                            >
+                              <option value={AuthPolicy.Warn}>unverified: flag</option>
+                              <option value={AuthPolicy.Reject}>unverified: reject</option>
+                              <option value={AuthPolicy.Off}>unverified: allow</option>
+                            </select>
+                          </>
+                        )}
+                        <Menu
+                          small
+                          items={[
+                            ...(d.mailStatus === MailStatus.Failed || d.mailStatus === MailStatus.Conflict
+                              ? [
+                                  {
+                                    label: "Retry",
+                                    disabled: busy,
+                                    onSelect: () => {
+                                      if (d.conflictType === ConflictType.CatchAll) setRetryTakeover(d);
+                                      else void runRetry(d, false);
+                                    },
                                   },
-                                },
-                              ]
-                            : []),
-                          { label: "Remove", danger: true, disabled: busy, onSelect: () => setRemoving(d) },
-                        ]}
-                      />
-                    </div>
+                                ]
+                              : []),
+                            { label: "Remove", danger: true, disabled: busy, onSelect: () => setRemoving(d) },
+                          ]}
+                        />
+                      </>
+                    }
+                  >
                     {open && (pf?.conflict || oc) ? (
                       <div className="entity-details">
                         <div className="stack">
@@ -495,7 +517,7 @@ export function Domains() {
                         </div>
                       </div>
                     ) : null}
-                  </div>
+                  </Row>
                 );
               })}
             </div>

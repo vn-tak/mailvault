@@ -22,8 +22,10 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Installable PWA + payload-free new-mail notifications | ✅ Implemented |
 | Phone layout: bottom tab bar, card lists, safe-area insets, 44px targets | ✅ Mobile-first (E2E at 412px) |
 | Reading view: re-flowed plain text, folded magic links, tracking-wrapper destinations, HTML frame that fits the screen | ✅ Fixture + E2E covered |
-| Unit + integration tests (159 passing: worker 113, web 46) | ✅ Green |
-| Playwright E2E (15 passing, live workerd + local D1/R2) | ✅ Green |
+| One mailbox per domain: dashboard mailbox cards, inbox picker, per-row arrival domain | ✅ Implemented |
+| Row actions folded until engaged (tap / hover / focus), bulk actions only with a selection | ✅ E2E covered |
+| Unit + integration tests (168 passing: worker 114, web 54) | ✅ Green |
+| Playwright E2E (19 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
 See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at

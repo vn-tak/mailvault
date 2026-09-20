@@ -29,15 +29,25 @@ function req(path: string, init: RequestInit = {}): Request {
 }
 const mutationHeaders = { "x-mailvault": "1", "content-type": "application/json" };
 
-async function seedDomain(): Promise<string> {
+async function seedDomain(name = "notify.example"): Promise<string> {
   const id = crypto.randomUUID();
   await DB.prepare(
     `INSERT INTO domains (id, cloudflare_zone_id, name, zone_status, zone_type, mail_status)
-     VALUES (?1, ?2, 'notify.example', 'active', 'full', 'READY')`,
+     VALUES (?1, ?2, ?3, 'active', 'full', 'READY')`,
   )
-    .bind(id, `zone-${id.slice(0, 8)}`)
+    .bind(id, `zone-${id.slice(0, 8)}`, name)
     .run();
   return id;
+}
+
+/** A stored message without the ingest machinery — the dashboard only counts rows. */
+async function seedMessage(domainId: string, dedupe: string, at: string, isRead: boolean) {
+  await DB.prepare(
+    `INSERT INTO messages (id, domain_id, dedupe_key, envelope_to, subject, received_at, raw_r2_key, is_read, created_at)
+     VALUES (?1, ?2, ?3, ?4, 'code', ?5, ?6, ?7, ?5)`,
+  )
+    .bind(crypto.randomUUID(), domainId, dedupe, `x@${dedupe}.example`, at, `seed/raw/${dedupe}.eml`, isRead ? 1 : 0)
+    .run();
 }
 
 function htmlEmailWithAttachment(to: string, messageId: string): Uint8Array {
@@ -271,6 +281,29 @@ describe("alias lifecycle: notes, pin, archive and timeline", () => {
     expect(detail.stats.unread).toBe(1);
     expect(detail.stats.lastReceivedAt).toBeTruthy();
     expect(detail.stats.senders[0]?.name).toContain("GitHub");
+  });
+});
+
+describe("dashboard mailboxes", () => {
+  it("counts each domain's mail on its own, so one mailbox cannot borrow another's", async () => {
+    const busy = await seedDomain("busy.example");
+    const quiet = await seedDomain("quiet.example");
+    await seedDomain("idle.example");
+    await seedMessage(busy, "bm1", "2026-09-19T09:00:00.000Z", false);
+    await seedMessage(busy, "bm2", "2026-09-18T09:00:00.000Z", true);
+    await seedMessage(quiet, "qm1", "2026-09-17T09:00:00.000Z", false);
+
+    const dash = await j(await worker.fetch(req("/api/dashboard"), TEST_ENV, CTX));
+    const named = (name: string) => dash.mailboxes.find((m: { name: string }) => m.name === name);
+
+    expect(named("busy.example")).toMatchObject({ total: 2, unread: 1, mailStatus: "READY" });
+    expect(named("busy.example")?.lastReceivedAt).toBe("2026-09-19T09:00:00.000Z");
+    // An empty domain is still reported: "no mail here" is a fact the owner needs, and it
+    // is a different fact from the domain not existing.
+    expect(named("idle.example")).toMatchObject({ total: 0, unread: 0, lastReceivedAt: null });
+    // Busiest first, because the dashboard leads with where the mail actually is.
+    expect(dash.mailboxes.slice(0, 2).map((m: { name: string }) => m.name)).toEqual(["busy.example", "quiet.example"]);
+    expect(dash.totalMessages).toBe(dash.mailboxes.reduce((n: number, m: { total: number }) => n + m.total, 0));
   });
 });
 

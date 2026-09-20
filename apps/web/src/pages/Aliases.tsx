@@ -13,7 +13,7 @@ import {
 import { navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
-import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Menu, Modal } from "../components/ui";
+import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Menu, Modal, Row, useOpenRow } from "../components/ui";
 
 function describeError(e: unknown): string {
   if (!(e instanceof ApiClientError)) return "Could not create alias";
@@ -170,6 +170,7 @@ export function Aliases({ openNew }: { openNew: boolean }) {
   const [deleting, setDeleting] = useState<Alias | null>(null);
   const [purge, setPurge] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const folded = useOpenRow();
 
   useEffect(() => {
     if (openNew) setShowNew(true);
@@ -178,12 +179,14 @@ export function Aliases({ openNew }: { openNew: boolean }) {
   async function toggleStatus(a: Alias) {
     if (a.status === "ACTIVE") await api.disableAlias(a.id);
     else await api.enableAlias(a.id);
+    folded.close();
     reload();
   }
 
   async function patch(a: Alias, changes: UpdateAliasInput) {
     try {
       await api.updateAlias(a.id, changes);
+      folded.close();
       reload();
     } catch (e) {
       setNotice(e instanceof ApiClientError ? e.message : "Update failed");
@@ -236,38 +239,57 @@ export function Aliases({ openNew }: { openNew: boolean }) {
       {data && data.items.length > 0 && (
         <div className="card card--flush">
           {data.items.map((a) => (
-            <div key={a.id} className="entity">
-              <div className="entity-title">
-                <div className="entity-name">
-                  {a.pinned ? "📌 " : null}
-                  {a.label || <span className="muted">No label</span>}
-                </div>
-                <span className={`pill ${a.status === "ACTIVE" ? "ready" : "neutral"}`}>
-                  {a.status === "ACTIVE" ? "Active" : "Disabled"}
-                </span>
-              </div>
-              <div className="addr entity-addr">{a.address}</div>
-              {a.notes ? <div className="entity-note">{a.notes}</div> : null}
-              <div className="entity-facts">
-                <span>{a.messageCount ?? 0} messages</span>
-                <span>{a.unreadCount ? `${a.unreadCount} unread` : "all read"}</span>
-                <span>created {relativeTime(a.createdAt)}</span>
-                {a.archived ? <span>archived</span> : null}
-              </div>
-              <div className="entity-actions">
-                <CopyButton text={a.address} label="Copy address" />
-                <button onClick={() => navigate(`/aliases/${a.id}`)}>Detail</button>
-                <button onClick={() => navigate(`/inbox?alias=${a.id}`)}>Inbox</button>
-                <button onClick={() => toggleStatus(a)}>{a.status === "ACTIVE" ? "Disable" : "Enable"}</button>
-                <Menu
-                  items={[
-                    { label: a.pinned ? "Unpin" : "Pin", onSelect: () => patch(a, { pinned: !a.pinned }) },
-                    { label: a.archived ? "Unarchive" : "Archive", onSelect: () => patch(a, { archived: !a.archived }) },
-                    { label: "Delete", danger: true, onSelect: () => setDeleting(a) },
-                  ]}
-                />
-              </div>
-            </div>
+            <Row
+              key={a.id}
+              id={a.id}
+              open={folded.open === a.id}
+              onToggle={folded.toggle}
+              summary={
+                <>
+                  <div className="entity-title">
+                    <div className="entity-name">
+                      {a.pinned ? "📌 " : null}
+                      {a.label || <span className="muted">No label</span>}
+                    </div>
+                    <span className={`pill ${a.status === "ACTIVE" ? "ready" : "neutral"}`}>
+                      {a.status === "ACTIVE" ? "Active" : "Disabled"}
+                    </span>
+                  </div>
+                  <div className="addr entity-addr">{a.address}</div>
+                  {a.notes ? (
+                    <div className="entity-note" title={a.notes}>
+                      {a.notes}
+                    </div>
+                  ) : null}
+                  <div className="entity-facts">
+                    <span>{a.messageCount ?? 0} messages</span>
+                    <span>{a.unreadCount ? `${a.unreadCount} unread` : "all read"}</span>
+                    <span>created {relativeTime(a.createdAt)}</span>
+                    {a.archived ? <span>archived</span> : null}
+                  </div>
+                </>
+              }
+              actions={
+                <>
+                  <CopyButton text={a.address} label="Copy address" />
+                  <button className="small" onClick={() => navigate(`/inbox?alias=${a.id}`)}>
+                    Mail here
+                  </button>
+                  <button className="small" onClick={() => toggleStatus(a)}>
+                    {a.status === "ACTIVE" ? "Disable" : "Enable"}
+                  </button>
+                  <Menu
+                    small
+                    items={[
+                      { label: "Open details", onSelect: () => navigate(`/aliases/${a.id}`) },
+                      { label: a.pinned ? "Unpin" : "Pin", onSelect: () => patch(a, { pinned: !a.pinned }) },
+                      { label: a.archived ? "Unarchive" : "Archive", onSelect: () => patch(a, { archived: !a.archived }) },
+                      { label: "Delete", danger: true, onSelect: () => setDeleting(a) },
+                    ]}
+                  />
+                </>
+              }
+            />
           ))}
         </div>
       )}

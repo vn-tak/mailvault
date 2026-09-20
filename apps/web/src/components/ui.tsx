@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { MailStatus } from "@mailvault/shared";
 
 export function Loading({ label = "Loading…" }: { label?: string }) {
@@ -36,6 +36,79 @@ const STATUS_PILL: Record<string, { cls: string; text: string }> = {
 export function StatusPill({ status }: { status: string }) {
   const s = STATUS_PILL[status] ?? { cls: "neutral", text: status };
   return <span className={`pill ${s.cls}`}>{s.text}</span>;
+}
+
+/**
+ * Which list row currently has its actions unfolded. One at a time: a list where every
+ * row is open is the same list as before this existed.
+ */
+export function useOpenRow() {
+  const [open, setOpen] = useState<string | null>(null);
+  return {
+    open,
+    toggle: (id: string) => setOpen((cur) => (cur === id ? null : id)),
+    close: () => setOpen(null),
+  };
+}
+
+/**
+ * A list row that reads as information first and controls second.
+ *
+ * The identity of the row is always visible; its actions are folded until the owner
+ * engages with it — tapped on a touch screen, hovered or keyboard-focused on a desktop.
+ * Folding is done with `grid-template-rows: 0fr` rather than `display: none` or
+ * `visibility: hidden`, so the controls stay in the tab order and `:focus-within`
+ * unfolds them: a keyboard user never walks into an action they cannot see, and a screen
+ * reader still announces what a row can do.
+ */
+export function Row({
+  id,
+  open,
+  onToggle,
+  summary,
+  actions,
+  children,
+}: {
+  id: string;
+  open: boolean;
+  onToggle: (id: string) => void;
+  summary: React.ReactNode;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  const panel = useId();
+  return (
+    <div className={`entity ${open ? "is-open" : ""}`} data-row={id}>
+      <div
+        className="entity-summary"
+        onClick={(e) => {
+          // A control that is already inside the row does its own job; tapping it must not
+          // also fold the row shut underneath the user's finger.
+          if ((e.target as HTMLElement).closest("a,button,select,input,label")) return;
+          onToggle(id);
+        }}
+      >
+        <div className="entity-id">{summary}</div>
+        {actions ? (
+          <button
+            className="ghost small entity-toggle"
+            aria-expanded={open}
+            aria-controls={panel}
+            aria-label="Show actions"
+            onClick={() => onToggle(id)}
+          >
+            ⋯
+          </button>
+        ) : null}
+      </div>
+      {actions ? (
+        <div className="entity-fold" id={panel}>
+          <div className="entity-actions">{actions}</div>
+        </div>
+      ) : null}
+      {children}
+    </div>
+  );
 }
 
 /** Clipboard with a transient "Copied" confirmation. */
@@ -109,9 +182,10 @@ export interface MenuItem {
   disabled?: boolean;
 }
 
-export function Menu({ label = "More", items }: { label?: string; items: MenuItem[] }) {
+export function Menu({ label = "More", items, small }: { label?: string; items: MenuItem[]; small?: boolean }) {
   const [open, setOpen] = useState(false);
   const [up, setUp] = useState(false);
+  const [left, setLeft] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -131,6 +205,9 @@ export function Menu({ label = "More", items }: { label?: string; items: MenuIte
       const overlaysBottom = !!bar && bar.top > window.innerHeight / 2 && bar.bottom >= window.innerHeight - 1;
       const floor = overlaysBottom && bar ? bar.top : window.innerHeight;
       setUp(floor - rect.bottom < popHeight + 16 && rect.top > popHeight + 16);
+      // Anchored to the trigger's right edge by default; on a narrow window the trigger
+      // can sit so far left that the panel would hang off-screen instead.
+      setLeft(rect.right - pop.offsetWidth < 8);
       pop.querySelector<HTMLButtonElement>("[role='menuitem']:not([disabled])")?.focus();
     }
 
@@ -172,6 +249,7 @@ export function Menu({ label = "More", items }: { label?: string; items: MenuIte
     <div className="menu" ref={wrapRef}>
       <button
         ref={triggerRef}
+        className={small ? "small" : ""}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
@@ -179,7 +257,7 @@ export function Menu({ label = "More", items }: { label?: string; items: MenuIte
         {label}
       </button>
       {open && (
-        <div ref={popRef} role="menu" className={`menu-pop ${up ? "menu-up" : ""}`}>
+        <div ref={popRef} role="menu" className={`menu-pop ${up ? "menu-up" : ""} ${left ? "menu-left" : ""}`}>
           {items.map((item) => (
             <button
               key={item.label}

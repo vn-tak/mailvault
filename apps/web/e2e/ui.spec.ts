@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
+import { resetSeededAlias, resetSeededMail, SEEDED_ALIAS_ADDRESS } from "./fixtures";
 
 /*
  * Layout contract for the phone build. These assert the things that silently break a
@@ -58,47 +59,20 @@ async function popoverFits(menu: Locator, where: string) {
 }
 
 /*
- * Opening a message marks it read, and the local D1 survives between runs — so unread
- * assertions would depend on what a previous run did. Reset the two rows this suite
- * reasons about, from inside the page so the browser supplies the same-origin headers
- * the CSRF guard requires.
+ * Opening a message marks it read and archiving an alias takes it out of the default view,
+ * and the local D1 survives between runs — so both are reset before they are asserted on.
+ * See fixtures.ts.
  */
-const SEEDED_UNREAD = ["00000000-0000-4000-8000-0000000000m1", "00000000-0000-4000-8000-0000000000m3"];
-
 async function openInbox(page: Page) {
   await page.goto("/#/inbox");
-  await page.evaluate(async (ids) => {
-    for (const id of ids) {
-      const res = await fetch(`/api/messages/${id}/read`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json", "x-mailvault": "1" },
-        body: JSON.stringify({ isRead: false }),
-      });
-      if (!res.ok) throw new Error(`reset ${id}: ${res.status}`);
-    }
-  }, SEEDED_UNREAD);
+  await resetSeededMail(page);
   await page.reload();
   await expect(page.locator(".msg")).toHaveCount(5);
 }
 
-/*
- * Same problem, same cure, for the alias this test archives on purpose: a reused dev
- * server skips the seed, so a row left archived by a previous (failed) run would break
- * the next run for reasons that have nothing to do with the layout under test.
- */
-const SEEDED_ALIAS = "00000000-0000-4000-8000-00000000al01";
-const SEEDED_ALIAS_ADDRESS = "github-x9f2@demo.example";
-
 async function openAliases(page: Page) {
   await page.goto("/#/aliases");
-  await page.evaluate(async (id) => {
-    const res = await fetch(`/api/aliases/${id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json", "x-mailvault": "1" },
-      body: JSON.stringify({ archived: false, pinned: false }),
-    });
-    if (!res.ok) throw new Error(`reset alias ${id}: ${res.status}`);
-  }, SEEDED_ALIAS);
+  await resetSeededAlias(page);
   await page.reload();
   return page.locator(".entity").filter({ hasText: SEEDED_ALIAS_ADDRESS });
 }
@@ -263,17 +237,40 @@ test("desktop: the same inbox markup grids into a two-line mail row", async ({ p
   await page.screenshot({ path: "e2e-screens/inbox-desktop.png" });
 });
 
-test("phone: secondary actions sit behind More instead of crowding the row @mobile", async ({ page }) => {
+test("phone: a row's actions stay folded until it is engaged @mobile", async ({ page }) => {
   const row = await openAliases(page);
   await expect(row).toHaveCount(1);
+  const fold = row.locator(".entity-actions");
 
-  // Copy · Detail · Inbox · Disable · More — the rest is one tap away, not four buttons wide.
-  await expect(row.locator(".entity-actions > button, .entity-actions > div")).toHaveCount(5);
+  // Resting state: the list is addresses and counts, not a wall of buttons.
+  await expect(fold).toBeHidden();
+  await expect(row.locator(".entity-toggle")).toHaveAttribute("aria-expanded", "false");
+
+  await row.locator(".entity-summary").click();
+  await expect(fold).toBeVisible();
+  await expect(row.locator(".entity-toggle")).toHaveAttribute("aria-expanded", "true");
+  // Copy · Mail here · Disable · More — the rarer actions are one tap deeper still.
+  await expect(row.locator(".entity-actions > button, .entity-actions > div")).toHaveCount(4);
   await expect(row.getByRole("button", { name: "Archive" })).toHaveCount(0);
+
+  // Folding is a tap away in both directions, so a mis-tap is not sticky.
+  await row.locator(".entity-summary").click();
+  await expect(fold).toBeHidden();
+
+  // Keyboard: focusing a folded control must unfold it, never walk into an invisible button.
+  await row.locator(".entity-summary").click();
+  await row.getByRole("button", { name: "Copy" }).focus();
+  await expect(fold).toBeVisible();
+});
+
+test("phone: the More menu inside an engaged row still clears the tab bar @mobile", async ({ page }) => {
+  const row = await openAliases(page);
+  await expect(row).toHaveCount(1);
+  await row.locator(".entity-summary").click();
 
   await row.getByRole("button", { name: "More" }).click();
   const menu = row.getByRole("menu");
-  await expect(menu.getByRole("menuitem")).toHaveCount(3);
+  await expect(menu.getByRole("menuitem")).toHaveCount(4);
   await expect(menu).not.toHaveClass(/menu-up/); // room below: open downwards
   await popoverFits(menu, "alias row");
 
@@ -284,6 +281,7 @@ test("phone: secondary actions sit behind More instead of crowding the row @mobi
   await page.getByRole("tab", { name: "Archived" }).click();
   const archived = page.locator(".entity").filter({ hasText: SEEDED_ALIAS_ADDRESS });
   await expect(archived).toHaveCount(1);
+  await archived.locator(".entity-summary").click();
 
   /*
    * The case the first version got wrong. The panel is ~150px tall and wants 16px of
@@ -315,6 +313,21 @@ test("phone: secondary actions sit behind More instead of crowding the row @mobi
   const flipped = archived.getByRole("menu");
   await expect(flipped).toHaveClass(/menu-up/);
   await popoverFits(flipped, "bottom row");
+
+  /*
+   * Found live, not locally: in a narrow window the chips wrap, so the More trigger lands
+   * at the row's left edge — and the panel, anchored to that trigger's right edge, hangs
+   * off-screen. It has to re-anchor to the left instead.
+   */
+  await page.setViewportSize({ width: 350, height: 900 });
+  // The row is still engaged; only the panel has to be reopened to be measured again.
+  await page.keyboard.press("Escape");
+  await expect(archived.getByRole("menu")).toHaveCount(0);
+  await trigger.click();
+  const narrow = archived.getByRole("menu");
+  await expect(narrow).toHaveClass(/menu-left/);
+  await popoverFits(narrow, "narrow window");
+
   await archived.getByRole("menuitem", { name: "Unarchive" }).click();
   await expect(archived).toHaveCount(0);
 });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MessageSummarySchema } from "./message";
+import { MailStatus } from "./enums";
 
 /** Structured error envelope returned by every API failure (section 30/47). */
 export const ApiErrorSchema = z.object({
@@ -53,6 +54,20 @@ export const MessageListQuerySchema = z.object({
 });
 export type MessageListQuery = z.infer<typeof MessageListQuerySchema>;
 
+/**
+ * One domain as the owner sees it: a mailbox with its own mail in it. Counts come
+ * straight from `messages`, so a mailbox can never claim mail it does not have.
+ */
+export const MailboxStatSchema = z.object({
+  domainId: z.string(),
+  name: z.string(),
+  mailStatus: z.nativeEnum(MailStatus),
+  total: z.number().int().nonnegative(),
+  unread: z.number().int().nonnegative(),
+  lastReceivedAt: z.string().nullable(),
+});
+export type MailboxStat = z.infer<typeof MailboxStatSchema>;
+
 export const DashboardStatsSchema = z.object({
   activeDomains: z.number().int().nonnegative(),
   totalDomains: z.number().int().nonnegative(),
@@ -60,6 +75,7 @@ export const DashboardStatsSchema = z.object({
   unreadMessages: z.number().int().nonnegative(),
   totalMessages: z.number().int().nonnegative(),
   recentMessages: z.array(MessageSummarySchema).default([]),
+  mailboxes: z.array(MailboxStatSchema).default([]),
 });
 export type DashboardStats = z.infer<typeof DashboardStatsSchema>;
 

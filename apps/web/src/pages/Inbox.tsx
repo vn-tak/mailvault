@@ -3,19 +3,20 @@ import { api } from "../lib/api";
 import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime, senderName } from "../lib/format";
+import { arrivalLabel, selectableMailboxes } from "../lib/mailboxes";
 import { ErrorBanner, Loading } from "../components/ui";
 import { AuthVerdict, type MessageSummary } from "@mailvault/shared";
 
 const PAGE = 50;
 
-function MsgItem({ m }: { m: MessageSummary }) {
+function MsgItem({ m, scoped }: { m: MessageSummary; scoped: boolean }) {
   return (
     <li className={`msg ${m.isRead ? "" : "unread"}`}>
       <Link to={`/messages/${m.id}`}>
         <span className="msg-sender">{senderName(m.headerFrom, m.envelopeFrom)}</span>
         <span className="msg-time">{relativeTime(m.receivedAt)}</span>
         <span className="msg-subject">{m.subject || "(no subject)"}</span>
-        <span className="msg-alias">{m.aliasLabel || m.aliasAddress}</span>
+        <span className="msg-alias">{arrivalLabel(m, scoped)}</span>
         {m.preview ? <span className="msg-preview">{m.preview}</span> : null}
         <span className="msg-badges">
           {m.authVerdict === AuthVerdict.Spoofed ? (
@@ -51,6 +52,16 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
   );
 
   const { data, error, loading, reload } = useAsync(() => api.listMessages(query), [query]);
+  const { data: domainPage } = useAsync(() => api.listDomains(), []);
+
+  const mailboxes = useMemo(
+    () =>
+      selectableMailboxes(
+        (domainPage?.items ?? []).map((d) => ({ domainId: d.id, name: d.name, mailStatus: d.mailStatus })),
+        domainId,
+      ),
+    [domainPage, domainId],
+  );
 
   useEffect(() => {
     setOffset(0);
@@ -66,13 +77,16 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
   const hasNext = data ? offset + PAGE < total : false;
 
   const scope = aliasId || domainId || search || unreadOnly;
+  // Inside one mailbox every row arrived at the same domain, so repeating it would be
+  // noise; across all of them it is the one fact that tells the rows apart.
+  const scoped = !!(aliasId || domainId);
 
   return (
     <div className="page">
       <div className="page-head">
         <h1>Inbox</h1>
         <div className="actions">
-          <button onClick={reload}>
+          <button className="ghost small" onClick={reload}>
             Refresh
           </button>
         </div>
@@ -89,16 +103,29 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
             Unread
           </button>
         </div>
+        {/* One mailbox at a time, because mail for different domains arriving in one
+            undifferentiated pile is the complaint this answers. An alias view is already
+            inside one mailbox, so it does not get a second selector. */}
+        {!aliasId && (
+          <select
+            className="mailbox-select"
+            aria-label="Mailbox"
+            value={domainId ?? ""}
+            onChange={(e) => navigate(e.target.value ? `/inbox?domain=${e.target.value}` : "/inbox")}
+          >
+            <option value="">All mailboxes</option>
+            {mailboxes.map((m) => (
+              <option key={m.domainId} value={m.domainId}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        )}
         <input className="search" placeholder="Search subject, preview, sender, OTP code, alias…" value={q} onChange={(e) => setQ(e.target.value)} />
         <button type="submit">Search</button>
         {aliasId && (
           <button type="button" className="ghost small" onClick={() => navigate("/inbox")}>
             Clear alias filter ✕
-          </button>
-        )}
-        {domainId && !aliasId && (
-          <button type="button" className="ghost small" onClick={() => navigate("/inbox")}>
-            Clear domain filter ✕
           </button>
         )}
       </form>
@@ -117,7 +144,7 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
           <div className="card card--flush">
             <ul className="msglist">
               {data.items.map((m) => (
-                <MsgItem key={m.id} m={m} />
+                <MsgItem key={m.id} m={m} scoped={scoped} />
               ))}
             </ul>
           </div>
@@ -126,10 +153,10 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
               Showing {offset + 1}–{Math.min(offset + PAGE, total)} of {total}
             </span>
             <div className="row">
-              <button disabled={!hasPrev} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
+              <button className="small" disabled={!hasPrev} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
                 ← Newer
               </button>
-              <button disabled={!hasNext} onClick={() => setOffset(offset + PAGE)}>
+              <button className="small" disabled={!hasNext} onClick={() => setOffset(offset + PAGE)}>
                 Older →
               </button>
             </div>
