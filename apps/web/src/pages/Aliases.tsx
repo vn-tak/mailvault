@@ -15,7 +15,7 @@ import { withStepUp } from "../lib/passkeys";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
 import { localPartPhrases, t } from "../lib/i18n";
-import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Menu, Modal, Row, useOpenRow } from "../components/ui";
+import { ConfirmDialog, CopyButton, EmptyState, ErrorBanner, Menu, Modal, Row, SkeletonList, useOpenRow } from "../components/ui";
 import { AddressReuseCard, RulesCard } from "../components/RulesCard";
 
 function describeError(e: unknown): string {
@@ -212,7 +212,10 @@ export function Aliases({ openNew }: { openNew: boolean }) {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>{t("aliases.title")}</h1>
+        <div>
+          <span className="eyebrow">{t("aliases.eyebrow")}</span>
+          <h1>{t("aliases.title")}</h1>
+        </div>
         <div className="actions">
           <button className="primary" onClick={() => setShowNew(true)}>
             {t("dash.newAlias")}
@@ -234,7 +237,7 @@ export function Aliases({ openNew }: { openNew: boolean }) {
         </div>
       </div>
 
-      {loading && !data && <Loading />}
+      {loading && !data && <SkeletonList rows={4} />}
       {data && data.items.length === 0 && (
         <Empty q={q} onCreate={() => setShowNew(true)} />
       )}
@@ -337,16 +340,17 @@ export function Aliases({ openNew }: { openNew: boolean }) {
 
 function Empty({ q, onCreate }: { q: string; onCreate: () => void }) {
   return (
-    <div className="empty">
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>{t(q ? "aliases.emptySearch" : "aliases.emptyTitle")}</div>
-      <div className="muted" style={{ marginBottom: 14 }}>
-        {t(q ? "aliases.emptySearchHint" : "aliases.emptyHint")}
-      </div>
-      {!q && (
-        <button className="primary" onClick={onCreate}>
-          {t("dash.newAlias")}
-        </button>
-      )}
-    </div>
+    <EmptyState
+      art={q ? "search" : "alias"}
+      title={t(q ? "aliases.emptySearch" : "aliases.emptyTitle")}
+      hint={t(q ? "aliases.emptySearchHint" : "aliases.emptyHint")}
+      action={
+        q ? null : (
+          <button className="primary" onClick={onCreate}>
+            {t("dash.newAlias")}
+          </button>
+        )
+      }
+    />
   );
 }

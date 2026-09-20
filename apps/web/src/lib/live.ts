@@ -7,6 +7,8 @@
  * ignored rather than interpreted.
  */
 
+import { useEffect, useState } from "react";
+
 export const NEW_MAIL_EVENT = "mailvault:new-mail";
 const PING_EVERY_MS = 25_000;
 const MAX_BACKOFF_MS = 30_000;
@@ -37,6 +39,38 @@ export interface LiveHandle {
 }
 
 /**
+ * Whether this tab is currently listening. Surfaced in the shell so "the inbox refreshes
+ * itself" is a claim the owner can check rather than a promise they have to trust; a socket
+ * that fell over silently would look exactly like one that is working.
+ */
+export type LiveStatus = "connecting" | "live" | "idle";
+
+let status: LiveStatus = "connecting";
+const watchers = new Set<() => void>();
+
+function setStatus(next: LiveStatus): void {
+  if (status === next) return;
+  status = next;
+  for (const fn of watchers) fn();
+}
+
+export function liveStatus(): LiveStatus {
+  return status;
+}
+
+export function useLiveStatus(): LiveStatus {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const bump = () => force((n) => n + 1);
+    watchers.add(bump);
+    return () => {
+      watchers.delete(bump);
+    };
+  }, []);
+  return status;
+}
+
+/**
  * Connect and keep trying. A dropped socket is not an error worth surfacing: the inbox is
  * still correct, it just stops refreshing itself until the next attempt.
  */
@@ -57,6 +91,7 @@ export function connectLive(): LiveHandle {
     }
     socket.onopen = () => {
       attempts = 0;
+      setStatus("live");
       heartbeat = setInterval(() => {
         if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "ping" }));
       }, PING_EVERY_MS);
@@ -69,6 +104,7 @@ export function connectLive(): LiveHandle {
     socket.onclose = () => {
       if (heartbeat) clearInterval(heartbeat);
       heartbeat = null;
+      setStatus(closed ? "idle" : "connecting");
       schedule();
     };
     socket.onerror = () => socket?.close();
@@ -86,6 +122,7 @@ export function connectLive(): LiveHandle {
   return {
     stop() {
       closed = true;
+      setStatus("idle");
       if (retry) clearTimeout(retry);
       if (heartbeat) clearInterval(heartbeat);
       socket?.close();

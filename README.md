@@ -31,7 +31,8 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Mailbox rules (file/tag on sender or subject) + who-holds-my-address report | ✅ 12 tests |
 | Semantic search (Workers AI + Vectorize) behind an explicit opt-in that defaults to off | ✅ 10 tests |
 | Vietnamese interface with an English fallback, chosen in Settings and remembered (also for the new-mail notification) | ✅ E2E at 412px |
-| Unit + integration tests (246 passing: worker 165, web 81) | ✅ Green |
+| Interface redesign: graphite + paper themes, self-hosted Manrope/JetBrains Mono, icon nav, sender monograms, authentication rail per row, skeletons, motion | ✅ 27 E2E + AA contrast guard |
+| Unit + integration tests (250 passing: worker 165, web 85) | ✅ Green |
 | Playwright E2E (27 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 

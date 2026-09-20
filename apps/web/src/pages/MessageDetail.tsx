@@ -7,7 +7,7 @@ import { formatBytes, fullTime, senderName } from "../lib/format";
 import { t } from "../lib/i18n";
 import { MessageHtml } from "../components/MessageHtml";
 import { TextBody } from "../components/TextBody";
-import { ConfirmDialog, CopyButton, ErrorBanner, Loading } from "../components/ui";
+import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Monogram } from "../components/ui";
 import { AuthVerdict, type ExtractedCode, type MessageAuth, type VerificationLink } from "@mailvault/shared";
 
 function byConfidence(a: ExtractedCode, b: ExtractedCode): number {
@@ -97,25 +97,19 @@ function AuthBanner({ verdict, auth }: { verdict: AuthVerdict; auth: MessageAuth
   // Mail stored before authentication existed has nothing to report; saying "not
   // verified" every time would train the owner to ignore the real warning.
   if (!auth && verdict !== AuthVerdict.Spoofed) return null;
-  if (verdict === AuthVerdict.Trusted) {
-    return (
-      <div className="banner ok mt" style={{ fontSize: 13 }}>
-        {t("msg.authTrusted", { what: outcomeLabel(auth) })}
-      </div>
-    );
-  }
-  if (verdict === AuthVerdict.Spoofed) {
-    return (
-      <div className="banner error mt" style={{ fontSize: 13 }}>
-        <strong>{t("msg.authSpoofed")}</strong>
-        <div style={{ marginTop: 4 }}>{outcomeLabel(auth)}</div>
-        {auth?.reasons.length ? <div className="faint">{t("msg.authWhy", { reasons: auth.reasons.join("; ") })}</div> : null}
-      </div>
-    );
-  }
+  const head =
+    verdict === AuthVerdict.Trusted ? "msg.authTrusted" : verdict === AuthVerdict.Spoofed ? "msg.authSpoofed" : "msg.authUnverified";
+  const cls = verdict === AuthVerdict.Trusted ? "trusted" : verdict === AuthVerdict.Spoofed ? "spoofed" : "unverified";
   return (
-    <div className="banner mt" style={{ fontSize: 13 }}>
-      {t("msg.authUnverified", { what: outcomeLabel(auth) })}
+    <div className={`ribbon ${cls} mt`} role="status">
+      <span className="dot" aria-hidden="true" />
+      <span className="ribbon-body">
+        <span className="head">{t(head)}</span>
+        <span className="detail">{outcomeLabel(auth)}</span>
+        {verdict === AuthVerdict.Spoofed && auth?.reasons.length ? (
+          <span className="detail">{t("msg.authWhy", { reasons: auth.reasons.join("; ") })}</span>
+        ) : null}
+      </span>
     </div>
   );
 }
@@ -179,19 +173,24 @@ export function MessageDetail({ id }: { id: string }) {
           <div className="card">
             <div className="detail-head">
               <div style={{ minWidth: 0, flex: 1 }}>
-                <h1 style={{ marginBottom: 6 }}>{data.subject || t("inbox.noSubject")}</h1>
-                <div className="row wrap" style={{ gap: "4px 16px", fontSize: 13 }}>
-                  <span className="muted">
-                    {t("msg.from")} <strong style={{ color: "var(--text)" }}>{senderName(data.headerFrom, data.envelopeFrom)}</strong>
-                    <span className="faint addr"> {data.envelopeFrom}</span>
-                  </span>
-                  <span className="muted">
-                    {t("msg.to")} <span className="addr">{data.headerTo || data.aliasAddress}</span>
-                  </span>
-                </div>
-                <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
-                  {fullTime(data.receivedAt)}
-                  {data.aliasLabel ? ` · ${data.aliasLabel}` : ""} {t("msg.arrivedAt", { address: data.aliasAddress })}
+                <div className="subject-head">
+                  <Monogram name={senderName(data.headerFrom, data.envelopeFrom)} large />
+                  <div style={{ minWidth: 0 }}>
+                    <h1 style={{ marginBottom: 6 }}>{data.subject || t("inbox.noSubject")}</h1>
+                    <div className="subject-meta">
+                      <span className="who">
+                        {senderName(data.headerFrom, data.envelopeFrom)}
+                        <span className="addr"> · {data.envelopeFrom}</span>
+                      </span>
+                      <span>
+                        {t("msg.to")} <span className="addr">{data.headerTo || data.aliasAddress}</span>
+                      </span>
+                      <span>
+                        {fullTime(data.receivedAt)}
+                        {data.aliasLabel ? ` · ${data.aliasLabel}` : ""} {t("msg.arrivedAt", { address: data.aliasAddress })}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="row wrap actions-cell">

@@ -1,0 +1,852 @@
+/*
+ * Components. Every rule here reads from tokens.css — a colour, size or curve that is not
+ * a token does not belong in this file.
+ */
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+
+button,
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font: 650 var(--text-sm)/1.1 var(--font-ui);
+  letter-spacing: -0.005em;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 14px;
+  min-height: 38px;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: var(--edge);
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+button:hover:not(:disabled) { background: var(--surface-3); border-color: var(--border-strong); text-decoration: none; }
+button:active:not(:disabled) { transform: translateY(1px) scale(0.99); }
+button:disabled { opacity: 0.45; cursor: default; }
+
+/*
+ * Primary is the light end of the scale, not a coloured fill: the only saturated colour in
+ * this interface is jade, and jade must keep meaning "verified". A blue gradient button
+ * would be decoration that competes with the one fact worth colouring.
+ */
+button.primary {
+  background: var(--primary);
+  border-color: transparent;
+  color: var(--primary-ink);
+  font-weight: 750;
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgb(255 255 255 / 0.22);
+}
+button.primary:hover:not(:disabled) { background: var(--primary-press); border-color: transparent; }
+
+button.danger { background: transparent; border-color: var(--danger-line); color: var(--danger); }
+button.danger:hover:not(:disabled) { background: var(--danger-tint); border-color: var(--danger-line); }
+
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); box-shadow: none; }
+button.ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+
+button.small { padding: 6px 10px; font-size: var(--text-xs); min-height: 30px; border-radius: var(--radius-sm); }
+button.block { width: 100%; }
+
+/* A button that is working should not look idle. */
+button[aria-busy="true"]::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.6;
+  animation: spin var(--dur-3) linear infinite;
+}
+
+/* ── Fields ────────────────────────────────────────────────────────────── */
+
+/*
+ * Below 16px iOS Safari zooms the whole page when an input is focused, which is how a mail
+ * client ends up looking sideways. Inputs therefore never inherit a small size.
+ */
+input, select, textarea {
+  font: inherit;
+  font-size: 16px;
+  color: var(--text);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  width: 100%;
+  min-height: var(--tap);
+  transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+}
+input::placeholder, textarea::placeholder { color: var(--faint); }
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--border-strong); }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+textarea { resize: vertical; line-height: var(--leading-body); }
+
+label { display: block; font-size: var(--text-xs); font-weight: 700; color: var(--muted); margin-bottom: 5px; }
+.field { min-width: 0; }
+/* Why a name was refused, next to the field rather than in a banner after the click. */
+.field-problem { font-size: var(--text-xs); font-weight: 650; color: var(--danger); margin-top: 5px; }
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 3px rgb(255 122 122 / 0.16); }
+
+/* A select that looks like one: the browser default arrow is invisible on a dark field. */
+select {
+  appearance: none;
+  padding-right: 34px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) calc(50% + 1px), calc(100% - 13px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+select option { background: var(--surface); color: var(--text); }
+
+input[type="checkbox"] {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  flex: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--sunken);
+  display: inline-grid;
+  place-content: center;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+input[type="checkbox"]:checked::after {
+  content: "";
+  width: 11px;
+  height: 6px;
+  margin-top: -2px;
+  border: 2px solid var(--accent-ink);
+  border-top: 0;
+  border-right: 0;
+  transform: rotate(-45deg);
+}
+
+.search-wrap { position: relative; display: flex; min-width: 0; }
+.toolbar .search-wrap { flex: 1 1 220px; }
+/* The hint is only worth showing where a keyboard exists. */
+.search-hint {
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  pointer-events: none;
+}
+@media (hover: hover) and (min-width: 700px) {
+  .search-hint { display: block; }
+}
+
+.search {
+  padding-left: 38px;
+  background-image: var(--icon-search);
+  background-repeat: no-repeat;
+  background-position: 12px center;
+  background-size: 16px 16px;
+}
+
+/* ── Surfaces ──────────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  box-shadow: var(--shadow-1), var(--edge);
+  overflow: hidden;
+}
+.card--flush { padding: 0; overflow: visible; }
+.card > :first-child { margin-top: 0; }
+.card > :last-child { margin-bottom: 0; }
+
+.list-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px var(--space-2);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+}
+.list-head h2 { margin: 0; font-size: var(--text-lg); }
+.list-head .head-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* ── Status vocabulary ─────────────────────────────────────────────────── */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-2xs);
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.pill.ready, .pill.accent { color: var(--ok); border-color: var(--ok-line); background: var(--ok-tint); }
+.pill.conflict { color: var(--warn); border-color: var(--warn-line); background: var(--warn-tint); }
+.pill.error { color: var(--danger); border-color: var(--danger-line); background: var(--danger-tint); }
+.pill.neutral { color: var(--muted); background: var(--surface-2); }
+/* A status is a fact, so it gets a dot that carries the same colour as the text. */
+.pill.ready::before, .pill.conflict::before, .pill.error::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badge {
+  font-size: var(--text-2xs);
+  font-weight: 650;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* A detected code is the payload of the message: it gets the loudest small thing here. */
+.badge.mono {
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  background: var(--accent-tint);
+  border-color: var(--ok-line);
+}
+.addr { font-size: var(--text-sm); overflow-wrap: anywhere; }
+
+.chipset { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--space-1); }
+.chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 5px 11px;
+  color: var(--muted);
+  transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.chip:hover { text-decoration: none; color: var(--text); border-color: var(--accent); background: var(--accent-tint); }
+
+.banner {
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+  animation: rise var(--dur-2) var(--ease-out) both;
+}
+.banner.error { color: var(--danger); border-color: var(--danger-line); background: var(--danger-tint); }
+.banner.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-tint); }
+
+/* ── Controls row ──────────────────────────────────────────────────────── */
+
+/*
+ * Filters share lines instead of stacking one control per row: tabs and the mailbox picker
+ * on the first line, search and its button on the next. A grid with fixed slots put every
+ * control on its own row, which cost the list ~90px of chrome before any mail appeared.
+ */
+.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: var(--space-2); }
+.toolbar .tabs { flex: 0 0 auto; }
+.toolbar .search { flex: 1 1 220px; min-width: 0; }
+.toolbar button[type="submit"] { flex: 0 0 auto; }
+/* The mailbox picker gets whatever width is left; a truncated domain name is still
+   selectable, and it never pushes the search box onto a third line by itself. The small
+   basis is deliberate: a flex line breaks on base sizes before anything shrinks, so a
+   190px basis pushed the picker onto its own row as soon as the tab labels were wide
+   enough (which they are under Linux's default font, where this test failed). */
+.toolbar .mailbox-select { flex: 1 1 110px; min-width: 0; width: auto; }
+
+/* The inbox filters stay reachable while scrolling a long list of mail. */
+.toolbar--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 8px 0;
+  margin: 0 calc(var(--space-2) * -1) var(--space-2);
+  padding-inline: var(--space-2);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(1.3);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--dur-2) var(--ease-out);
+}
+.toolbar--sticky:has(+ *) { border-bottom-color: var(--border-soft); }
+
+/*
+ * Wrapping, not scrolling: five filters do not fit one line on a handset, and a strip that
+ * scrolls without a scrollbar hides a control the owner cannot see to look for.
+ */
+.tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+}
+.tabs button {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  min-height: 40px;
+  padding: 0 13px;
+  white-space: nowrap;
+  color: var(--muted);
+  box-shadow: none;
+}
+.tabs button:hover:not(.active) { background: var(--surface-2); color: var(--text); }
+.tabs button.active {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 750;
+  box-shadow: var(--shadow-1), inset 0 0 0 1px var(--border);
+}
+
+/* ── Monogram ──────────────────────────────────────────────────────────── */
+
+/*
+ * A mail list is scanned by sender far more than by subject, and a wall of identical text
+ * columns makes that slow. The monogram is generated from the name — no image, no network,
+ * nothing that could be spoofed into showing a brand's real logo.
+ */
+.mono-avatar {
+  display: grid;
+  place-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--av-ink, var(--text));
+  background: var(--av-bg, var(--surface-2));
+  border: 1px solid var(--av-line, var(--border));
+  flex: none;
+  user-select: none;
+}
+.mono-avatar--lg { width: 46px; height: 46px; border-radius: 14px; font-size: 17px; }
+
+/* ── Message list ──────────────────────────────────────────────────────── */
+
+/*
+ * One markup, two layouts. On a phone a row is a stacked card; from 700px the same
+ * elements grid into a two-line email row, because that is how people scan mail.
+ */
+.msglist { list-style: none; margin: 0; padding: 0; }
+.msg { border-bottom: 1px solid var(--border-soft); }
+.msg:last-child { border-bottom: 0; }
+.msg > a {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "who time"
+    "subject subject"
+    "preview preview"
+    "alias badges";
+  gap: 2px 11px;
+  padding: 12px var(--space-2);
+  color: inherit;
+  text-align: left;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+.msg > a:hover { text-decoration: none; background: var(--surface-2); }
+.msg:has(> a:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.msg > a:hover .msg-subject { color: var(--text); }
+
+/* The authentication verdict is the one fact worth painting on the row itself. */
+.msg { position: relative; }
+.msg::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+.msg[data-verdict="TRUSTED"]::after { background: var(--ok); }
+.msg[data-verdict="UNVERIFIED"]::after { background: var(--warn); }
+.msg[data-verdict="SPOOFED"]::after { background: var(--danger); }
+
+/* Sender is one unit: the monogram and the name read together, at both widths. */
+.msg-who { grid-area: who; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.msg-avatar { flex: none; }
+.msg-sender { min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-time {
+  grid-area: time;
+  justify-self: end;
+  color: var(--faint);
+  font-size: var(--text-2xs);
+  font-weight: 650;
+  white-space: nowrap;
+  align-self: center;
+}
+.msg-subject {
+  grid-area: subject;
+  min-width: 0;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-preview {
+  grid-area: preview;
+  color: var(--faint);
+  font-size: var(--text-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.msg-alias {
+  grid-area: alias;
+  align-self: center;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-badges {
+  grid-area: badges;
+  justify-self: end;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.msg.unread { background: color-mix(in srgb, var(--accent-tint) 55%, transparent); }
+.msg.unread .msg-subject { color: var(--text); font-weight: 700; }
+.msg.unread .msg-sender { font-weight: 800; }
+.msg.unread .msg-time { color: var(--accent); }
+/* The unread mark sits in the gutter so the text column stays aligned with read rows. */
+.msg.unread > a::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* A row that arrived while the tab was open announces itself once, then settles. */
+.msg.is-live { animation: sweep var(--dur-3) var(--ease-out) 1; }
+
+/* ── Entity rows (aliases, domains) ────────────────────────────────────── */
+
+/*
+ * One entity per block. The row's identity is always on screen and its actions are folded
+ * until the row is engaged: five full-size buttons per alias made the list of things
+ * busier than the things. One markup for both lists and both widths.
+ */
+.entity { border-bottom: 1px solid var(--border-soft); padding: 12px var(--space-2); transition: background-color var(--dur-1) var(--ease-out); }
+.entity:last-child { border-bottom: 0; }
+.entity:is(:hover, .is-open) { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.entity-summary { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 10px; cursor: pointer; }
+.entity-id { min-width: 0; display: grid; gap: 3px; }
+.entity-title { display: flex; align-items: baseline; gap: 10px; justify-content: space-between; }
+.entity-name { font-weight: 750; letter-spacing: -0.01em; min-width: 0; overflow-wrap: anywhere; }
+.entity-addr { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.entity-note {
+  color: var(--faint);
+  font-size: var(--text-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.entity.is-open .entity-note { display: block; -webkit-line-clamp: unset; line-clamp: unset; }
+.entity-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--text-2xs); font-weight: 600; color: var(--muted); }
+.entity-toggle {
+  flex: 0 0 auto;
+  align-self: start;
+  font-size: 17px;
+  line-height: 1;
+  letter-spacing: 1.5px;
+  padding: 6px 9px;
+  color: var(--faint);
+}
+.entity-toggle[aria-expanded="true"] { color: var(--text); background: var(--surface-3); }
+
+/* `0fr` rather than `display: none`, so the folded controls keep their tab order and
+   `:focus-within` can unfold them — see components/ui.tsx:Row. */
+.entity-fold { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--dur-2) var(--ease-out), opacity var(--dur-1) var(--ease-out); }
+.entity-actions { display: flex; flex-wrap: wrap; gap: 8px; min-height: 0; overflow: hidden; }
+.entity-actions > * { flex: 0 0 auto; text-align: center; }
+/* A select is not a button: it must not stretch to the row's width, but it keeps the
+   16px text that stops iOS Safari from zooming the page when it is focused. */
+.entity-actions select { width: auto; min-height: 38px; padding: 6px 30px 6px 10px; font-size: 16px; }
+/*
+ * The air above the actions, and the end of clipping, both belong to the *revealed*
+ * state. Padding on the clipped element would keep a 10px hole open while folded (a
+ * border-box height of 0 plus 10px of padding is 10px of box), and an always-clipping box
+ * would cut off the More menu's popover — the failure mode where the DOM reports success
+ * and the owner sees nothing.
+ */
+.entity:is(.is-open, :focus-within) > .entity-fold > .entity-actions { padding-top: 11px; overflow: visible; }
+@media (hover: hover) {
+  .entity:hover > .entity-fold > .entity-actions { padding-top: 11px; overflow: visible; }
+}
+.entity.is-open > .entity-fold,
+.entity:focus-within > .entity-fold { grid-template-rows: 1fr; opacity: 1; }
+@media (hover: hover) {
+  .entity:hover > .entity-fold { grid-template-rows: 1fr; opacity: 1; }
+}
+.entity-details { margin-top: 6px; animation: rise var(--dur-2) var(--ease-out) both; }
+
+/* ── Popovers ──────────────────────────────────────────────────────────── */
+
+/* Row actions that do not deserve a button each. Anchored to the row, so the card must
+   not clip it; `menu-up` flips it when the row sits near the bottom of the screen. */
+.menu { position: relative; flex: 0 0 auto; }
+.menu-pop {
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 196px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+  transform-origin: top right;
+  animation: pop var(--dur-1) var(--spring) both;
+}
+.menu-pop.menu-up { top: auto; bottom: calc(100% + 6px); transform-origin: bottom right; }
+/* Anchored to the trigger's right edge, unless that would push the panel off the left of
+   a narrow window — then it anchors to the left edge instead. */
+.menu-pop.menu-left { right: auto; left: 0; transform-origin: top left; }
+.menu-pop button {
+  justify-content: flex-start;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  min-height: var(--tap);
+  box-shadow: none;
+  font-weight: 650;
+}
+.menu-pop button:hover:not(:disabled) { background: var(--surface-3); }
+.menu-pop button.danger { color: var(--danger); }
+.menu-pop button.danger:hover:not(:disabled) { background: var(--danger-tint); }
+
+/* ── Sheets and dialogs ────────────────────────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(4 6 10 / 0.66);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  z-index: 50;
+  animation: fade var(--dur-2) var(--ease-out) both;
+}
+/* Phone: a bottom sheet within thumb reach, scrollable, home-indicator safe. */
+.modal {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: var(--space-3) var(--space-2) calc(var(--space-3) + env(safe-area-inset-bottom));
+  width: 100%;
+  max-width: 580px;
+  max-height: 88dvh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-3);
+  animation: sheet var(--dur-3) var(--ease-out) both;
+}
+.modal h2 { margin-bottom: var(--space-2); }
+.modal .field { margin-bottom: var(--space-2); }
+.modal .row-end { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.modal .row-end button { flex: 1 1 auto; min-height: var(--tap); }
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+
+.table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+th {
+  text-align: left;
+  color: var(--faint);
+  font-weight: 800;
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--track-eyebrow);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+td { padding: 12px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+/* ── Reading surfaces ──────────────────────────────────────────────────── */
+
+/* Reading view: on a phone the actions belong under the addressing, not beside it. */
+.detail-head { display: flex; flex-direction: column; gap: var(--space-2); }
+.detail-head > :first-child { min-width: 0; flex: 1; }
+
+/*
+ * An OTP is the only thing in a message worth displaying large, and the only thing worth
+ * copying without selecting. It sits in a well so it reads as data, not as prose.
+ */
+.code-card {
+  position: relative;
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+.code-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(var(--accent), var(--accent-dim));
+}
+.code-card .code {
+  font-family: var(--font-mono);
+  font-size: var(--text-code);
+  font-weight: 700;
+  line-height: var(--leading-tight);
+  letter-spacing: 0.06em;
+  overflow-wrap: anywhere;
+}
+.code-card button { min-height: var(--tap); padding: 9px 16px; }
+
+/*
+ * Verification links: the address itself is the thing being judged, so it is shown in
+ * full and wraps rather than scrolling. The action row out-specifies `button.small`
+ * because a 30px target on a phone is not a target.
+ */
+.link-card { display: flex; flex-direction: column; gap: 9px; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.link-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.link-title { font-weight: 750; }
+.link-host { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--muted); overflow-wrap: anywhere; }
+.link-via { font-size: var(--text-xs); font-weight: 650; color: var(--warn); }
+.link-url {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+.link-card .row > button, .link-card .row > a {
+  min-height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+/*
+ * text/plain, block by block: paragraphs flow, indented blocks keep their columns and
+ * scroll inside themselves instead of widening the page.
+ */
+.text-body {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+.text-para { margin: 0 0 var(--space-2); }
+.text-body > :last-child { margin-bottom: 0; }
+.text-link { color: var(--accent); text-decoration: underline; overflow-wrap: anywhere; }
+.text-plain {
+  margin: 0 0 var(--space-2);
+  padding: 10px 12px;
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.email-frame { width: 100%; height: clamp(320px, 62dvh, 640px); border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
+
+.attach { display: flex; align-items: center; gap: 10px; padding: 10px var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--sunken); flex-wrap: wrap; transition: border-color var(--dur-1) var(--ease-out); }
+.attach:hover { border-color: var(--border-strong); }
+.attach > span:first-child { flex: 1 1 60%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.attach a { min-height: var(--tap); display: inline-flex; align-items: center; padding: 8px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-weight: 650; }
+
+.pager { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
+.pager button { min-height: var(--tap); }
+
+/* ── Mailboxes ─────────────────────────────────────────────────────────── */
+
+/* One domain, one box. The dashboard's leading content, because "where is my code from X"
+   is asked per domain, not across all of them. */
+.mailboxes { display: grid; gap: var(--space-1); grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); }
+.mailbox {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  padding: 12px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  box-shadow: var(--shadow-1), var(--edge);
+  overflow: hidden;
+  transition: transform var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+}
+.mailbox::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), transparent 70%);
+  opacity: 0;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+.mailbox:hover { text-decoration: none; border-color: var(--border-strong); background: var(--surface-2); transform: translateY(-1px); }
+.mailbox:hover::before { opacity: 1; }
+.mailbox-name { font-weight: 750; font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.mailbox-facts { display: flex; gap: 4px 12px; flex-wrap: wrap; font-size: var(--text-2xs); font-weight: 600; color: var(--muted); }
+
+.more-mailboxes { margin-top: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
+.more-mailboxes summary { cursor: pointer; min-height: 34px; font-weight: 650; }
+.more-mailboxes summary:hover { color: var(--text); }
+.more-mailboxes[open] summary { color: var(--text); }
+
+/* Counts that do not need a tile each. */
+.statline { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: var(--text-sm); color: var(--muted); }
+.statline strong { color: var(--text); font-weight: 750; }
+
+/* ── Feedback ──────────────────────────────────────────────────────────── */
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+.loading { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 30px 0; }
+
+/* Skeletons: the shape of what is coming, so the page does not jump when it lands. */
+.skeleton-list { display: grid; gap: var(--space-2); padding: var(--space-2); }
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  min-height: 14px;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 7%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.4s var(--ease-in-out) infinite;
+}
+.skeleton--row { height: 62px; border-radius: var(--radius); }
+.skeleton--text { height: 12px; }
+.skeleton--title { height: 20px; width: 55%; }
+.skeleton--wide { width: 92%; }
+
+.empty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+  color: var(--muted);
+  padding: var(--space-5) var(--space-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 45%, transparent);
+}
+.empty svg { color: var(--faint); margin-bottom: 4px; }
+.empty > strong { font-size: var(--text-lg); font-weight: 750; color: var(--text); }
+.empty .muted { font-size: var(--text-sm); max-width: 46ch; }
+.empty > button { margin-top: 8px; }
+
+/* A back affordance you can actually hit with a thumb. */
+.backrow { margin-bottom: var(--space-2); }
+.backlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap);
+  padding: 0 6px 0 0;
+  font-weight: 700;
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  transition: color var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+}
+.backlink:hover { color: var(--text); text-decoration: none; transform: translateX(-2px); }
+
+/* The transient confirmation on a copy control. */
+.is-copied { color: var(--ok) !important; border-color: var(--ok-line) !important; animation: pop var(--dur-2) var(--spring) both; }
+
+/* Phones with a finger on the glass: hit areas, not mouse pointers. */
+@media (pointer: coarse) {
+  button, .nav a, .tabs button { min-height: var(--tap); }
+  button.small { min-height: 36px; padding: 8px 12px; font-size: var(--text-sm); }
+  td, th { padding-block: 14px; }
+}

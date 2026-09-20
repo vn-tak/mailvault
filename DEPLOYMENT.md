@@ -148,6 +148,31 @@ of this system, so this addendum records the difference.
   commits**, and the `✅ Green on GitHub` row in README.md described the job's intent rather
   than its state; local gates were green throughout. The fix is in the same commit as this
   note, and the CI run for it is the record of it being green again.
+- **The interface was redesigned end to end** (`apps/web/src/styles/`, split into
+  tokens / base / components / screens / motion). One identity colour — jade, the same word
+  the app uses for a verified sender — status amber and rose, and primary actions taken from
+  the *paper* end of the scale instead of a coloured fill, so the only saturated hue on screen
+  always means something. New: a Graphite/Paper theme that follows the device unless told
+  otherwise, an icon tab bar and rail, sender monograms, a left rail on every message row
+  coloured by its authentication verdict, a dashboard vault band, skeletons in place of the
+  spinner, and a one-shot sweep on a row that arrived while the tab was open.
+  - **Fonts are bundled, not fetched.** The CSP allows `font-src 'self' data:`, and a mail
+    client that phoned a CDN on every open would contradict its own pitch. Manrope and
+    JetBrains Mono both ship the Vietnamese subset the interface needs (U+1EA0–U+1EF9).
+  - **Contrast is now a test, not an opinion** (`src/styles/contrast.test.ts`): it reads
+    tokens.css and asserts 12 real text/background pairs at WCAG AA in *both* themes, plus
+    that the three status colours are separated by hue rather than lightness — in the light
+    theme all three must sit dark to pass contrast, so lightness separates nothing. The first
+    run of it caught `--faint` failing AA in both themes (3.95:1 and 3.62:1).
+  - **A page-wide transform breaks measurement.** `.page` faded and translated in for 380ms
+    on every navigation; the More-menu geometry test went flaky because the element was still
+    moving when the popover was measured. It now rises 4px in 220ms — which also just feels
+    less sluggish — and the test measures the panel's real height instead of hard-coding a
+    clearance constant that had quietly gone stale.
+  - Everything the E2E contract measures was kept: class names, accessible names, the
+    four-column desktop row, the folded row, the popover flip. Two assertions were updated
+    where the design deliberately changed shape (the health dot is an element now; the
+    clearance is measured), not where it merely disagreed.
 - **Gates at this writing:** 103 tests (worker 81, web 22), 5 E2E; lint and typecheck clean.
   The five later slices — sender authentication, drift watchdog, FTS5 search, alias
   lifecycle, PWA + payload-free push — were each built, tested and deployed on

@@ -1,0 +1,165 @@
+/*
+ * Design tokens — the whole visual language lives here, nowhere else.
+ *
+ * The idea: MailVault is a private archive, not a dashboard. So the canvas is deep graphite
+ * with three lifts of surface, exactly one identity colour (jade — the same colour the app
+ * uses to say "this sender really is who it claims"), amber and rose reserved for warnings
+ * and danger, and primary actions taken from the *paper* end of the scale rather than a
+ * coloured fill, so the one saturated hue on screen always means something.
+ *
+ * Two themes, same token names. `graphite` is the default; `paper` is the same system
+ * inverted for daylight reading. Nothing in a component may hard-code a colour: if a shade
+ * is missing here, it gets added here first.
+ *
+ * Font choices are constrained by the product, not by taste: the interface is Vietnamese
+ * first, so both families must carry the full U+1EA0–U+1EF9 range (they do — latin-ext +
+ * vietnamese subsets), and the Worker's CSP allows `font-src 'self' data:`, so both are
+ * bundled from @fontsource rather than fetched from a CDN. A mail client that phoned home
+ * to Google on every open would be contradicting its own pitch.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Canvas: one hue (220°), five lifts. */
+  --bg: #0b0d12;
+  --surface: #12161f;
+  --surface-2: #19202b;
+  --surface-3: #222b39;
+  --sunken: #0e1219;
+  --border: #252e3d;
+  --border-soft: #1d2532;
+  --border-strong: #35415696;
+
+  --text: #e9edf5;
+  --muted: #97a2b5;
+  --faint: #8892a4;
+  --on-accent: #05130d;
+
+  /* The identity hue. Also the "verified" colour — deliberately the same fact. */
+  --accent: #35d6a4;
+  --accent-dim: #1f9f76;
+  --accent-ink: #05130d;
+  --accent-tint: #10322a;
+  --accent-glow: rgb(53 214 164 / 0.16);
+
+  --ok: #35d6a4;
+  --ok-tint: #0f2d26;
+  --ok-line: #1d5343;
+  --warn: #f0b429;
+  --warn-tint: #2c2310;
+  --warn-line: #5c4614;
+  --danger: #ff7a7a;
+  --danger-tint: #2e1618;
+  --danger-line: #5c2a2e;
+
+  /* Primary action = the light end of the scale, so it never competes with status colour. */
+  --primary: #e9edf5;
+  --primary-press: #cdd6e4;
+  --primary-ink: #0b0d12;
+
+  --font-ui: "Manrope Variable", "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-mono: var(--mono);
+
+  /* Type scale: a ~1.13 rhythm, fluid so a 360px screen and a 1440px one both sit well. */
+  --text-2xs: 11px;
+  --text-xs: clamp(12px, 11.6px + 0.2vw, 13px);
+  --text-sm: clamp(13px, 12.5px + 0.3vw, 15px);
+  --text-base: clamp(14.5px, 14px + 0.35vw, 16.5px);
+  --text-lg: clamp(16px, 15px + 0.5vw, 18.5px);
+  --text-h2: clamp(17.5px, 16.5px + 0.6vw, 21px);
+  --text-h1: clamp(22px, 19px + 1.2vw, 30px);
+  --text-display: clamp(34px, 28px + 2.6vw, 52px);
+  --text-code: clamp(28px, 24px + 2.4vw, 42px);
+
+  --leading-tight: 1.15;
+  --leading-body: 1.55;
+  --track-eyebrow: 0.09em;
+
+  --space-0: 4px;
+  --space-1: clamp(6px, 5px + 0.4vw, 10px);
+  --space-2: clamp(10px, 8px + 0.8vw, 16px);
+  --space-3: clamp(14px, 12px + 1vw, 22px);
+  --space-4: clamp(20px, 16px + 1.6vw, 34px);
+  --space-5: clamp(28px, 22px + 2.4vw, 52px);
+
+  --radius-sm: 9px;
+  --radius: 13px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  /* Tight and low: depth should be felt, not seen. */
+  --shadow-1: 0 1px 1px rgb(0 0 0 / 0.3), 0 2px 6px -2px rgb(0 0 0 / 0.36);
+  --shadow-2: 0 2px 4px rgb(0 0 0 / 0.28), 0 10px 24px -10px rgb(0 0 0 / 0.5);
+  --shadow-3: 0 18px 48px -16px rgb(0 0 0 / 0.7), 0 2px 8px rgb(0 0 0 / 0.4);
+  --shadow: var(--shadow-1);
+  /* The one flourish on every raised surface: a hairline of light along the top edge. */
+  --edge: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --ring: 0 0 0 3px var(--accent-glow);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --dur-1: 120ms;
+  --dur-2: 220ms;
+  --dur-3: 380ms;
+
+  /* Height of the mobile tab bar, plus whatever the device owes the home indicator. */
+  --tabbar-h: 62px;
+  --gutter-safe: calc(env(safe-area-inset-bottom, 0px) + var(--tabbar-h) + 16px);
+  --tap: 44px;
+  --rail-w: 236px;
+
+  /* A field icon, themed, without a second element in the markup. */
+  --icon-search: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238892a4' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.8-3.8'/%3E%3C/svg%3E");
+}
+
+/*
+ * Paper: the same system with the ink inverted. Warm-neutral rather than pure white,
+ * because a mail client is read for long stretches; the jade darkens to hold 4.5:1 on
+ * a light surface, which the graphite value would not.
+ */
+[data-theme="paper"] {
+  color-scheme: light;
+
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --surface-3: #e4e9f0;
+  --sunken: #f7f8fa;
+  --border: #dfe4ec;
+  --border-soft: #e9edf3;
+  --border-strong: #c3ccd9;
+
+  --text: #10151f;
+  --muted: #4d5663;
+  --faint: #616b7a;
+  --on-accent: #ffffff;
+
+  --accent: #087455;
+  --accent-dim: #087455;
+  --accent-ink: #ffffff;
+  --accent-tint: #e2f4ee;
+  --accent-glow: rgb(10 127 95 / 0.22);
+
+  --ok: #087455;
+  --ok-tint: #e6f5ef;
+  --ok-line: #b6e0d0;
+  --warn: #9a5a00;
+  --warn-tint: #fbf0dd;
+  --warn-line: #e8cfa4;
+  --danger: #b3261e;
+  --danger-tint: #fbe9e7;
+  --danger-line: #eec4bf;
+
+  --primary: #10151f;
+  --primary-press: #2a3342;
+  --primary-ink: #ffffff;
+
+  --shadow-1: 0 1px 1px rgb(16 21 31 / 0.05), 0 2px 6px -2px rgb(16 21 31 / 0.1);
+  --shadow-2: 0 2px 4px rgb(16 21 31 / 0.06), 0 10px 24px -12px rgb(16 21 31 / 0.18);
+  --shadow-3: 0 18px 44px -14px rgb(16 21 31 / 0.28), 0 2px 8px rgb(16 21 31 / 0.1);
+  --edge: inset 0 1px 0 rgb(255 255 255 / 0.8);
+  --icon-search: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23616b7a' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.8-3.8'/%3E%3C/svg%3E");
+}

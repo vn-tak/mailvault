@@ -5,7 +5,7 @@ import { withStepUp } from "../lib/passkeys";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
 import { t } from "../lib/i18n";
-import { ConfirmDialog, ErrorBanner, Loading, Menu, Modal, Row, StatusPill, useOpenRow } from "../components/ui";
+import { ConfirmDialog, EmptyState, ErrorBanner, Menu, Modal, Row, SkeletonList, StatusPill, useOpenRow } from "../components/ui";
 import { FILTERS, bucketOf, isRoutingNotEnabledReceipt, routingConsoleUrl, type Bucket } from "../lib/domains";
 import {
   AuthPolicy,
@@ -335,7 +335,10 @@ export function Domains() {
   return (
     <div className="page">
       <div className="page-head">
-        <h1>{t("dom.title")}</h1>
+        <div>
+          <span className="eyebrow">{t("dom.eyebrow")}</span>
+          <h1>{t("dom.title")}</h1>
+        </div>
         <div className="actions">
           <button onClick={runSync} disabled={busy}>
             {busy ? t("common.working") : t("dom.sync")}
@@ -352,18 +355,19 @@ export function Domains() {
       {notice && <div className="banner ok">{notice}</div>}
       {error && <ErrorBanner message={error} />}
       {actionError && <ErrorBanner message={actionError} />}
-      {loading && !data && <Loading />}
+      {loading && !data && <SkeletonList rows={4} />}
 
       {data && domains.length === 0 && (
-        <div className="empty">
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>{t("dom.emptyTitle")}</div>
-          <div className="muted" style={{ marginBottom: 14 }}>
-            {t("dom.emptyHint")}
-          </div>
-          <button className="primary" onClick={runSync} disabled={busy}>
-            {t("dom.sync")}
-          </button>
-        </div>
+        <EmptyState
+          art="domain"
+          title={t("dom.emptyTitle")}
+          hint={t("dom.emptyHint")}
+          action={
+            <button className="primary" onClick={runSync} disabled={busy}>
+              {t("dom.sync")}
+            </button>
+          }
+        />
       )}
 
       {domains.length > 0 && (
@@ -379,13 +383,18 @@ export function Domains() {
           </div>
 
           {visible.length === 0 ? (
-            <div className="empty">
-              <div style={{ fontWeight: 600 }}>
-                {t("dom.noMatch", {
-                  filter: t(FILTERS.find((f) => f.id === filter)?.labelKey ?? "dom.filterAll"),
-                })}
-              </div>
-            </div>
+            <EmptyState
+              art="search"
+              title={t("dom.noMatch", {
+                filter: t(FILTERS.find((f) => f.id === filter)?.labelKey ?? "dom.filterAll"),
+              })}
+              hint={t("dom.noMatchHint")}
+              action={
+                <button className="small" onClick={() => setFilter("all")}>
+                  {t("dom.showAll")}
+                </button>
+              }
+            />
           ) : (
             <div className="card card--flush">
               <div className="list-head">
@@ -408,38 +417,18 @@ export function Domains() {
                     }}
                     aria-label={t("dom.selectAllVisible")}
                   />
+                  {/* The count itself lives in the bulk bar below, where it stays on screen
+                      while the owner works through the list. */}
                   <span className="faint" style={{ fontSize: 13 }}>
-                    {t("dom.selected", { n: selected.size, total: visible.length })}
+                    {t("dom.selectAllVisible")}
                   </span>
                 </label>
-                {/* Bulk actions live next to the selection they act on, and only exist while
-                    something is selected — two permanently-disabled buttons above an
-                    unselected list is noise that reads as the page's main job. */}
+                {/* Bulk actions belong to the selection, so they appear with it — and on a
+                    phone they appear at the bottom, where the thumb already is. */}
                 <div className="head-actions">
                   <button className="ghost small" onClick={selectVisibleEligible} disabled={busy}>
                     {t("dom.selectEligible")}
                   </button>
-                  {selected.size > 0 && (
-                    <>
-                      <button className="ghost small" onClick={() => setSelected(new Set())}>
-                        {t("dom.clear")}
-                      </button>
-                      <button className="small" onClick={() => runPreflight(selectedZones)} disabled={busy}>
-                        {t("dom.preflightN", { n: selectedZones.length })}
-                      </button>
-                      <button
-                        className="primary small"
-                        onClick={() => {
-                          setTakeover(false);
-                          setMxTakeover(false);
-                          setConfirmProvision(true);
-                        }}
-                        disabled={busy}
-                      >
-                        {t("dom.enableMailN", { n: selectedZones.length })}
-                      </button>
-                    </>
-                  )}
                 </div>
               </div>
               {visible.map((d) => {
@@ -535,6 +524,31 @@ export function Domains() {
                   </Row>
                 );
               })}
+            </div>
+          )}
+
+          {selectedZones.length > 0 && (
+            <div className="bulkbar">
+              <span className="count">{t("dom.selected", { n: selectedZones.length, total: visible.length })}</span>
+              <div className="actions">
+                <button className="ghost small" onClick={() => setSelected(new Set())}>
+                  {t("dom.clear")}
+                </button>
+                <button className="small" onClick={() => runPreflight(selectedZones)} disabled={busy}>
+                  {t("dom.preflightN", { n: selectedZones.length })}
+                </button>
+                <button
+                  className="primary small"
+                  onClick={() => {
+                    setTakeover(false);
+                    setMxTakeover(false);
+                    setConfirmProvision(true);
+                  }}
+                  disabled={busy}
+                >
+                  {t("dom.enableMailN", { n: selectedZones.length })}
+                </button>
+              </div>
             </div>
           )}
         </>

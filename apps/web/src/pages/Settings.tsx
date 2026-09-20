@@ -5,6 +5,8 @@ import { registerPasskey, removePasskey } from "../lib/passkeys";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
 import { LANGS, lang, languageName, setLang, t, type Lang } from "../lib/i18n";
+import { THEME_CHOICES, setTheme, theme, themeName, useTheme, type ThemeChoice } from "../lib/theme";
+import { IconAuto, IconMoon, IconSun } from "../components/Icons";
 
 type Status = { tone: "ok" | "error"; text: string } | null;
 
@@ -26,7 +28,7 @@ function LanguageCard() {
         <span className="faint" style={{ fontSize: 13 }}>
           {t("set.langLabel")}
         </span>
-        <div className="tabs">
+        <div className="seg" role="group" aria-label={t("set.langLabel")}>
           {LANGS.map((l: Lang) => (
             <button key={l} type="button" className={current === l ? "active" : ""} onClick={() => setLang(l)}>
               {languageName(l)}
@@ -35,6 +37,39 @@ function LanguageCard() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A mail client is read at a desk and in bed, so the theme follows the device unless the
+ * owner says otherwise. The glyphs are decoration; the label beside them is the control.
+ */
+function ThemeCard() {
+  const { choice } = useTheme();
+  const Glyph = choice === "paper" ? IconSun : choice === "graphite" ? IconMoon : IconAuto;
+  return (
+    <div className="card mt">
+      <h2 style={{ marginTop: 0 }}>{t("set.themeTitle")}</h2>
+      <p className="muted" style={{ marginTop: 0 }}>
+        {t("set.themeHint")}
+      </p>
+      <div className="setting-row" style={{ paddingTop: 0 }}>
+        <span className="label">
+          <b>{t("set.themeLabel")}</b>
+          <span className="faint" style={{ fontSize: 13 }}>{t(`theme.${choice}`)}</span>
+        </span>
+        <div className="seg" role="group" aria-label={t("set.themeLabel")}>
+          {THEME_CHOICES.map((c: ThemeChoice) => (
+            <button key={c} type="button" className={choice === c ? "active" : ""} onClick={() => setTheme(c)}>
+              {c === choice ? <Glyph size={16} /> : null}
+              {t(`theme.${c}`)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="faint" style={{ fontSize: 12, margin: 0 }}>
+        {t("set.themeNow")} · {themeName(theme())}
+      </p>    </div>
   );
 }
 
@@ -273,6 +308,7 @@ export function Settings() {
       </div>
 
       <LanguageCard />
+      <ThemeCard />
 
       <div className="card mt">
         <h2 style={{ marginTop: 0 }}>{t("set.notifTitle")}</h2>

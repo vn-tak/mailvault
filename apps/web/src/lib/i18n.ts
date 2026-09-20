@@ -23,6 +23,8 @@ const STORAGE_KEY = "mailvault-lang";
 type Dict = Record<string, string>;
 
 export const en: Dict = {
+  "brand.tag": "Private domain mail",
+  "nav.menu": "Main sections",
   "nav.dashboard": "Dashboard",
   "nav.domains": "Domains",
   "nav.aliases": "Aliases",
@@ -61,6 +63,15 @@ export const en: Dict = {
   "common.dash": "—",
   "common.error": "Something went wrong",
 
+  "live.on": "Listening",
+  "live.connecting": "Connecting…",
+  "live.off": "Not updating",
+  "live.hint": "This tab refreshes itself when mail arrives.",
+
+  "theme.system": "Device",
+  "theme.graphite": "Graphite",
+  "theme.paper": "Paper",
+
   "time.justNow": "just now",
   "time.mAgo": "{n}m ago",
   "time.hAgo": "{n}h ago",
@@ -84,6 +95,8 @@ export const en: Dict = {
   "dash.aliases": "aliases",
   "dash.unread": "unread",
   "dash.stored": "stored",
+  "dash.unitUnread": "unread",
+  "dash.unitStored": "messages kept",
   "dash.healthFail": "Something is not right: {what} failed. See Settings.",
   "dash.hcD1": "database",
   "dash.hcR2": "storage",
@@ -103,6 +116,8 @@ export const en: Dict = {
   "dash.notReceiving": "not receiving",
 
   "inbox.title": "Inbox",
+  "inbox.eyebrow": "Newest first",
+  "inbox.clearFilters": "Clear filters",
   "inbox.all": "All",
   "inbox.unreadTab": "Unread",
   "inbox.filed": "Filed",
@@ -124,7 +139,6 @@ export const en: Dict = {
   "inbox.nAttachments": "{n} attachment(s)",
 
   "msg.back": "← Inbox",
-  "msg.from": "From",
   "msg.to": "To",
   "msg.arrivedAt": "· to {address}",
   "msg.markRead": "Mark read",
@@ -150,8 +164,8 @@ export const en: Dict = {
   "msg.authNone": "no authentication results reached us",
   "msg.authVouches": "(* vouches for the sender domain)",
   "msg.authNoVouch": "— none of it vouches for the sender domain",
-  "msg.authTrusted": "Sender authenticated — {what}",
-  "msg.authUnverified": "Sender not verified — {what}",
+  "msg.authTrusted": "Sender authenticated",
+  "msg.authUnverified": "Sender not verified",
   "msg.authSpoofed": "Unauthenticated sender — treat this message as an attempt to impersonate.",
   "msg.authWhy": "Why: {reasons}",
   "msg.filedAuto": "Filed automatically — {note}.",
@@ -175,6 +189,7 @@ export const en: Dict = {
   "msg.noBody": "This message has no readable body.",
 
   "dom.title": "Domains",
+  "dom.eyebrow": "Synced from Cloudflare",
   "dom.sync": "↻ Sync from Cloudflare",
   "dom.preflightAll": "Preflight all",
   "dom.verify": "Verify delivery",
@@ -188,6 +203,8 @@ export const en: Dict = {
   "dom.filterError": "Error",
   "dom.filterUnconfigured": "Unconfigured",
   "dom.noMatch": "No domains match “{filter}”",
+  "dom.noMatchHint": "Nothing you own is in that state right now.",
+  "dom.showAll": "Show all",
   "dom.selectAllVisible": "Select all visible",
   "dom.selected": "{n} of {total} selected",
   "dom.selectEligible": "Select eligible",
@@ -286,6 +303,7 @@ export const en: Dict = {
   "alias.noSenders": "Nothing has arrived yet.",
 
   "aliases.title": "Aliases",
+  "aliases.eyebrow": "Pinned first",
   "aliases.search": "Search address, label or note…",
   "aliases.active": "Active",
   "aliases.archived": "Archived",
@@ -387,6 +405,10 @@ export const en: Dict = {
   "set.langHint":
     "The app starts in your browser's language and remembers what you choose here. Technical names (SPF, DKIM, MX, OTP) stay as they are, and an error that Cloudflare wrote is shown in its own words.",
   "set.langLabel": "Interface language",
+  "set.themeTitle": "Light or dark",
+  "set.themeHint": "It follows your device unless you choose here. Nothing else changes — same mail, same controls, nothing stored about the choice.",
+  "set.themeLabel": "Appearance",
+  "set.themeNow": "Showing",
   "set.notifTitle": "Notifications",
   "set.notifIntro":
     "The ping your device receives carries no content at all. The app then looks the message up through your sign-in and shows sender and subject — only for a verified sender, never a code or a link, and only mail that just arrived. Anything else stays \"New mail arrived\".",
@@ -457,6 +479,8 @@ export const en: Dict = {
 };
 
 export const vi: Dict = {
+  "brand.tag": "Thư tên miền riêng",
+  "nav.menu": "Các mục chính",
   "nav.dashboard": "Tổng quan",
   "nav.domains": "Tên miền",
   "nav.aliases": "Bí danh",
@@ -495,6 +519,15 @@ export const vi: Dict = {
   "common.dash": "—",
   "common.error": "Đã xảy ra lỗi",
 
+  "live.on": "Đang theo dõi",
+  "live.connecting": "Đang kết nối…",
+  "live.off": "Không cập nhật",
+  "live.hint": "Tab này tự làm mới khi có thư mới.",
+
+  "theme.system": "Theo máy",
+  "theme.graphite": "Than chì",
+  "theme.paper": "Giấy",
+
   "time.justNow": "vừa xong",
   "time.mAgo": "cách đây {n} phút",
   "time.hAgo": "cách đây {n} giờ",
@@ -518,6 +551,8 @@ export const vi: Dict = {
   "dash.aliases": "bí danh",
   "dash.unread": "chưa đọc",
   "dash.stored": "đã lưu",
+  "dash.unitUnread": "thư chưa đọc",
+  "dash.unitStored": "thư đã lưu",
   "dash.healthFail": "Có điều gì đó bất thường: {what} đã lỗi. Xem mục Cài đặt.",
   "dash.hcD1": "cơ sở dữ liệu",
   "dash.hcR2": "vùng lưu trữ",
@@ -537,6 +572,8 @@ export const vi: Dict = {
   "dash.notReceiving": "không nhận thư",
 
   "inbox.title": "Hộp thư",
+  "inbox.eyebrow": "Mới nhất trước",
+  "inbox.clearFilters": "Bỏ bộ lọc",
   "inbox.all": "Tất cả",
   "inbox.unreadTab": "Chưa đọc",
   "inbox.filed": "Đã xếp",
@@ -558,7 +595,6 @@ export const vi: Dict = {
   "inbox.nAttachments": "{n} tệp đính kèm",
 
   "msg.back": "← Hộp thư",
-  "msg.from": "Từ",
   "msg.to": "Tới",
   "msg.arrivedAt": "· tới {address}",
   "msg.markRead": "Đánh dấu đã đọc",
@@ -583,8 +619,8 @@ export const vi: Dict = {
   "msg.authNone": "không có kết quả xác thực nào tới chúng tôi",
   "msg.authVouches": "(* bảo lãnh cho tên miền người gửi)",
   "msg.authNoVouch": "— không có kết quả nào bảo lãnh cho tên miền người gửi",
-  "msg.authTrusted": "Người gửi đã xác minh — {what}",
-  "msg.authUnverified": "Người gửi chưa xác minh — {what}",
+  "msg.authTrusted": "Người gửi đã xác minh",
+  "msg.authUnverified": "Người gửi chưa xác minh",
   "msg.authSpoofed": "Người gửi không xác minh được — hãy coi thư này là một nỗ lực giả mạo.",
   "msg.authWhy": "Lý do: {reasons}",
   "msg.filedAuto": "Được xếp tự động — {note}.",
@@ -608,6 +644,7 @@ export const vi: Dict = {
   "msg.noBody": "Thư này không có nội dung nào đọc được.",
 
   "dom.title": "Tên miền",
+  "dom.eyebrow": "Đồng bộ từ Cloudflare",
   "dom.sync": "↻ Đồng bộ từ Cloudflare",
   "dom.preflightAll": "Kiểm tra tất cả",
   "dom.verify": "Kiểm tra nhận thư",
@@ -621,6 +658,8 @@ export const vi: Dict = {
   "dom.filterError": "Lỗi",
   "dom.filterUnconfigured": "Chưa cấu hình",
   "dom.noMatch": "Không có tên miền nào khớp “{filter}”",
+  "dom.noMatchHint": "Hiện không có tên miền nào ở trạng thái đó.",
+  "dom.showAll": "Hiện tất cả",
   "dom.selectAllVisible": "Chọn mọi tên miền đang hiển thị",
   "dom.selected": "đã chọn {n} / {total}",
   "dom.selectEligible": "Chọn đủ điều kiện",
@@ -719,6 +758,7 @@ export const vi: Dict = {
   "alias.noSenders": "Chưa có thư nào tới.",
 
   "aliases.title": "Bí danh",
+  "aliases.eyebrow": "Ưu tiên đã ghim",
   "aliases.search": "Tìm địa chỉ, nhãn hoặc ghi chú…",
   "aliases.active": "Đang dùng",
   "aliases.archived": "Đã lưu trữ",
@@ -820,6 +860,10 @@ export const vi: Dict = {
   "set.langHint":
     "Ứng dụng bắt đầu theo ngôn ngữ của trình duyệt và nhớ lựa chọn bạn đặt ở đây. Các tên kỹ thuật (SPF, DKIM, MX, OTP) giữ nguyên, và lỗi do Cloudflare viết thì hiển thị đúng nguyên văn của họ.",
   "set.langLabel": "Ngôn ngữ giao diện",
+  "set.themeTitle": "Sáng hay tối",
+  "set.themeHint": "Mặc định theo máy của bạn, trừ khi bạn chọn ở đây. Không có gì khác thay đổi — vẫn là thư đó, vẫn các nút đó, và không lưu gì về lựa chọn này ra ngoài máy.",
+  "set.themeLabel": "Giao diện",
+  "set.themeNow": "Đang hiển thị",
   "set.notifTitle": "Thông báo",
   "set.notifIntro":
     "Tin nhắn gửi tới thiết bị của bạn hoàn toàn không chứa nội dung. Ứng dụng sẽ tự tra cứu thư qua phiên đăng nhập của bạn và hiển thị người gửi cùng chủ đề — chỉ với người gửi đã xác minh, không bao giờ là mã hay liên kết, và chỉ thư vừa tới. Mọi trường hợp khác vẫn ghi là \"Thư mới đã tới\".",

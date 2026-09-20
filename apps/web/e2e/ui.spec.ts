@@ -284,14 +284,25 @@ test("phone: the More menu inside an engaged row still clears the tab bar @mobil
   await archived.locator(".entity-summary").click();
 
   /*
-   * The case the first version got wrong. The panel is ~150px tall and wants 16px of
-   * clearance, so 166px is "room to open downwards" — but the fixed tab bar paints over
-   * the bottom of the screen, so the viewport's measure lies. Size the window from the
-   * row's own position (rather than scrolling, which depends on how long the list is)
-   * until the two measures disagree, then require the bar's answer.
+   * The case the first version got wrong. The fixed tab bar paints over the bottom of the
+   * screen, so the viewport's measure of "room below" lies and the panel must flip.
+   *
+   * The clearance is measured, never hard-coded: this suite caught a stale 166px constant
+   * the day the panel grew a few pixels taller, and a test that fails because a number in
+   * it went out of date is a test that will be deleted rather than trusted. The row is also
+   * lifted with a temporary margin, so there is genuinely room above whatever the list
+   * above it happens to look like.
    */
-  const NEED = 166;
   const trigger = archived.locator(".menu > button");
+  await trigger.click();
+  const panelHeight = (await archived.getByRole("menu").boundingBox())?.height ?? 0;
+  await page.keyboard.press("Escape");
+  await expect(archived.getByRole("menu")).toHaveCount(0);
+  const NEED = Math.round(panelHeight + 16);
+
+  await page.evaluate((pad) => {
+    document.body.style.paddingTop = `${pad}px`;
+  }, NEED + 40);
   const geometry = await trigger.evaluate((el) => {
     const bar = document.querySelector<HTMLElement>(".sidebar")?.getBoundingClientRect();
     return { bottom: el.getBoundingClientRect().bottom, barHeight: window.innerHeight - (bar?.top ?? window.innerHeight) };
@@ -320,7 +331,9 @@ test("phone: the More menu inside an engaged row still clears the tab bar @mobil
    * off-screen. It has to re-anchor to the left instead.
    */
   await page.setViewportSize({ width: 350, height: 900 });
-  // The row is still engaged; only the panel has to be reopened to be measured again.
+  await page.evaluate(() => {
+    document.body.style.paddingTop = "";
+  });
   await page.keyboard.press("Escape");
   await expect(archived.getByRole("menu")).toHaveCount(0);
   await trigger.click();

@@ -5,7 +5,8 @@ import { useAsync } from "../lib/useAsync";
 import { relativeTime, senderName } from "../lib/format";
 import { arrivalLabel, splitMailboxes } from "../lib/mailboxes";
 import { t } from "../lib/i18n";
-import { ErrorBanner, Loading } from "../components/ui";
+import { useLiveStatus } from "../lib/live";
+import { ErrorBanner, Monogram, SkeletonList } from "../components/ui";
 import { MailStatus, type MailboxStat } from "@mailvault/shared";
 
 function MailboxCard({ m }: { m: MailboxStat }) {
@@ -15,7 +16,7 @@ function MailboxCard({ m }: { m: MailboxStat }) {
       <span className="mailbox-name">{m.name}</span>
       <span className="mailbox-facts">
         <span>{t("common.nMessages", { n: m.total })}</span>
-        {m.unread > 0 ? <span className="pill accent">{t("common.nUnread", { n: m.unread })}</span> : null}
+        {m.unread > 0 ? <span className="pill ready">{t("common.nUnread", { n: m.unread })}</span> : null}
         {m.lastReceivedAt ? <span>{t("common.last", { at: relativeTime(m.lastReceivedAt) })}</span> : null}
         {!receiving ? <span className="pill conflict">{t("dash.notReceiving")}</span> : null}
       </span>
@@ -26,46 +27,67 @@ function MailboxCard({ m }: { m: MailboxStat }) {
 export function Dashboard() {
   const { data, error, loading } = useAsync(() => api.dashboard(), []);
   const { data: health } = useAsync(() => api.health(), []);
+  const live = useLiveStatus();
 
   const split = useMemo(() => splitMailboxes(data?.mailboxes ?? []), [data]);
   const hidden = split.overflow.length + split.empty.length;
+  const latest = useMemo(
+    () => (data?.mailboxes ?? []).map((m) => m.lastReceivedAt).filter(Boolean).sort().at(-1),
+    [data],
+  );
+
+  const status = health ? (health.ok ? "dash.online" : "dash.degraded") : "dash.checking";
+  const unread = data?.unreadMessages ?? 0;
 
   return (
     <div className="page">
       <div className="page-head">
         <h1>{t("dash.title")}</h1>
-        <div className="actions">
-          <button className="primary" onClick={() => navigate("/aliases?new=1")}>
-            {t("dash.newAlias")}
-          </button>
-        </div>
       </div>
 
       {error && <ErrorBanner message={error} />}
-      {loading && !data && <Loading />}
+      {loading && !data && <SkeletonList rows={3} />}
 
       {data && (
         <>
-          {/* One line for the whole census. A degraded check gets a banner below, because
-              a status that needs action should not be scannable as a footnote. */}
-          <div className="statline">
-            <span style={{ color: health?.ok === false ? "var(--warn)" : "var(--ok)", fontWeight: 600 }}>
-              {"● "}
-              {t(health ? (health.ok ? "dash.online" : "dash.degraded") : "dash.checking")}
-            </span>
-            <span>
-              <strong>{data.activeDomains}</strong> {t("dash.domainsReceive", { n: data.totalDomains })}
-            </span>
-            <span>
-              <strong>{data.totalAliases}</strong> {t("dash.aliases")}
-            </span>
-            <span>
-              <strong>{data.unreadMessages}</strong> {t("dash.unread")}
-            </span>
-            <span>
-              <strong>{data.totalMessages}</strong> {t("dash.stored")}
-            </span>
-          </div>
+          {/* The one band that answers the two questions this app exists for: is anything
+              waiting for me, and is the post still arriving where it should. */}
+          <section className="vault">
+            <div style={{ minWidth: 0 }}>
+              <div className="vault-top">
+                <span
+                  className={`live-dot ${health ? (health.ok ? "" : "warn") : "idle"} ${live === "live" && health?.ok ? "is-pulsing" : ""}`}
+                />
+                <span className="eyebrow">{t(status)}</span>
+              </div>
+              <div className="vault-figure">
+                <span className="num">{unread > 0 ? unread : data.totalMessages}</span>
+                <span className="unit">{t(unread > 0 ? "dash.unitUnread" : "dash.unitStored")}</span>
+              </div>
+              <ul className="vault-facts">
+                <li>
+                  <strong>{data.activeDomains}</strong> {t("dash.domainsReceive", { n: data.totalDomains })}
+                </li>
+                <li>
+                  <strong>{data.totalAliases}</strong> {t("dash.aliases")}
+                </li>
+                {unread > 0 ? (
+                  <li>
+                    <strong>{unread}</strong> {t("dash.unread")}
+                  </li>
+                ) : null}
+                {latest ? <li>{t("common.last", { at: relativeTime(latest) })}</li> : null}
+              </ul>
+            </div>
+            <div className="vault-actions">
+              <button className="primary" onClick={() => navigate("/aliases?new=1")}>
+                {t("dash.newAlias")}
+              </button>
+              <button className="ghost" onClick={() => navigate("/inbox")}>
+                {t("dash.allMail")}
+              </button>
+            </div>
+          </section>
 
           {health && !health.ok && (
             <div className="banner error">
@@ -88,11 +110,6 @@ export function Dashboard() {
               <span className="faint" style={{ fontSize: 13 }}>
                 {t("dash.mailboxHint")}
               </span>
-              <div className="head-actions">
-                <button className="ghost small" onClick={() => navigate("/inbox")}>
-                  {t("dash.allMail")}
-                </button>
-              </div>
             </div>
             <div style={{ padding: "var(--space-2)" }}>
               {split.shown.length === 0 ? (
@@ -141,15 +158,20 @@ export function Dashboard() {
               </div>
             </div>
             {data.recentMessages.length === 0 ? (
-              <p className="muted" style={{ padding: "var(--space-2)" }}>
+              <p className="muted" style={{ padding: "var(--space-3)" }}>
                 {t("dash.noMessages")}
               </p>
             ) : (
               <ul className="msglist">
                 {data.recentMessages.map((m) => (
-                  <li key={m.id} className={`msg ${m.isRead ? "" : "unread"}`}>
+                  <li key={m.id} className={`msg ${m.isRead ? "" : "unread"}`} data-verdict={m.authVerdict}>
                     <Link to={`/messages/${m.id}`}>
-                      <span className="msg-sender">{senderName(m.headerFrom, m.envelopeFrom)}</span>
+                      <span className="msg-who">
+                        <span className="msg-avatar">
+                          <Monogram name={senderName(m.headerFrom, m.envelopeFrom)} />
+                        </span>
+                        <span className="msg-sender">{senderName(m.headerFrom, m.envelopeFrom)}</span>
+                      </span>
                       <span className="msg-time">{relativeTime(m.receivedAt)}</span>
                       <span className="msg-subject">{m.subject || t("inbox.noSubject")}</span>
                       <span className="msg-alias">{arrivalLabel(m, false)}</span>

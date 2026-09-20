@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { MailStatus } from "@mailvault/shared";
 import { t } from "../lib/i18n";
+import { ArtMailbox, ArtSearch, ArtAlias, ArtDomain } from "./Icons";
 
 export function Loading({ label }: { label?: string }) {
   return (
@@ -10,15 +11,75 @@ export function Loading({ label }: { label?: string }) {
   );
 }
 
+/**
+ * The shape of the list that is about to arrive. A spinner in an empty page tells the owner
+ * nothing about how long the list will be or where to look; this reserves the space and
+ * fills it, so the first row lands without the page moving under their thumb.
+ */
+export function SkeletonList({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="skeleton-list" role="status" aria-label={t("common.loading")}>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="skeleton skeleton--row" />
+      ))}
+    </div>
+  );
+}
+
 export function ErrorBanner({ message }: { message: string }) {
   return <div className="banner error">{message}</div>;
 }
 
-export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+/**
+ * A sender's mark: initials over a tint of the one accent the app has. Generated from the
+ * name, never fetched — a mail client that loaded a remote logo would let the sender choose
+ * what appears next to their own claim about who they are.
+ */
+const TINTS = [12, 20, 28, 36];
+
+export function Monogram({ name, large }: { name: string; large?: boolean }) {
+  const clean = name.trim().replace(/^"+|"+$/g, "");
+  const words = clean.split(/[\s._@-]+/).filter(Boolean);
+  const initials = ((words[0]?.[0] ?? "?") + (words[1]?.[0] ?? "")).toUpperCase();
+  let hash = 0;
+  for (let i = 0; i < clean.length; i++) hash = (hash * 31 + clean.charCodeAt(i)) >>> 0;
+  const tint = TINTS[hash % TINTS.length] as number;
+  return (
+    <span
+      className={`mono-avatar ${large ? "mono-avatar--lg" : ""}`}
+      aria-hidden="true"
+      style={
+        {
+          "--av-bg": `color-mix(in oklab, var(--accent) ${tint}%, var(--surface-2))`,
+          "--av-line": `color-mix(in oklab, var(--accent) ${tint + 14}%, var(--border))`,
+        } as React.CSSProperties
+      }
+    >
+      {initials}
+    </span>
+  );
+}
+
+const ART = { mailbox: ArtMailbox, search: ArtSearch, alias: ArtAlias, domain: ArtDomain };
+
+export function EmptyState({
+  title,
+  hint,
+  action,
+  art = "mailbox",
+}: {
+  title: string;
+  hint?: string;
+  action?: React.ReactNode;
+  art?: keyof typeof ART;
+}) {
+  const Picture = ART[art];
   return (
     <div className="empty">
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>{title}</div>
-      {hint ? <div className="muted" style={{ fontSize: 13 }}>{hint}</div> : null}
+      <Picture />
+      <strong>{title}</strong>
+      {hint ? <span className="muted">{hint}</span> : null}
+      {action}
     </div>
   );
 }
@@ -142,7 +203,11 @@ export function CopyButton({ text, label, small }: { text: string; label?: strin
   }
 
   return (
-    <button className={`small ${small ? "ghost" : ""}`} onClick={copy} aria-label={t("common.copyX", { what: text })}>
+    <button
+      className={`small ${small ? "ghost" : ""} ${copied ? "is-copied" : ""}`}
+      onClick={copy}
+      aria-label={t("common.copyX", { what: text })}
+    >
       {copied ? t("common.copied") : (label ?? t("common.copy"))}
     </button>
   );

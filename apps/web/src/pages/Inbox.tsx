@@ -1,20 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime, senderName } from "../lib/format";
 import { arrivalLabel, selectableMailboxes } from "../lib/mailboxes";
+import { NEW_MAIL_EVENT } from "../lib/live";
 import { t } from "../lib/i18n";
-import { ErrorBanner, Loading } from "../components/ui";
+import { EmptyState, ErrorBanner, Monogram, SkeletonList } from "../components/ui";
 import { AuthVerdict, type MessageSummary } from "@mailvault/shared";
 
 const PAGE = 50;
 
-function MsgItem({ m, scoped }: { m: MessageSummary; scoped: boolean }) {
+function MsgItem({ m, scoped, fresh }: { m: MessageSummary; scoped: boolean; fresh: boolean }) {
+  const sender = senderName(m.headerFrom, m.envelopeFrom);
   return (
-    <li className={`msg ${m.isRead ? "" : "unread"}`}>
+    <li className={`msg ${m.isRead ? "" : "unread"} ${fresh ? "is-live" : ""}`} data-verdict={m.authVerdict}>
       <Link to={`/messages/${m.id}`}>
-        <span className="msg-sender">{senderName(m.headerFrom, m.envelopeFrom)}</span>
+        <span className="msg-who">
+          <span className="msg-avatar">
+            <Monogram name={sender} />
+          </span>
+          <span className="msg-sender">{sender}</span>
+        </span>
         <span className="msg-time">{relativeTime(m.receivedAt)}</span>
         <span className="msg-subject">{m.subject || t("inbox.noSubject")}</span>
         <span className="msg-alias">{arrivalLabel(m, scoped)}</span>
@@ -41,6 +48,7 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"all" | "unread" | "archived">("all");
   const [offset, setOffset] = useState(0);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // Debounce-free: only query on explicit change of filter/scope, not every keystroke.
   const query = useMemo(
@@ -73,6 +81,53 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
     setOffset(0);
   }, [view, search, aliasId, domainId]);
 
+  /*
+   * The nudge carries no content, so it cannot say *which* row is new — the refetch it
+   * triggers can. Diffing the ids that arrive after a nudge is what lets exactly those rows
+   * light up once, instead of flashing the whole list or claiming to know more than the
+   * socket ever said.
+   */
+  const armed = useRef(false);
+  const known = useRef<Set<string> | null>(null);
+  const [fresh, setFresh] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    const onNewMail = () => {
+      armed.current = true;
+    };
+    window.addEventListener(NEW_MAIL_EVENT, onNewMail);
+    return () => window.removeEventListener(NEW_MAIL_EVENT, onNewMail);
+  }, []);
+
+  useEffect(() => {
+    if (!data) return;
+    const ids = new Set(data.items.map((m) => m.id));
+    const wasArmed = armed.current;
+    const previous = known.current;
+    armed.current = false;
+    known.current = ids;
+    if (!wasArmed || !previous) return;
+    const arrived = [...ids].filter((id) => !previous.has(id));
+    if (arrived.length === 0) return;
+    setFresh(new Set(arrived));
+    const timer = setTimeout(() => setFresh(new Set()), 1700);
+    return () => clearTimeout(timer);
+  }, [data]);
+
+  // "/" jumps to the filter, because reading mail is mostly a search loop.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
     setSearch(q.trim());
@@ -90,7 +145,10 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
   return (
     <div className="page">
       <div className="page-head">
-        <h1>{t("inbox.title")}</h1>
+        <div>
+          <span className="eyebrow">{t("inbox.eyebrow")}</span>
+          <h1>{t("inbox.title")}</h1>
+        </div>
         <div className="actions">
           <button className="ghost small" onClick={reload}>
             {t("common.refresh")}
@@ -130,7 +188,12 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
             ))}
           </select>
         )}
-        <input className="search" placeholder={t("inbox.placeholder")} value={q} onChange={(e) => setQ(e.target.value)} />
+        <span className="search-wrap">
+          <input ref={searchRef} className="search" placeholder={t("inbox.placeholder")} value={q} onChange={(e) => setQ(e.target.value)} />
+          <kbd className="search-hint" aria-hidden="true">
+            /
+          </kbd>
+        </span>
         <button type="submit">{t("common.search")}</button>
         {aliasId && (
           <button type="button" className="ghost small" onClick={() => navigate("/inbox")}>
@@ -139,13 +202,25 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
         )}
       </form>
 
-      {loading && !data && <Loading />}
+      {loading && !data && <SkeletonList rows={6} />}
 
       {data && data.items.length === 0 && (
-        <div className="empty">
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>{t(scope ? "inbox.noMatch" : "inbox.empty")}</div>
-          <div className="muted">{t(scope ? "inbox.filterHint" : "inbox.emptyHint")}</div>
-        </div>
+        <EmptyState
+          art={scope ? "search" : "mailbox"}
+          title={t(scope ? "inbox.noMatch" : "inbox.empty")}
+          hint={t(scope ? "inbox.filterHint" : "inbox.emptyHint")}
+          action={
+            scope ? (
+              <button className="small" onClick={() => navigate("/inbox")}>
+                {t("inbox.clearFilters")}
+              </button>
+            ) : (
+              <button className="primary" onClick={() => navigate("/aliases?new=1")}>
+                {t("dash.newAlias")}
+              </button>
+            )
+          }
+        />
       )}
 
       {data && data.items.length > 0 && (
@@ -153,7 +228,7 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
           <div className="card card--flush">
             <ul className="msglist">
               {data.items.map((m) => (
-                <MsgItem key={m.id} m={m} scoped={scoped} />
+                <MsgItem key={m.id} m={m} scoped={scoped} fresh={fresh.has(m.id)} />
               ))}
             </ul>
           </div>
