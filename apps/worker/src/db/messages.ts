@@ -22,8 +22,9 @@ import type { AttachmentRow, MessageRow } from "./rows";
  * `direction` is optional here because an internal caller naming no direction means the
  * inbox, which is also what the API schema defaults to; the two must not disagree.
  */
-export type ListInput = Omit<MessageListQuery, "direction"> & {
+export type ListInput = Omit<MessageListQuery, "direction" | "threaded"> & {
   direction?: MessageListQuery["direction"];
+  threaded?: boolean;
   semanticIds?: string[];
 };
 
@@ -57,6 +58,8 @@ export interface InsertMessageInput {
   cc?: string | null;
   sendStatus?: SendStatus | null;
   sendError?: string | null;
+  listUnsubscribe?: string | null;
+  oneClickUnsubscribe?: boolean;
 }
 
 export interface InsertAttachmentInput {
@@ -85,10 +88,10 @@ export async function insertMessage(db: D1Database, m: InsertMessageInput): Prom
           attachment_count, is_read, extracted_codes_json, verification_links_json,
           auth_verdict, auth_json, created_at,
           direction, thread_root_id, in_reply_to, references_json, reply_to, cc,
-          send_status, send_error
+          send_status, send_error, list_unsubscribe, list_unsubscribe_post
         ) VALUES (
           ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,
-          ?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31
+          ?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33
         )`,
       )
       .bind(
@@ -126,6 +129,10 @@ export async function insertMessage(db: D1Database, m: InsertMessageInput): Prom
         m.cc ?? null,
         m.sendStatus ?? null,
         m.sendError ?? null,
+        m.listUnsubscribe ?? null,
+        // The header is stored as a flag rather than its text: the only value it may hold is
+        // the one that means one-click, so a stored copy of the sender's wording adds nothing.
+        m.oneClickUnsubscribe ? "List-Unsubscribe=One-Click" : null,
       )
       .run();
     return id;
@@ -312,26 +319,119 @@ const SELECT_LIST = `
   LEFT JOIN aliases a ON a.id = m.alias_id
   LEFT JOIN domains d ON d.id = m.domain_id`;
 
+/**
+ * The list, either as delivered or collapsed to one row per conversation.
+ *
+ * Grouping is a window pass over the same filtered select rather than a second query shape,
+ * so a search, a mailbox filter and an alias view all keep behaving the same way — and the
+ * row that represents a thread is the *best-matching* one (search rank first, then newest),
+ * not whichever happened to arrive first.
+ */
 export async function listMessages(
   db: D1Database,
   query: ListInput,
 ): Promise<{ items: MessageSummary[]; total: number }> {
   const { where, params, rank } = buildListFilters(query);
+  const inner = `SELECT m.*, ${rank} AS rank, a.label AS alias_label, a.address AS alias_address, d.name AS domain_name
+                 ${SELECT_LIST} ${where}`;
+  const order = `rank ASC, received_at DESC, id DESC`;
+  const limitAt = params.length + 1;
+
+  if (query.threaded) {
+    const countRow = await db
+      .prepare(
+        `SELECT COUNT(DISTINCT COALESCE(m.thread_root_id, m.id)) AS c ${SELECT_LIST} ${where}`,
+      )
+      .bind(...params)
+      .first<{ c: number }>();
+    const { results } = await db
+      .prepare(
+        `SELECT * FROM (
+           SELECT g.*, ROW_NUMBER() OVER w AS rn,
+                  -- The size of the conversation, not of the current result: a search that
+                  -- matched one message of a three-message thread still describes a thread of
+                  -- three, which is what the badge on the row means. A correlated count is
+                  -- exact and indexed, where a window over the filtered rows would drift with
+                  -- every filter the owner applies.
+                  (SELECT COUNT(*) FROM messages t
+                     WHERE COALESCE(t.thread_root_id, t.id) = COALESCE(g.thread_root_id, g.id)) AS thread_count
+           FROM (${inner}) g
+           WINDOW w AS (PARTITION BY COALESCE(g.thread_root_id, g.id) ORDER BY ${order})
+         )
+         WHERE rn = 1
+         ORDER BY ${order}
+         LIMIT ?${limitAt} OFFSET ?${limitAt + 1}`,
+      )
+      .bind(...params, query.limit, query.offset)
+      .all<MessageRow & { thread_count?: number }>();
+    return {
+      items: (results ?? []).map((r) => ({ ...toMessageSummary(r), threadCount: Number(r.thread_count ?? 1) })),
+      total: Number(countRow?.c ?? 0),
+    };
+  }
+
   const countRow = await db
     .prepare(`SELECT COUNT(*) AS c ${SELECT_LIST} ${where}`)
     .bind(...params)
     .first<{ c: number }>();
-  const total = Number(countRow?.c ?? 0);
   const { results } = await db
-    .prepare(
-      `SELECT m.*, ${rank} AS rank, a.label AS alias_label, a.address AS alias_address, d.name AS domain_name
-       ${SELECT_LIST} ${where}
-       ORDER BY rank ASC, m.received_at DESC, m.id DESC
-       LIMIT ?${params.length + 1} OFFSET ?${params.length + 2}`,
-    )
+    .prepare(`SELECT * FROM (${inner}) ORDER BY ${order} LIMIT ?${limitAt} OFFSET ?${limitAt + 1}`)
     .bind(...params, query.limit, query.offset)
     .all<MessageRow>();
-  return { items: (results ?? []).map(toMessageSummary), total };
+  return { items: (results ?? []).map(toMessageSummary), total: Number(countRow?.c ?? 0) };
+}
+
+/**
+ * Addresses this mailbox has actually exchanged mail with, newest first — the composer's
+ * autocomplete. Both directions count: having written to somebody is a stronger signal than
+ * having received from them, which is what `outgoing` is for.
+ */
+export async function listCorrespondents(
+  db: D1Database,
+  q: string | undefined,
+  limit = 8,
+): Promise<{ address: string; name: string | null; lastSeen: string; outgoing: boolean }[]> {
+  const like = q ? `%${q.toLowerCase()}%` : "%";
+  const { results } = await db
+    .prepare(
+      `SELECT
+         addr AS address,
+         MAX(NULLIF(display_name, '')) AS name,
+         MAX(seen_at) AS last_seen,
+         MAX(CASE WHEN direction = 'OUT' THEN 1 ELSE 0 END) AS went_out
+       FROM (
+         SELECT lower(COALESCE(envelope_from, '')) AS addr, COALESCE(header_from, '') AS display_name,
+                received_at AS seen_at, direction
+           FROM messages WHERE direction = 'IN' AND envelope_from IS NOT NULL
+         UNION ALL
+         SELECT lower(header_to), COALESCE(header_to, ''), received_at, direction
+           FROM messages WHERE direction = 'OUT' AND header_to IS NOT NULL
+       )
+       WHERE addr <> '' AND (addr LIKE ?1 OR display_name LIKE ?1)
+       GROUP BY addr
+       ORDER BY last_seen DESC
+       LIMIT ?2`,
+    )
+    .bind(like, Math.min(Math.max(limit, 1), 25))
+    .all<{ address: string; name: string | null; last_seen: string; went_out: number }>();
+  return (results ?? [])
+    .map((r) => ({
+      address: r.address,
+      name: displayNameOf(r.name) ?? displayNameOf(r.address),
+      lastSeen: r.last_seen,
+      outgoing: r.went_out === 1,
+    }))
+    // A sent message records its recipients as one header, so a row naming several of them is
+    // not a single address and cannot be suggested as one.
+    .filter((r) => r.address.includes("@") && !r.address.includes(","));
+}
+
+/** `"Name <a@b>"` → `Name`; a bare address has no display name. */
+function displayNameOf(raw: string | null): string | null {
+  if (!raw) return null;
+  const bracketed = /^([^<]*)<[^>]+>$/.exec(raw.trim());
+  if (bracketed) return (bracketed[1] ?? "").replace(/^"|"$/g, "").trim() || null;
+  return raw.includes("@") ? null : raw.trim() || null;
 }
 
 export async function getMessageRow(db: D1Database, id: string): Promise<MessageRow | null> {
@@ -383,6 +483,8 @@ export async function getMessageDetail(db: D1Database, id: string): Promise<Mess
     references: parseJson<string[]>(row.references_json, []),
     replyTo: row.reply_to ?? null,
     sendError: row.send_error ?? null,
+    listUnsubscribe: row.list_unsubscribe ?? null,
+    oneClickUnsubscribe: row.list_unsubscribe_post != null,
   };
 }
 

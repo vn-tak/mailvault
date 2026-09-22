@@ -20,6 +20,7 @@ import type {
   Rule,
   RuleAction,
   RuleMatch,
+  RecipientSuggestion,
   ReplyInput,
   SendOutcome,
   SendingPreview,
@@ -166,6 +167,9 @@ export const api = {
       maxRecipients: number;
       domains: { domainId: string; name: string; mailStatus: string; sendingStatus: string; canSend: boolean }[];
     }>("/outbox/capabilities"),
+  /** Who this mailbox has actually corresponded with, for completing an address. */
+  recipients: (q: string) =>
+    request<{ items: RecipientSuggestion[] }>(`/recipients${qs({ q })}`),
   compose: (input: ComposeInput) => request<SendOutcome>("/outbox", mutation(input)),
   reply: (id: string, input: ReplyInput) =>
     request<SendOutcome>(`/messages/${encodeURIComponent(id)}/reply`, mutation(input)),

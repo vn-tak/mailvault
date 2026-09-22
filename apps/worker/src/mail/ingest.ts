@@ -65,6 +65,8 @@ interface StagedParse {
   inReplyTo: string | null;
   references: string[];
   replyTo: string | null;
+  listUnsubscribe: string | null;
+  oneClickUnsubscribe: boolean;
   text: string | null;
   html: string | null;
   degraded: boolean;
@@ -185,6 +187,8 @@ export async function stageEmail(
   let inReplyTo: string | null = null;
   let references: string[] = [];
   let replyTo: string | null = null;
+  let listUnsubscribe: string | null = null;
+  let oneClickUnsubscribe = false;
   let receivedAt = message.headers.get("date") || nowIso();
   let parsedAttachments: { filename: string; contentType: string; contentId: string | null; bytes: Uint8Array }[] = [];
   let authResults: string[] = [];
@@ -201,6 +205,8 @@ export async function stageEmail(
     inReplyTo = parsed.inReplyTo;
     references = parsed.references;
     replyTo = parsed.replyTo;
+    listUnsubscribe = parsed.listUnsubscribe;
+    oneClickUnsubscribe = parsed.oneClickUnsubscribe;
     if (parsed.date) receivedAt = parsed.date;
     parsedAttachments = parsed.attachments;
     authResults = parsed.authResults;
@@ -257,6 +263,8 @@ export async function stageEmail(
       inReplyTo,
       references,
       replyTo,
+      listUnsubscribe,
+      oneClickUnsubscribe,
       text,
       html,
       degraded,
@@ -325,6 +333,8 @@ export async function commitIngest(job: IngestJob, db: D1Database, bucket: R2Buc
     references: staged.references,
     replyTo: staged.replyTo,
     cc: staged.cc,
+    listUnsubscribe: staged.listUnsubscribe ? staged.listUnsubscribe.slice(0, 600) : null,
+    oneClickUnsubscribe: staged.oneClickUnsubscribe,
     dedupeKey: job.dedupeKey,
     envelopeFrom: job.envelopeFrom,
     envelopeTo: job.envelopeTo,

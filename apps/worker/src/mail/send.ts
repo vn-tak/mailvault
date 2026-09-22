@@ -305,13 +305,19 @@ function replyHeaders(inReplyTo: string | null, references: string[]): Record<st
   return headers;
 }
 
+/**
+ * The provider's id is stored bare — `a@b`, not `<a@b>` — because that is the shape received
+ * mail records, and threading resolves a reply by matching the two. Anything that made them
+ * differ would leave every answered thread silently split in two.
+ */
 async function setSendResult(
   db: D1Database,
   id: string,
-  providerMessageId: string | null,
+  rawProviderMessageId: string | null,
   status: SendStatus,
   error: string | null,
 ): Promise<void> {
+  const providerMessageId = rawProviderMessageId?.replace(/^<|>$/g, "") ?? null;
   await db
     .prepare(`UPDATE messages SET provider_message_id = ?2, send_status = ?3, send_error = ?4 WHERE id = ?1`)
     .bind(id, providerMessageId, status, error)

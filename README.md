@@ -35,8 +35,9 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Interface redesign: graphite + paper themes, self-hosted Manrope/JetBrains Mono, icon nav, sender monograms, authentication rail per row, skeletons, motion | ✅ 27 E2E + AA contrast guard |
 | Interaction model: ⌘K / `/` command palette, two-pane inbox with j/k/e, one-tap OTP copy from the row, new-mail toast | ✅ 7 E2E |
 | Sending: compose to anybody or answer a message from its alias, conversations kept in one thread, per-domain Email Sending behind an explicit DMARC confirmation | ✅ 32 send tests, 4 E2E |
-| Unit + integration tests (282 passing: worker 197, web 85) | ✅ Green |
-| Playwright E2E (38 passing, live workerd + local D1/R2) | ✅ Green |
+| Reads like a mailbox: one row per conversation, replies that quote what they answer, `c`/`r` shortcuts, recipients completed from your own correspondence, one-click unsubscribe for aligned senders only | ✅ 9 + 5 E2E |
+| Unit + integration tests (291 passing: worker 206, web 85) | ✅ Green |
+| Playwright E2E (43 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
 See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at
@@ -152,6 +153,7 @@ state-changing methods, the `x-mailvault: 1` header + same-origin (CSRF).
 
 | Method | Path | Purpose |
 |--------|------|---------|
+| GET | `/api/recipients` | Addresses this mailbox has corresponded with, for completing the To field |
 | GET | `/api/health` | Liveness (unauthenticated, coarse) |
 | GET | `/api/dashboard` | Counts + recent messages |
 | GET | `/api/domains` | Tracked domains |

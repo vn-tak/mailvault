@@ -79,7 +79,16 @@ export function MsgItem({
           {/* Outgoing mail is addressed *to* somebody; naming the peer as the sender would
               read as "this person wrote to me", so the row says who it went to instead. */}
           <span className="msg-sender">{sent ? `${t("msg.toPrefix")} ${m.headerTo || m.aliasAddress}` : sender}</span>
-          <span className="msg-subject">{m.subject || t("inbox.noSubject")}</span>
+          <span className="msg-subject">
+            {m.threadCount && m.threadCount > 1 ? (
+              // The badge is the conversation's size, so a row that stands for three messages
+              // never reads like a single one.
+              <span className="msg-thread-count" title={t("inbox.nInThread", { n: m.threadCount })}>
+                {m.threadCount}
+              </span>
+            ) : null}
+            {m.subject || t("inbox.noSubject")}
+          </span>
           <span className="msg-line">
             <span className="msg-alias">{sent ? m.aliasAddress : arrivalLabel(m, scoped)}</span>
             {m.preview ? <span className="msg-preview">{m.preview}</span> : null}

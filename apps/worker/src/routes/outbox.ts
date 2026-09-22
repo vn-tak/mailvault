@@ -1,14 +1,14 @@
 import { Hono } from "hono";
-import { ComposeInputSchema, SEND_LIMITS } from "@mailvault/shared";
+import { ComposeInputSchema, RecipientQuerySchema, SEND_LIMITS } from "@mailvault/shared";
 import type { AppEnv } from "../app-env";
 import { maxSendsPerDay } from "../env";
 import { AppError, notFound } from "../lib/errors";
 import { log } from "../lib/logging";
 import { nowIso } from "../lib/util";
 import { listDomains } from "../db/domains";
-import { countSentSince, listThread } from "../db/messages";
+import { countSentSince, listCorrespondents, listThread } from "../db/messages";
 import { sendOutbound } from "../mail/send";
-import { actorOf, readJson } from "./_helpers";
+import { actorOf, parseQuery, readJson } from "./_helpers";
 
 const dayStart = () => `${nowIso().slice(0, 10)}T00:00:00.000Z`;
 
@@ -74,6 +74,17 @@ export const outboxRoute = new Hono<AppEnv>()
         canSend: d.sendingStatus === "ENABLED",
       })),
     });
+  })
+
+  /**
+   * Autocomplete for the To / Cc fields, from this mailbox's own history — inbound senders and
+   * everyone the owner has written to. Capped and filtered server-side so a keystroke cannot
+   * enumerate the whole correspondence.
+   */
+  .get("/api/recipients", async (c) => {
+    const { q } = parseQuery(c, RecipientQuerySchema);
+    const items = await listCorrespondents(c.env.DB, q, 8);
+    return c.json({ items });
   })
 
   /** One conversation: received and sent mail interleaved, oldest first. */

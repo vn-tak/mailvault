@@ -110,6 +110,11 @@ export const MessageSummarySchema = z.object({
   /** Only meaningful on an `OUT` row; received mail has no send state to report. */
   sendStatus: z.nativeEnum(SendStatus).nullable().default(null),
   cc: z.string().nullable().default(null),
+  /**
+   * How many messages share this row's thread. Only computed in conversation mode, where one
+   * row stands for the whole conversation and the count is what tells you it is not one mail.
+   */
+  threadCount: z.number().int().nonnegative().optional(),
 });
 export type MessageSummary = z.infer<typeof MessageSummarySchema>;
 
@@ -136,6 +141,13 @@ export const MessageDetailSchema = MessageSummarySchema.extend({
   replyTo: z.string().nullable().default(null),
   /** Failure text for an `OUT` row that did not go; null when nothing went wrong. */
   sendError: z.string().nullable().default(null),
+  /**
+   * RFC 8058 unsubscribe material, stored verbatim from the sender. Rendering it at all is
+   * gated on the message's authentication verdict — see `SECURITY.md` §6.3.
+   */
+  listUnsubscribe: z.string().nullable().default(null),
+  /** True when the sender declared `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. */
+  oneClickUnsubscribe: z.boolean().default(false),
 });
 export type MessageDetail = z.infer<typeof MessageDetailSchema>;
 

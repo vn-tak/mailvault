@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type ApiClientError } from "../lib/api";
-import type { MessageDetail, SendOutcome } from "@mailvault/shared";
+import { fullTime } from "../lib/format";
+import type { MessageDetail, RecipientSuggestion, SendOutcome } from "@mailvault/shared";
 import { t } from "../lib/i18n";
 import { Modal } from "./ui";
 
@@ -32,6 +33,157 @@ function splitAddresses(raw: string): string[] {
     .filter(Boolean);
 }
 
+
+/**
+ * The original, folded into the reply the way any mail client does it.
+ *
+ * The quote is built from the body the owner is looking at, so it cannot be pointed at
+ * somebody else's message, and it is capped: quoting a 400 kB log dump into a reply would
+ * push the answer past the size a single message may be.
+ */
+function quoteOf(m: MessageDetail, max = 6000): string {
+  const body = (m.textBody ?? "").trim();
+  if (!body) return "";
+  const clipped = body.length > max ? `${body.slice(0, max)}\n…` : body;
+  const who = m.headerFrom ?? m.envelopeFrom;
+  const when = fullTime(m.receivedAt);
+  const quoted = clipped
+    .split("\n")
+    .map((line) => (line ? `> ${line}` : ">"))
+    .join("\n");
+  return `\n\n── ${t("composer.quotedFrom", { who, when })} ──\n${quoted}`;
+}
+
+
+/**
+ * One recipient line, completed from this mailbox's own correspondence.
+ *
+ * Only the fragment being typed is matched, and only the tail of the field is replaced on
+ * pick, so completing "cus" never rewrites the addresses already committed before it. The
+ * list is a real combobox because Enter here means "accept the suggestion", not "send" — a
+ * mailbox must not fire off a message because somebody finished an address.
+ */
+function RecipientField({
+  id,
+  label,
+  hint,
+  value,
+  onPick,
+}: {
+  /** Stable because it is what the label points at: derived from a translated string, two
+   *  Vietnamese labels could collapse to the same id and unlatch both fields. */
+  id: string;
+  label: string;
+  hint: string;
+  value: string;
+  onPick: (next: string) => void;
+}) {
+  const [items, setItems] = useState<RecipientSuggestion[]>([]);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  // Everything after the last separator is the token worth completing.
+  const tailStart = Math.max(value.lastIndexOf(","), value.lastIndexOf(";"), value.lastIndexOf("\n")) + 1;
+  const tail = value.slice(tailStart);
+  const token = tail.trim();
+
+  useEffect(() => {
+    if (token.length < 2) {
+      setItems([]);
+      setOpen(false);
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(() => {
+      api
+        .recipients(token)
+        .then((r) => {
+          if (stale) return;
+          setItems(r.items);
+          setActive(0);
+          setOpen(r.items.length > 0);
+        })
+        .catch(() => undefined);
+    }, 200);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [token]);
+
+  function complete(suggestion: RecipientSuggestion) {
+    onPick(`${value.slice(0, tailStart)}${suggestion.address}, `);
+    setOpen(false);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open || items.length === 0) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((i) => (i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length);
+      return;
+    }
+    if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
+      e.preventDefault();
+      complete(items[active] ?? items[0]!);
+      return;
+    }
+    if (e.key === "Escape") {
+      // Stops before the modal's own Escape handler, so the first Escape closes the list and
+      // the second one leaves the composer.
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div className="field recipient-field">
+      <label htmlFor={id}>{label}</label>
+      <input
+        id={id}
+        value={value}
+        onChange={(e) => {
+          onPick(e.target.value);
+          setOpen(false);
+        }}
+        onKeyDown={onKeyDown}
+        onBlur={() => setTimeout(() => setOpen(false), 120)}
+        placeholder={hint}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={`${id}-list`}
+        aria-autocomplete="list"
+        aria-activedescendant={open && items[active] ? `${id}-opt-${active}` : undefined}
+      />
+      {/* The input names this list through aria-controls; giving the list the same accessible
+          name as the field would make the field itself ambiguous to locate. */}
+      {open ? (
+        <ul className="recip-list" id={`${id}-list`} role="listbox">
+          {items.map((it, i) => (
+            <li
+              key={it.address}
+              id={`${id}-opt-${i}`}
+              role="option"
+              aria-selected={i === active}
+              className={i === active ? "is-active" : ""}
+              onMouseDown={(e) => {
+                // mousedown, not click: the input's blur would otherwise close the list first.
+                e.preventDefault();
+                complete(it);
+              }}
+            >
+              <span className="recip-name">{it.name ?? it.address}</span>
+              {it.name && it.name !== it.address ? <span className="recip-addr faint">{it.address}</span> : null}
+              {it.outgoing ? <span className="recip-tag faint">{t("composer.youWrote")}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Compose a new message, or answer one.
  *
@@ -61,7 +213,7 @@ export function Composer({
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => (replyTo ? quoteOf(replyTo) : ""));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const body = useRef<HTMLTextAreaElement>(null);
@@ -129,21 +281,11 @@ export function Composer({
                 </select>
               )}
             </div>
-            <div className="field">
-              <label htmlFor="compose-to">{t("composer.to")}</label>
-              <input
-                id="compose-to"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                placeholder="someone@example.com"
-                autoComplete="off"
-                required
-              />
-              {recipientCount > 0 && <div className="field-hint">{t("composer.recipients", { n: recipientCount })}</div>}
-            </div>
+            <RecipientField id="compose-to" label={t("composer.to")} hint="someone@example.com" value={to} onPick={setTo} />
+            {recipientCount > 0 ? <div className="field-hint">{t("composer.recipients", { n: recipientCount })}</div> : null}
             <details className="composer-cc">
               <summary>{t("composer.cc")}</summary>
-              <input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="someone-else@example.com" autoComplete="off" />
+              <RecipientField id="compose-cc" label={t("composer.cc")} hint="someone-else@example.com" value={cc} onPick={setCc} />
             </details>
             <div className="field">
               <label htmlFor="compose-subject">{t("composer.subject")}</label>

@@ -198,6 +198,15 @@ of this system, so this addendum records the difference.
     grid element, and the palette's keyboard timing — a key typed before the bundle has
     mounted is simply lost), and one missing dictionary key was caught by the leak check
     rather than by the parity test, which cannot see a key neither screen defines.
+- **Reading like a mailbox** (this round): migration `0010_unsubscribe.sql` adds
+  `list_unsubscribe` / `list_unsubscribe_post` to `messages` and must be applied before
+  deploying. Grouping is a window pass over the existing list query, switched by
+  `?threaded=true` and remembered locally; a search always lists every matching message,
+  because "which of my messages matched" and "how big is this conversation" are different
+  questions — the badge on a grouped row is the conversation's size, not the match count.
+  Autocomplete reads the mailbox's own history (`GET /api/recipients`), capped at 8 rows per
+  keystroke burst and never wider than 25. Unsubscribe is stored verbatim and rendered only
+  for an aligned sender; `SECURITY.md` §6.3 records why.
 - **Gates at this writing:** 103 tests (worker 81, web 22), 5 E2E; lint and typecheck clean.
   The five later slices — sender authentication, drift watchdog, FTS5 search, alias
   lifecycle, PWA + payload-free push — were each built, tested and deployed on

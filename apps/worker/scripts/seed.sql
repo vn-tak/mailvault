@@ -42,7 +42,7 @@ INSERT OR REPLACE INTO messages
   (id, domain_id, alias_id, provider_message_id, dedupe_key, envelope_from, envelope_to,
    header_from, header_to, subject, preview, received_at, raw_size, raw_r2_key, parsed_r2_key,
    has_attachments, attachment_count, is_read, extracted_codes_json, verification_links_json,
-   created_at, auth_verdict, auth_json)
+   created_at, auth_verdict, auth_json, list_unsubscribe, list_unsubscribe_post)
 VALUES
   ('00000000-0000-4000-8000-0000000000m1', '00000000-0000-4000-8000-000000000demo',
    '00000000-0000-4000-8000-00000000al01', 'gh-1', 'seed-dedupe-1', 'noreply@github.com',
@@ -51,7 +51,7 @@ VALUES
    '2026-09-19T08:30:00.000Z', 18234, 'seed/raw/m1.eml', NULL, 0, 0, 0,
    '[{"value":"55905149","kind":"numeric","length":8,"confidence":0.85}]', '[]',
    '2026-09-19T08:30:00.000Z', 'TRUSTED',
-   '{"verdict":"TRUSTED","spf":"pass","dkim":"pass","dmarc":"pass","alignedPass":{"spf":true,"dkim":true,"dmarc":true},"envelopeMismatch":false,"observed":true,"reasons":["dmarc pass, aligned"],"evidence":[]}'),
+   '{"verdict":"TRUSTED","spf":"pass","dkim":"pass","dmarc":"pass","alignedPass":{"spf":true,"dkim":true,"dmarc":true},"envelopeMismatch":false,"observed":true,"reasons":["dmarc pass, aligned"],"evidence":[]}', NULL, NULL),
 
   ('00000000-0000-4000-8000-0000000000m2', '00000000-0000-4000-8000-000000000demo',
    '00000000-0000-4000-8000-00000000al01', 'gh-2', 'seed-dedupe-2', 'bounce@news.example',
@@ -61,7 +61,8 @@ VALUES
    '2026-09-19T07:10:00.000Z', 94120, 'seed/raw/m2.eml', NULL, 1, 2, 1, '[]',
    '[{"url":"https://news.example/digest/991","hostname":"news.example","label":"Open digest","score":0.4}]',
    '2026-09-19T07:10:00.000Z', 'UNVERIFIED',
-   '{"verdict":"UNVERIFIED","spf":null,"dkim":null,"dmarc":null,"alignedPass":{"spf":false,"dkim":false,"dmarc":false},"envelopeMismatch":false,"observed":false,"reasons":[],"evidence":[]}'),
+   '{"verdict":"UNVERIFIED","spf":null,"dkim":null,"dmarc":null,"alignedPass":{"spf":false,"dkim":false,"dmarc":false},"envelopeMismatch":false,"observed":false,"reasons":[],"evidence":[]}',
+   '<https://news.example/unsub/7712>', NULL),
 
   ('00000000-0000-4000-8000-0000000000m3', '00000000-0000-4000-8000-000000000demo',
    '00000000-0000-4000-8000-00000000al02', 'evil-1', 'seed-dedupe-3', 'spam@attacker.example',
@@ -71,7 +72,7 @@ VALUES
    '[{"value":"998877","kind":"numeric","length":6,"confidence":0.62}]',
    '[{"url":"http://attacker.example/verify","hostname":"attacker.example","label":"Verify now","score":0.9}]',
    '2026-09-19T06:05:00.000Z', 'SPOOFED',
-   '{"verdict":"SPOOFED","spf":"fail","dkim":"pass","dmarc":"fail","alignedPass":{"spf":false,"dkim":false,"dmarc":false},"envelopeMismatch":true,"observed":true,"reasons":["dmarc=fail"],"evidence":[{"mechanism":"dmarc","outcome":"fail","domain":"mybank.example","aligned":false,"reporter":"mail.attacker.example"}]}'),
+   '{"verdict":"SPOOFED","spf":"fail","dkim":"pass","dmarc":"fail","alignedPass":{"spf":false,"dkim":false,"dmarc":false},"envelopeMismatch":true,"observed":true,"reasons":["dmarc=fail"],"evidence":[{"mechanism":"dmarc","outcome":"fail","domain":"mybank.example","aligned":false,"reporter":"mail.attacker.example"}]}', NULL, NULL),
 
   ('00000000-0000-4000-8000-0000000000m4', '00000000-0000-4000-8000-000000000demo',
    '00000000-0000-4000-8000-00000000al02', 'nx-4', 'seed-dedupe-4', 'no-reply@example.org',
@@ -79,7 +80,8 @@ VALUES
    'Re: Design review follow-up', 'Thanks for the notes — I moved the thread to the tracker.',
    '2026-09-18T19:45:00.000Z', 5120, 'seed/raw/m4.eml', NULL, 0, 0, 1, '[]', '[]',
    '2026-09-18T19:45:00.000Z', 'TRUSTED',
-   '{"verdict":"TRUSTED","spf":"pass","dkim":"pass","dmarc":"pass","alignedPass":{"spf":false,"dkim":true,"dmarc":true},"envelopeMismatch":false,"observed":true,"reasons":["dmarc pass, aligned"],"evidence":[]}'),
+   '{"verdict":"TRUSTED","spf":"pass","dkim":"pass","dmarc":"pass","alignedPass":{"spf":false,"dkim":true,"dmarc":true},"envelopeMismatch":false,"observed":true,"reasons":["dmarc pass, aligned"],"evidence":[]}',
+   '<https://example.org/unsub?id=9f2>, <mailto:unsub@example.org?subject=unsubscribe>', 'List-Unsubscribe=One-Click'),
 
 -- The reading view's stress case. Bodies come from parsed-body-stress.json (put into the
 -- local R2 bucket by `dev:e2e`), and the codes/links below are the real output of
@@ -98,7 +100,7 @@ VALUES
      {"url":"https://account.cloud.example/password/reset?next=%2Fsettings","hostname":"account.cloud.example","label":"reset your password","score":0.8,"context":"reset your password"},
      {"url":"https://docs.cloud.example/handbook/security/investigating-an-unrecognised-sign-in-from-a-device-you-do-not-recognise-see-this-long-reference-page-for-what-happens-next","hostname":"docs.cloud.example","label":"what happens after you confirm","score":0.6,"context":"what happens after you confirm"}]',
    '2026-09-19T15:04:11.000Z', 'TRUSTED',
-   '{"verdict":"TRUSTED","spf":"pass","dkim":"pass","dmarc":"pass","alignedPass":{"spf":false,"dkim":true,"dmarc":true},"envelopeMismatch":false,"observed":true,"reasons":["dmarc pass, aligned"],"evidence":[]}');
+   '{"verdict":"TRUSTED","spf":"pass","dkim":"pass","dmarc":"pass","alignedPass":{"spf":false,"dkim":true,"dmarc":true},"envelopeMismatch":false,"observed":true,"reasons":["dmarc pass, aligned"],"evidence":[]}', NULL, NULL);
 
 -- Keep the FTS index in step with the seeded rows (the app does this on ingest).
 DELETE FROM messages_fts WHERE message_id IN

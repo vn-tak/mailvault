@@ -19,6 +19,9 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
   const [view, setView] = useState<"all" | "unread" | "archived" | "sent">("all");
   const [offset, setOffset] = useState(0);
   const [composing, setComposing] = useState(false);
+  // Conversation view is the way a mailbox reads; a search opts out, because matching one
+  // message and showing a thread is a different question.
+  const [grouped, setGrouped] = useState(() => localStorage.getItem("mailvault-threaded") !== "0");
   const { query: route } = useRoute();
   const wide = useMediaQuery("(min-width: 900px)");
   const openId = wide ? route.get("open") : null;
@@ -34,10 +37,12 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
       q: search || undefined,
       aliasId,
       domainId,
+      // Boolean here, `true`/`false` on the wire: the query string is where the parsing happens.
+      threaded: grouped && !search,
       limit: PAGE,
       offset,
     }),
-    [view, search, aliasId, domainId, offset],
+    [view, search, aliasId, domainId, offset, grouped],
   );
 
   const { data, error, loading, reload } = useAsync(() => api.listMessages(query), [query]);
@@ -158,6 +163,11 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
         openMessage(null);
         return;
       }
+      if (key === "c") {
+        e.preventDefault();
+        setComposing(true);
+        return;
+      }
       if ((key === "e" || key === "u") && openId) {
         e.preventDefault();
         const current = items.find((m) => m.id === openId);
@@ -253,6 +263,20 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
           <h1>{t("inbox.title")}</h1>
         </div>
         <div className="actions">
+          {/* A view preference, not a filter: grouping changes how the same messages are
+              stacked, and it keeps its place beside the other view control. */}
+          <button
+            className="ghost small"
+            aria-pressed={grouped}
+            title={search ? t("inbox.groupOffWhileSearching") : t("inbox.groupHint")}
+            onClick={() => {
+              const next = !grouped;
+              setGrouped(next);
+              localStorage.setItem("mailvault-threaded", next ? "1" : "0");
+            }}
+          >
+            {t("inbox.groupConversations")}
+          </button>
           <button className="ghost small" onClick={reload}>
             {t("common.refresh")}
           </button>
