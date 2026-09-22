@@ -21,6 +21,9 @@ export interface ParsedEmail {
   inReplyTo: string | null;
   references: string[];
   replyTo: string | null;
+  /** Raw `List-Unsubscribe` value; `mailto:` and `https:` URIs live in angle brackets. */
+  listUnsubscribe: string | null;
+  oneClickUnsubscribe: boolean;
   text: string | null;
   html: string | null;
   attachments: ParsedAttachment[];
@@ -97,6 +100,8 @@ export async function parseMime(raw: Uint8Array): Promise<ParsedEmail> {
     inReplyTo: idList(header("in-reply-to"))[0] ?? null,
     references: [...new Set([...idList(header("references")), ...idList(header("in-reply-to"))])],
     replyTo: firstOf(parsed.replyTo),
+    listUnsubscribe: header("list-unsubscribe")?.trim() ?? null,
+    oneClickUnsubscribe: /list-unsubscribe\s*=\s*one-click/i.test(header("list-unsubscribe-post") ?? ""),
     text: parsed.text ?? null,
     html: parsed.html ?? null,
     attachments,

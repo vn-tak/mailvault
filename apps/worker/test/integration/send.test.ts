@@ -200,7 +200,8 @@ describe("sending from an alias", () => {
     expect(stored.direction).toBe("OUT");
     expect(stored.is_read).toBe(1);
     expect(stored.send_status).toBe("QUEUED");
-    expect(stored.provider_message_id).toBe("<wire-1@send.example>");
+    // Stored bare, exactly like a received Message-ID, because threading matches the two.
+    expect(stored.provider_message_id).toBe("wire-1@send.example");
     expect(stored.header_to).toBe("customer@example.com");
     expect(stored.alias_id).toBeTruthy();
     // Sent mail is its own conversation until something answers it.

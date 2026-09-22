@@ -60,6 +60,14 @@ export const MessageListQuerySchema = z.object({
   direction: z.enum(["in", "out", "all"]).default("in"),
   /** Every message of one thread, oldest first when combined with `all`. */
   threadId: z.string().min(1).optional(),
+  /**
+   * Collapse each conversation to its newest message, the way a mailbox list reads. Off by
+   * default so a search or an alias view still shows every hit individually.
+   */
+  threaded: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   /** Full-text search over subject, preview and sender, plus an exact match on OTP codes. */
   q: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),

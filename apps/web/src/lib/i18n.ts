@@ -511,7 +511,7 @@ export const en: Dict = {
   "composer.replyTitle": "Reply",
   "composer.from": "From",
   "composer.to": "To",
-  "composer.cc": "Also send to (Cc)",
+  "composer.cc": "Cc",
   "composer.subject": "Subject",
   "composer.body": "Message",
   "composer.bodyHint": "Write your message…",
@@ -558,6 +558,21 @@ export const en: Dict = {
   "dom.sendingAlreadyOn": "Sending is already enabled for this domain.",
   "dom.sendingEnabledDone": "Sending is enabled for {domain}.",
   "dom.sendingNeedsPermission": "Cloudflare refused the change. The token needs Email Sending: Edit.",
+
+  "inbox.groupConversations": "Threads",
+  "inbox.groupHint": "One row per conversation, newest message on top",
+  "inbox.groupOffWhileSearching": "A search lists every matching message, not one row per conversation",
+  "inbox.nInThread": "{n} messages in this conversation",
+
+  "composer.quotedFrom": "On {when}, {who} wrote",
+  "composer.youWrote": "you wrote to them",
+
+  "msg.unsubscribe": "Unsubscribe",
+  "msg.unsubscribeOneClick": "The sender supports a one-click request.",
+  "msg.unsubscribeLink": "Opens the sender's own unsubscribe page.",
+  "msg.unsubscribeGo": "Unsubscribe",
+  "msg.unsubscribeMail": "By email instead",
+  "msg.unsubscribeHidden": "This message offers an unsubscribe, but it is not shown because the sender did not pass authentication — answering one of those tells a stranger this address is read.",
 };
 
 export const vi: Dict = {
@@ -1047,7 +1062,7 @@ export const vi: Dict = {
   "composer.replyTitle": "Trả lời",
   "composer.from": "Từ",
   "composer.to": "Đến",
-  "composer.cc": "Gửi thêm (Cc)",
+  "composer.cc": "Cc",
   "composer.subject": "Tiêu đề",
   "composer.body": "Nội dung",
   "composer.bodyHint": "Viết thư của bạn…",
@@ -1094,6 +1109,21 @@ export const vi: Dict = {
   "dom.sendingAlreadyOn": "Tên miền này đã bật gửi thư.",
   "dom.sendingEnabledDone": "Đã bật gửi thư cho {domain}.",
   "dom.sendingNeedsPermission": "Cloudflare từ chối thay đổi. Token cần quyền Email Sending: Edit.",
+
+  "inbox.groupConversations": "Theo hội thoại",
+  "inbox.groupHint": "Mỗi hội thoại một dòng, thư mới nhất ở trên",
+  "inbox.groupOffWhileSearching": "Khi tìm kiếm, mọi thư khớp sẽ được liệt kê thay vì gộp theo hội thoại",
+  "inbox.nInThread": "{n} thư trong hội thoại này",
+
+  "composer.quotedFrom": "Vào {when}, {who} đã viết",
+  "composer.youWrote": "bạn đã gửi cho họ",
+
+  "msg.unsubscribe": "Hủy đăng ký",
+  "msg.unsubscribeOneClick": "Bên gửi hỗ trợ yêu cầu một chạm.",
+  "msg.unsubscribeLink": "Mở trang hủy đăng ký của bên gửi.",
+  "msg.unsubscribeGo": "Hủy đăng ký",
+  "msg.unsubscribeMail": "Hủy bằng email",
+  "msg.unsubscribeHidden": "Thư này có đề nghị hủy đăng ký, nhưng nó không được hiển thị vì người gửi không vượt qua xác thực — bấm vào đó chỉ báo cho người lạ biết địa chỉ này vẫn đang được đọc.",
 };
 
 const DICTS: Record<Lang, Dict> = { en, vi };

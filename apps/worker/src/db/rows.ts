@@ -85,6 +85,8 @@ export interface MessageRow {
   cc: string | null;
   send_status: string | null;
   send_error: string | null;
+  list_unsubscribe: string | null;
+  list_unsubscribe_post: string | null;
   created_at: string;
   // Joined context columns
   alias_label?: string | null;

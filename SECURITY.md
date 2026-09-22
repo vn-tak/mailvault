@@ -258,6 +258,24 @@ So it is a deliberate switch in Settings, off by default, and:
 trust. The residual risk is the obvious one: an index of derived representations of mail
 sits in the same account as the mail itself, protected by the same Access policy.
 
+## 6.3 Unsubscribe (`List-Unsubscribe`) — offered only to an aligned sender
+
+`parseMime` stores the sender's `List-Unsubscribe` and whether it declared
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058). Both are **sender-authored
+text**, stored verbatim, and only rendered by the reading view when the message's verdict is
+`TRUSTED` — that is, when SPF or DKIM passed *and* aligned with the header `From`.
+
+Why the gate is the verdict and not the URL's shape: hitting an unsubscribe endpoint proves the
+address is read by a human. That is a thing a forger is happy to buy, so a message that failed
+authentication offers nothing to click and says why in one line. An aligned sender's URL is the
+sender's own domain, and it is presented as a link the owner chooses to open —
+`target=_blank`, `rel="noopener noreferrer nofollow"`, never fetched by the app itself, which
+would confirm the address from the server's own IP and put this app in the path of a request
+between a subscriber and a sender.
+
+The mailto form is offered alongside: it is the fallback for a sender without one-click, and it
+composes from the owner's mail client rather than from anything MailVault sends.
+
 ## 7. Attachments
 
 `apps/worker/src/routes/messages.ts` (download route) + `apps/worker/src/lib/filename.ts`:

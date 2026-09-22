@@ -22,7 +22,7 @@ test("desktop: the composer offers only aliases on a domain that may sign mail",
 
   const dialog = page.getByRole("dialog", { name: "New message" });
   await expect(dialog).toBeVisible();
-  const from = dialog.getByLabel("From");
+  const from = dialog.getByLabel("From", { exact: true });
   // Whatever it defaults to, it is an address on the one domain allowed to send.
   await expect(from).toHaveValue(/@demo\.example$/);
   const options = await from.locator("option").allTextContents();
@@ -30,9 +30,9 @@ test("desktop: the composer offers only aliases on a domain that may sign mail",
   // Everything on offer belongs to the one domain the seed marks as able to send.
   for (const label of options) expect(label).toContain(DOMAIN);
 
-  await expect(dialog.getByLabel("To")).toBeVisible();
-  await expect(dialog.getByLabel("Subject")).toBeVisible();
-  await expect(dialog.getByLabel("Message")).toBeVisible();
+  await expect(dialog.getByLabel("To", { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel("Subject", { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel("Message", { exact: true })).toBeVisible();
 });
 
 test("desktop: when the server cannot send, the composer says so instead of failing on Submit", async ({ page }) => {
@@ -41,8 +41,8 @@ test("desktop: when the server cannot send, the composer says so instead of fail
   const dialog = page.getByRole("dialog", { name: "New message" });
 
   await expect(dialog.getByRole("alert")).toContainText("not available");
-  await dialog.getByLabel("To").fill("customer@example.com");
-  await dialog.getByLabel("Message").fill("Whatever I write.");
+  await dialog.getByLabel("To", { exact: true }).fill("customer@example.com");
+  await dialog.getByLabel("Message", { exact: true }).fill("Whatever I write.");
   await expect(dialog.getByRole("button", { name: "Send" })).toBeDisabled();
 });
 
@@ -57,7 +57,7 @@ test("desktop: a reply names its recipient as a fact, not as a field to edit", a
   // The address the stored message named, shown as text: the client cannot aim a reply at
   // somebody the conversation never pointed to.
   await expect(dialog.getByText("no-reply@example.org")).toBeVisible();
-  await expect(dialog.getByLabel("To")).toHaveCount(0);
+  await expect(dialog.getByLabel("To", { exact: true })).toHaveCount(0);
   // It leaves from the alias the message arrived on, which is not the first alias in the list.
   await expect(dialog.getByText("news-d7k2q1@demo.example")).toBeVisible();
 });

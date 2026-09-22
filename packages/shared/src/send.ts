@@ -55,6 +55,23 @@ export const ReplyInputSchema = z.object({
 });
 export type ReplyInput = z.infer<typeof ReplyInputSchema>;
 
+/** Autocomplete input: a fragment of an address or a display name, nothing more. */
+export const RecipientQuerySchema = z.object({ q: z.string().trim().max(80).optional() });
+
+/**
+ * An address the owner has actually corresponded with, for the composer to suggest. Names and
+ * addresses are their own mail — this is not a contact book, and nothing is collected from
+ * anywhere else.
+ */
+export const RecipientSuggestionSchema = z.object({
+  address: z.string(),
+  name: z.string().nullable(),
+  lastSeen: z.string(),
+  /** True when this mailbox sent to that address, not just received from it. */
+  outgoing: z.boolean().default(false),
+});
+export type RecipientSuggestion = z.infer<typeof RecipientSuggestionSchema>;
+
 /** What the owner gets back: enough to render the row without a second fetch. */
 export const SendOutcomeSchema = z.object({
   id: z.string(),

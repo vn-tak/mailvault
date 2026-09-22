@@ -11,6 +11,55 @@ import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Monogram } from "../co
 import { Composer } from "../components/Composer";
 import { AuthVerdict, MessageDirection, type ExtractedCode, type MessageAuth, type VerificationLink } from "@mailvault/shared";
 
+/**
+ * The unsubscribe the sender offered.
+ *
+ * Only for a message whose sender authentication aligned. An unsubscribe address is
+ * attacker-authored text like any other link, and the one thing it proves when it is hit is
+ * that a live human read the mail — which is precisely what a forger is buying. So an
+ * unverified sender gets a line explaining why nothing is offered, not a button.
+ */
+function UnsubscribeCard({ url, mailto, oneClick }: { url: string | null; mailto: string | null; oneClick: boolean }) {
+  return (
+    <div className="card unsubscribe mt">
+      <div className="row spread wrap" style={{ gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <strong>{t("msg.unsubscribe")}</strong>
+          <div className="faint" style={{ fontSize: 13 }}>
+            {oneClick ? t("msg.unsubscribeOneClick") : t("msg.unsubscribeLink")}
+          </div>
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          {url ? (
+            <a
+              className="small primary"
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+            >
+              {t("msg.unsubscribeGo")}
+            </a>
+          ) : null}
+          {mailto ? (
+            <a className="small ghost" href={mailto}>
+              {t("msg.unsubscribeMail")}
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** `List-Unsubscribe` carries `<https://a>`, `<mailto:b>` — either order, sometimes one. */
+function parseUnsubscribe(raw: string | null): { url: string | null; mailto: string | null } {
+  const uris = [...(raw ?? "").matchAll(/<\s*([^>\s]+)\s*>/g)].map((m) => m[1] ?? "");
+  return {
+    url: uris.find((u) => u.startsWith("https://") || u.startsWith("http://")) ?? null,
+    mailto: uris.find((u) => u.startsWith("mailto:")) ?? null,
+  };
+}
+
 function byConfidence(a: ExtractedCode, b: ExtractedCode): number {
   return b.confidence - a.confidence || b.length - a.length;
 }
@@ -158,6 +207,24 @@ export function MessageDetail({
       .map((a) => ({ address: a.address, label: a.label }));
   }, [aliasPage, capabilities]);
 
+  /*
+   * `r` answers the message on screen. The shortcut lives here rather than in the list
+   * because a reply needs this message's identity, and the pane is the only thing that knows
+   * which one is open — Escape and the read marks are handled by the list around it.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.key.toLowerCase() !== "r") return;
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return;
+      if (document.querySelector(".palette, .modal")) return;
+      e.preventDefault();
+      setReplying(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Opening a message marks it read once per id; ignore failures silently.
   useEffect(() => {
     if (!data || data.isRead || markedRef.current === data.id) return;
@@ -266,6 +333,20 @@ export function MessageDetail({
           {/* Our own outgoing mail has no external sender to authenticate: Email Sending
               signs it with this domain's own key, so a verdict banner would only confuse. */}
           {data.direction === MessageDirection.In ? <AuthBanner verdict={data.authVerdict} auth={data.auth ?? null} /> : null}
+
+          {data.direction === MessageDirection.In && data.listUnsubscribe ? (
+            data.authVerdict === AuthVerdict.Trusted ? (
+              <UnsubscribeCard
+                url={parseUnsubscribe(data.listUnsubscribe).url}
+                mailto={parseUnsubscribe(data.listUnsubscribe).mailto}
+                oneClick={data.oneClickUnsubscribe}
+              />
+            ) : (
+              <div className="banner mt">
+                <span className="muted">{t("msg.unsubscribeHidden")}</span>
+              </div>
+            )
+          ) : null}
 
           {data.direction === MessageDirection.Out ? (
             <div className={`banner mt ${data.sendStatus === "FAILED" ? "error" : ""}`}>
