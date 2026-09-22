@@ -94,7 +94,10 @@ of this system, so this addendum records the difference.
   consumer commits to D1. Created 2026-09-20 with `wrangler queues create`, and the
   producer/consumer wiring is confirmed on the queue itself (`producers: mail-vault`,
   `consumers: worker:mail-vault`, `dead_letter_queue: mail-ingest-dlq`). The job body
-  carries R2 keys and envelope addressing only — see SECURITY.md §6.3.
+  carries R2 keys and envelope addressing only — see SECURITY.md §6.3. A second queue,
+  `mail-delivery-events`, is written by Cloudflare rather than by this Worker and carries
+  delivery reports for outbound mail; the consumer dispatches on `batch.queue`, so one
+  handler serves both without guessing at either (SECURITY.md §8.6).
 - **Real domain mutations: 3 zones, each one an explicit owner click in the app** —
   `omnipos.tech`, `datlichngay.com`, `tung.codes`. Email Routing was enabled by MailVault's
   own token, the catch-all points at the MailVault Worker, and `READY` was recorded only
@@ -246,6 +249,34 @@ of this system, so this addendum records the difference.
   - Local `sending_status` for `demo.example` is seeded to `ENABLED` so the compose screen has
     something to offer. That is a local fiction: the seed only pretends the domain is
     onboarded, and the local runtime cannot send anyway.
+
+- **Delivery status, stars and working over a list** (this round):
+  - Migration `0011_starred_and_recipients.sql` adds `messages.starred` and the
+    `message_recipients` table. **Apply it before deploying** (`pnpm db:migrate:remote`), or
+    every list read fails on the missing column.
+  - A second queue, `mail-delivery-events`, is consumed by the same Worker. The consumer is
+    declared in `wrangler.jsonc`; the queue itself is created once with
+    `wrangler queues create mail-delivery-events`. The handler dispatches on `batch.queue`, so
+    a batch is never guessed at from its shape.
+  - **The event subscription is an account resource, not part of a deploy**, and it needs
+    wrangler 4 (`wrangler queues subscription create …`), while this project pins wrangler 3
+    for deploys. Create it once per sending domain:
+
+    ```bash
+    npx wrangler@4 queues subscription create mail-delivery-events \
+      --source email.sending --domain send.omnipos.tech --zone-id <zone id> \
+      --events message.delivered,message.deferred,message.bounced,message.failed,message.rejected,message.complained
+    ```
+
+    Nothing in the app writes it, and deleting it only stops status updates — mail still
+    sends. `DELIVERY_EVENTS_QUEUE` names the queue on both sides; the default matches.
+  - Sent messages created **before** this round have no `message_recipients` rows. That is
+    correct rather than broken: they report the status the send itself recorded, and an event
+    that arrives later for one of them creates its row. No backfill was invented from
+    `envelope_to`, because a comma-joined string cannot say which of those addresses were Cc.
+  - Tab badges come from `GET /api/messages/counters`, counted over the whole mailbox. On a
+    handset they are hidden, because five tabs carrying counts no longer share their line with
+    the mailbox picker, and a third line of filters is what `mailboxes.spec.ts` exists to catch.
 
 ## Why it was `DEPLOYMENT_BLOCKED_CREDENTIALS`
 

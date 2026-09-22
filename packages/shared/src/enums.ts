@@ -98,15 +98,34 @@ export type MessageDirection = (typeof MessageDirection)[keyof typeof MessageDir
 /**
  * Outcome of a send, as reported by Email Sending. `queued` is normal for a large message
  * or a recipient that accepts asynchronously, so it is a state and not a warning.
+ *
+ * `DEFERRED` is the one value that is never final — the provider is still retrying — which
+ * is why the list badge must not present it as a failure. `COMPLAINED` is not a delivery
+ * problem either: the message arrived and the recipient reported it as spam, so it is kept
+ * per recipient rather than as the message's own status.
  */
 export const SendStatus = {
   Queued: "QUEUED",
+  Deferred: "DEFERRED",
   Delivered: "DELIVERED",
   Bounced: "BOUNCED",
+  Rejected: "REJECTED",
   Suppressed: "SUPPRESSED",
   Failed: "FAILED",
+  Complained: "COMPLAINED",
 } as const;
 export type SendStatus = (typeof SendStatus)[keyof typeof SendStatus];
+
+/** Statuses an Email Sending delivery event can report, mapped to ours. */
+export const DeliveryEventStatus = {
+  Delivered: "delivered",
+  Deferred: "deferred",
+  Bounced: "bounced",
+  Failed: "failed",
+  Rejected: "rejected",
+  Complained: "complained",
+} as const;
+export type DeliveryEventStatus = (typeof DeliveryEventStatus)[keyof typeof DeliveryEventStatus];
 
 /**
  * Whether this domain may be used as a `From`. Independent of receiving: Email Sending

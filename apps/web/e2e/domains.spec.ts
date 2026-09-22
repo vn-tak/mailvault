@@ -34,5 +34,8 @@ test("domains table shows the seeded Ready domain without mutating anything", as
 test("inbox renders its filter controls", async ({ page }) => {
   await page.goto("/#/inbox");
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Unread" })).toBeVisible();
+  // Scoped to the strip: the bulk bar beside it carries a "Mark unread" button, and a filter
+  // and an action that share a word should not be told apart by which one happens to be
+  // first in the DOM.
+  await expect(page.locator(".tabs").getByRole("button", { name: "Unread" })).toBeVisible();
 });

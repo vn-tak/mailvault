@@ -9,8 +9,9 @@ import type {
   SendStatus,
   VerificationLink,
 } from "@mailvault/shared";
-import { MessageDirection } from "@mailvault/shared";
+import { MessageDirection, parseSearchQuery, type Count, type MessageCounters } from "@mailvault/shared";
 import { newId, nowIso } from "../lib/util";
+import { listRecipients } from "./recipients";
 import { parseJson, toMessageAuth, toMessageSummary } from "./mappers";
 import type { AttachmentRow, MessageRow } from "./rows";
 
@@ -263,11 +264,24 @@ function buildListFilters(query: ListInput): { where: string; params: unknown[];
     params.push(val);
     return params.length;
   };
-  if (query.filter === "unread") clauses.push("m.is_read = 0");
+  // Operators are re-read from `q` here rather than taken on trust from the caller: the same
+  // string has to mean the same thing in the web app's chips and in the SQL, and only the
+  // side that writes the query can guarantee that.
+  const intent = parseSearchQuery(query.q);
+
+  // Unread by tab, or by `is:unread` / `is:read` in the query. An explicit `is:read` outranks
+  // the tab, which is how you find something you already answered while on the unread view.
+  const unread = intent.unread ?? (query.filter === "unread" ? true : undefined);
+  if (unread === true) clauses.push("m.is_read = 0");
+  else if (unread === false) clauses.push("m.is_read = 1");
+
+  const starred = query.starred ? query.starred === "true" : intent.starred ? true : undefined;
+  if (starred !== undefined) clauses.push(`m.starred = ${starred ? 1 : 0}`);
+
   // Received and sent share the table, so a list says which side it wants — and wants it
   // explicitly, because "an inbox" is received mail. `all` is what a conversation view
   // uses; a thread without its own replies is not a thread.
-  const direction = query.direction ?? "in";
+  const direction = intent.direction ?? query.direction ?? "in";
   if (direction === "in") clauses.push("m.direction = 'IN'");
   else if (direction === "out") clauses.push("m.direction = 'OUT'");
   if (query.threadId) {
@@ -277,19 +291,34 @@ function buildListFilters(query: ListInput): { where: string; params: unknown[];
   }
   // Rules file mail out of the working list; they never remove it. `all` is what the
   // archived view and any "show me everything" query uses.
-  if (query.archived === "active") clauses.push("m.archived = 0");
+  if (intent.filedOnly) clauses.push("m.archived = 1");
+  else if (query.archived === "active") clauses.push("m.archived = 0");
   else if (query.archived === "archived") clauses.push("m.archived = 1");
   if (query.domainId) clauses.push(`m.domain_id = ?${push(query.domainId)}`);
   if (query.aliasId) clauses.push(`m.alias_id = ?${push(query.aliasId)}`);
+  if (intent.after) clauses.push(`m.received_at >= ?${push(intent.after)}`);
+  if (intent.before) clauses.push(`m.received_at <= ?${push(intent.before)}`);
+  if (intent.hasAttachment) clauses.push("m.has_attachments = 1");
+  if (intent.hasCode) clauses.push("(m.extracted_codes_json IS NOT NULL AND m.extracted_codes_json <> '[]')");
+  // An address operator matches anywhere the address can be written, including the alias it
+  // arrived at: `from:` on a shared alias is usually a search for the person behind it.
+  for (const [raw, columns] of [
+    [intent.from, ["m.envelope_from", "m.header_from"]],
+    [intent.to, ["m.envelope_to", "m.header_to", "m.cc", "a.address"]],
+  ] as const) {
+    if (!raw) continue;
+    const p = push(`%${raw}%`);
+    clauses.push(`(${columns.map((col) => `lower(COALESCE(${col}, '')) LIKE ?${p}`).join(" OR ")})`);
+  }
 
   let rank = "0";
-  if (query.q) {
+  if (intent.text) {
     // Text comes from the FTS index; codes and alias text from LIKE, so searching an
     // address or an OTP still finds mail stored before the index existed. A query with no
     // usable words produces an empty MATCH, which FTS5 rejects — so the index is only
     // consulted when there is something to look for in it.
-    const match = ftsMatch(query.q);
-    const like = push(`%${query.q.toLowerCase()}%`);
+    const match = ftsMatch(intent.text);
+    const like = push(`%${intent.text.toLowerCase()}%`);
     const terms = [
       `lower(COALESCE(m.extracted_codes_json, '')) LIKE ?${like}`,
       `lower(COALESCE(a.address, m.envelope_to)) LIKE ?${like}`,
@@ -469,6 +498,9 @@ export async function getMessageDetail(db: D1Database, id: string): Promise<Mess
   const attachments = await getMessageAttachments(db, id);
   return {
     ...summary,
+    // Only the detail view pays for this: the list badge shows the message-level summary,
+    // which is a column rather than a join.
+    recipients: await listRecipients(db, id),
     appliedRuleNote: row.applied_rule_note ?? null,
     providerMessageId: row.provider_message_id,
     rawSize: Number(row.raw_size),
@@ -489,11 +521,108 @@ export async function getMessageDetail(db: D1Database, id: string): Promise<Mess
 }
 
 export async function setMessageRead(db: D1Database, id: string, isRead: boolean): Promise<number> {
+  return setFlag(db, [id], "is_read", isRead ? 1 : 0);
+}
+
+/**
+ * The three message flags a multi-select can move, mapped from a fixed vocabulary rather
+ * than from anything a caller sends — an interpolation of a column name here would be a SQL
+ * injection with extra steps.
+ */
+const FLAG_COLUMNS = {
+  is_read: "is_read",
+  starred: "starred",
+  archived: "archived",
+} as const;
+export type FlagColumn = keyof typeof FLAG_COLUMNS;
+
+/**
+ * Set one flag on many messages in a single statement.
+ *
+ * The `<> value` guard keeps the count honest: it returns rows whose flag actually moved,
+ * so re-marking something already marked does not report work that did not happen, and no
+ * row is rewritten for nothing.
+ */
+export async function setFlag(db: D1Database, ids: string[], column: FlagColumn, value: 0 | 1): Promise<number> {
+  if (ids.length === 0) return 0;
+  const col = FLAG_COLUMNS[column];
+  const placeholders = ids.map((_, i) => `?${i + 1}`).join(", ");
   const res = await db
-    .prepare(`UPDATE messages SET is_read = ?2 WHERE id = ?1`)
-    .bind(id, isRead ? 1 : 0)
+    .prepare(`UPDATE messages SET ${col} = ?${ids.length + 1} WHERE id IN (${placeholders}) AND ${col} <> ?${ids.length + 1}`)
+    .bind(...ids, value)
     .run();
   return changes(res);
+}
+
+/** Flags for several messages at once, returning the keys of everything removed. */
+export async function deleteMessages(db: D1Database, ids: string[]): Promise<{ removed: number; keys: string[] }> {
+  if (ids.length === 0) return { removed: 0, keys: [] };
+  const placeholders = ids.map((_, i) => `?${i + 1}`).join(", ");
+  const [stored, attached] = await db.batch([
+    db.prepare(`SELECT raw_r2_key, parsed_r2_key FROM messages WHERE id IN (${placeholders})`).bind(...ids),
+    db.prepare(`SELECT r2_key FROM attachments WHERE message_id IN (${placeholders})`).bind(...ids),
+  ]);
+  const rows = (stored?.results ?? []) as { raw_r2_key: string; parsed_r2_key: string | null }[];
+  if (rows.length === 0) return { removed: 0, keys: [] };
+  const keys = new Set<string>();
+  for (const r of rows) {
+    keys.add(r.raw_r2_key);
+    if (r.parsed_r2_key) keys.add(r.parsed_r2_key);
+  }
+  for (const a of (attached?.results ?? []) as { r2_key: string }[]) keys.add(a.r2_key);
+
+  await db.batch([
+    db.prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).bind(...ids),
+    db.prepare(`DELETE FROM messages_fts WHERE message_id IN (${placeholders})`).bind(...ids),
+  ]);
+  return { removed: rows.length, keys: [...keys] };
+}
+
+/**
+ * Tab and mailbox badges, in one pass over `messages`.
+ *
+ * Counted here rather than derived from the page the owner is looking at: "3 unread" has to
+ * mean three unread messages, not three of the fifty currently listed, or the number is a
+ * lie the moment anything is filtered.
+ */
+export async function messageCounters(db: D1Database, domainId?: string): Promise<MessageCounters> {
+  const bind = domainId ? [domainId] : [];
+  const totals = await db
+    .prepare(
+      `SELECT
+         SUM(CASE WHEN direction = 'IN' AND archived = 0 THEN 1 ELSE 0 END) AS inbox_total,
+         SUM(CASE WHEN direction = 'IN' AND archived = 0 AND is_read = 0 THEN 1 ELSE 0 END) AS inbox_unread,
+         SUM(CASE WHEN direction = 'OUT' THEN 1 ELSE 0 END) AS sent_total,
+         SUM(CASE WHEN direction = 'OUT' AND is_read = 0 THEN 1 ELSE 0 END) AS sent_unread,
+         SUM(CASE WHEN starred = 1 THEN 1 ELSE 0 END) AS starred_total,
+         SUM(CASE WHEN starred = 1 AND is_read = 0 THEN 1 ELSE 0 END) AS starred_unread,
+         SUM(CASE WHEN archived = 1 THEN 1 ELSE 0 END) AS filed_total,
+         SUM(CASE WHEN archived = 1 AND is_read = 0 THEN 1 ELSE 0 END) AS filed_unread
+       FROM messages
+       WHERE 1 = 1 ${domainId ? "AND domain_id = ?1" : ""}`,
+    )
+    .bind(...bind)
+    .first<Record<string, number | null>>();
+  const perMailbox = await db
+    .prepare(
+      `SELECT domain_id, COUNT(*) AS unread FROM messages
+       WHERE direction = 'IN' AND archived = 0 AND is_read = 0 ${domainId ? "AND domain_id = ?1" : ""}
+       GROUP BY domain_id`,
+    )
+    .bind(...(domainId ? [domainId] : []))
+    .all<{ domain_id: string; unread: number }>();
+
+  const count = (total: string, unread: string): Count => ({
+    total: Number(totals?.[total] ?? 0),
+    unread: Number(totals?.[unread] ?? 0),
+  });
+  return {
+    inbox: count("inbox_total", "inbox_unread"),
+    sent: count("sent_total", "sent_unread"),
+    starred: count("starred_total", "starred_unread"),
+    filed: count("filed_total", "filed_unread"),
+    mailboxes: (perMailbox.results ?? []).map((r) => ({ domainId: r.domain_id, unread: Number(r.unread) })),
+  };
 }
 
 export async function getRawKeysForMessage(db: D1Database, id: string): Promise<string[]> {

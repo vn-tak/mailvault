@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { deliveryEventsQueue } from "./env";
 import type {
   ExportedHandler,
   ExecutionContext,
@@ -10,6 +11,7 @@ import { createCloudflareClient } from "./cf/api-client";
 import { createApp } from "./app";
 import { decorateResponse } from "./security/headers";
 import { stageEmail, commitIngest, type IngestJob } from "./mail/ingest";
+import { consumeDeliveryEvents } from "./mail/delivery";
 import { deleteKeys } from "./storage/r2";
 import { pushToAll } from "./push";
 import { Elapsed, writeMetric } from "./lib/metrics";
@@ -85,36 +87,17 @@ export default {
    * own. Here a failure re-delivers the job with the R2 objects untouched, and after the
    * consumer's retry budget the job parks in the dead-letter queue — still recoverable,
    * because the job carries keys only, never content.
+   *
+   * One Worker consumes two queues, so the batch is routed by the name it arrived on rather
+   * than by its shape: guessing from field names would make an ingest job that happens to
+   * look like a delivery event get applied as one.
    */
-  async queue(batch: MessageBatch<IngestJob>, env: Env, ctx: ExecutionContext): Promise<void> {
-    for (const message of batch.messages) {
-      const timer = new Elapsed();
-      try {
-        const result = await commitIngest(message.body, env.DB, env.MAIL_BUCKET);
-        writeMetric(env, "ingest_commit", {
-          outcome: result.status,
-          verdict: result.status === "stored" ? result.verdict : undefined,
-          commitMs: timer.stop(),
-        });
-        if (result.status === "stored") {
-          // Notify only after the mail is durable, and detached: a slow or dead push
-          // endpoint must never affect delivery or make the message retry.
-          ctx.waitUntil(
-            Promise.allSettled([pushToAll(env, env.DB), notifyNewMail(env), indexIfEnabled(env, result.messageId)]).then(
-              () => undefined,
-            ),
-          );
-        }
-        message.ack();
-      } catch (err) {
-        writeMetric(env, "ingest_commit", { outcome: "failed", reason: "commit_error", commitMs: timer.stop() });
-        log.error("ingest_commit_failed", {
-          attempt: message.attempts,
-          error: err instanceof Error ? err.message : "error",
-        });
-        message.retry();
-      }
+  async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (batch.queue === deliveryEventsQueue(env)) {
+      await consumeDeliveryBatch(batch, env);
+      return;
     }
+    await consumeIngestBatch(batch as MessageBatch<IngestJob>, env, ctx);
   },
 
   /**
@@ -151,4 +134,68 @@ export default {
       log.error("watchdog_run_failed", { error: err instanceof Error ? err.message : "error" });
     }
   },
-} satisfies ExportedHandler<Env, IngestJob>;
+} satisfies ExportedHandler<Env>;
+
+/**
+ * The ingest half of the queue handler. Ack and retry are per message rather than per
+ * batch: one unreadable job must not be delivered to every other message in the batch for
+ * the rest of its retry budget.
+ */
+async function consumeIngestBatch(
+  batch: MessageBatch<IngestJob>,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<void> {
+  for (const message of batch.messages) {
+    const timer = new Elapsed();
+    try {
+      const result = await commitIngest(message.body, env.DB, env.MAIL_BUCKET);
+      writeMetric(env, "ingest_commit", {
+        outcome: result.status,
+        verdict: result.status === "stored" ? result.verdict : undefined,
+        commitMs: timer.stop(),
+      });
+      if (result.status === "stored") {
+        // Notify only after the mail is durable, and detached: a slow or dead push
+        // endpoint must never affect delivery or make the message retry.
+        ctx.waitUntil(
+          Promise.allSettled([pushToAll(env, env.DB), notifyNewMail(env), indexIfEnabled(env, result.messageId)]).then(
+            () => undefined,
+          ),
+        );
+      }
+      message.ack();
+    } catch (err) {
+      writeMetric(env, "ingest_commit", { outcome: "failed", reason: "commit_error", commitMs: timer.stop() });
+      log.error("ingest_commit_failed", {
+        attempt: message.attempts,
+        error: err instanceof Error ? err.message : "error",
+      });
+      message.retry();
+    }
+  }
+}
+
+/**
+ * The delivery-event half. A database failure retries the batch; a record this mailbox
+ * cannot place is counted and dropped inside the consumer, because no number of retries
+ * turns an unknown message id into a known one. Nothing here touches R2 — a delivery event
+ * reports on a message, it is not a copy of one.
+ */
+async function consumeDeliveryBatch(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+  try {
+    await consumeDeliveryEvents(
+      batch.messages.map((m) => m.body),
+      env,
+      env.DB,
+    );
+    for (const message of batch.messages) message.ack();
+  } catch (err) {
+    writeMetric(env, "delivery", { outcome: "failed", reason: "db_error" });
+    log.error("delivery_event_failed", {
+      attempt: batch.messages[0]?.attempts,
+      error: err instanceof Error ? err.message : "error",
+    });
+    for (const message of batch.messages) message.retry();
+  }
+}

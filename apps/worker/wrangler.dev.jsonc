@@ -17,7 +17,8 @@
     "MAX_MESSAGE_BYTES": "20971520",
     "MAX_SENDS_PER_DAY": "50",
     "ALLOWED_EMAILS": "",
-    "DOMAIN_DENYLIST": "tungjpstore.net,selinow.com,fball.vn,logivn.com"
+    "DOMAIN_DENYLIST": "tungjpstore.net,selinow.com,fball.vn,logivn.com",
+    "DELIVERY_EVENTS_QUEUE": "mail-delivery-events"
   },
 
   "d1_databases": [
@@ -36,7 +37,10 @@
     }
   ],
 
-  // Same shape as production; wrangler creates the queue locally.
+  // Same shape as production; wrangler creates the queue locally. Nothing writes
+  // `mail-delivery-events` here — the local simulator sends no delivery events — but the
+  // consumer is declared so a send-status change can be exercised by handing it records
+  // directly, and so dev and production never disagree about what queues exist.
   "queues": {
     "producers": [
       { "binding": "MAIL_INGEST_QUEUE", "queue": "mail-ingest" }
@@ -47,7 +51,8 @@
         "max_batch_size": 10,
         "max_retries": 3,
         "dead_letter_queue": "mail-ingest-dlq"
-      }
+      },
+      { "queue": "mail-delivery-events", "max_batch_size": 20, "max_retries": 3 }
     ]
   },
 

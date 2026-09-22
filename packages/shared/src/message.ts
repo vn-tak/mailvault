@@ -75,6 +75,19 @@ export const MessageAuthSchema = z.object({
 });
 export type MessageAuth = z.infer<typeof MessageAuthSchema>;
 
+/** What happened to one destination of a sent message. */
+export const MessageRecipientSchema = z.object({
+  address: z.string(),
+  list: z.enum(["to", "cc", "bcc"]),
+  status: z.nativeEnum(SendStatus),
+  /** SMTP reply code as the receiving server gave it, e.g. `550`. */
+  smtpCode: z.string().nullable().default(null),
+  /** The provider's own words — an SMTP line, so it is text and never a link. */
+  detail: z.string().nullable().default(null),
+  updatedAt: z.string(),
+});
+export type MessageRecipient = z.infer<typeof MessageRecipientSchema>;
+
 /** Row shape for the inbox list (never carries full bodies — section 44). */
 export const MessageSummarySchema = z.object({
   authVerdict: z.nativeEnum(AuthVerdict).default(AuthVerdict.Unverified),
@@ -90,6 +103,8 @@ export const MessageSummarySchema = z.object({
   preview: z.string().nullable(),
   receivedAt: z.string(),
   isRead: z.boolean(),
+  /** The owner's own mark. No rule, filter or provider ever sets it. */
+  starred: z.boolean().default(false),
   /** Out of the working list because a rule put it there. Never a deletion. */
   archived: z.boolean().default(false),
   ruleTag: z.string().nullable().default(null),
@@ -141,6 +156,12 @@ export const MessageDetailSchema = MessageSummarySchema.extend({
   replyTo: z.string().nullable().default(null),
   /** Failure text for an `OUT` row that did not go; null when nothing went wrong. */
   sendError: z.string().nullable().default(null),
+  /**
+   * How one send reached each of its destinations. `sendStatus` on the row is the summary of
+   * these, because a message to three people can arrive at one and bounce off two; only the
+   * detail view pays the join, since the list badge needs the summary alone.
+   */
+  recipients: z.array(MessageRecipientSchema).default([]),
   /**
    * RFC 8058 unsubscribe material, stored verbatim from the sender. Rendering it at all is
    * gated on the message's authentication verdict — see `SECURITY.md` §6.3.

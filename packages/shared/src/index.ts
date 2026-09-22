@@ -5,6 +5,7 @@ export * from "./message";
 export * from "./api";
 export * from "./rules";
 export * from "./send";
+export * from "./search";
 
 export const MAILVAULT_VERSION = "0.1.0";
 

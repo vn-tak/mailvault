@@ -3,6 +3,8 @@ import type {
   Alias,
   AliasDetail,
   AuthPolicy,
+  BulkMessageAction,
+  BulkMessageResult,
   ComposeInput,
   CreateAliasInput,
   DashboardStats,
@@ -11,6 +13,7 @@ import type {
   Health,
   MessageDetail,
   MessageListQuery,
+  MessageCounters,
   Paginated,
   Passkey,
   PreflightResult,
@@ -150,6 +153,16 @@ export const api = {
       headers: { "content-type": "application/json", "x-mailvault": "1" },
       body: JSON.stringify({ isRead }),
     }),
+
+  /** Tab and mailbox badges, counted over the whole mailbox rather than the current page. */
+  messageCounters: (domainId?: string) =>
+    request<MessageCounters>(`/messages/counters${qs({ domainId })}`),
+  /**
+   * One action over a selection. Also how a single star toggles: a second endpoint for the
+   * same flag flip would be two places to keep in step for no gain.
+   */
+  bulkMessages: (ids: string[], action: BulkMessageAction) =>
+    request<BulkMessageResult>("/messages/bulk", mutation({ ids, action })),
   deleteMessage: (id: string) =>
     request<{ deleted: boolean }>(`/messages/${encodeURIComponent(id)}`, {
       method: "DELETE",

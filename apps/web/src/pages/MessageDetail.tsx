@@ -3,13 +3,20 @@ import { api } from "../lib/api";
 import { attachmentHref } from "../lib/api";
 import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
-import { formatBytes, fullTime, senderName } from "../lib/format";
+import { formatBytes, fullTime, sendPill, senderName } from "../lib/format";
 import { t } from "../lib/i18n";
 import { MessageHtml } from "../components/MessageHtml";
 import { TextBody } from "../components/TextBody";
 import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Monogram } from "../components/ui";
 import { Composer } from "../components/Composer";
-import { AuthVerdict, MessageDirection, type ExtractedCode, type MessageAuth, type VerificationLink } from "@mailvault/shared";
+import {
+  AuthVerdict,
+  BulkMessageAction,
+  MessageDirection,
+  type ExtractedCode,
+  type MessageAuth,
+  type VerificationLink,
+} from "@mailvault/shared";
 
 /**
  * The unsubscribe the sender offered.
@@ -255,6 +262,18 @@ export function MessageDetail({
     reload();
   }
 
+  async function toggleStar() {
+    if (!data) return;
+    setNotice(null);
+    try {
+      // The bulk endpoint with one id, rather than a second route for the same flag flip.
+      await api.bulkMessages([data.id], data.starred ? BulkMessageAction.Unstar : BulkMessageAction.Star);
+      reload();
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : t("bulk.failed"));
+    }
+  }
+
   async function remove() {
     try {
       await api.deleteMessage(id);
@@ -303,7 +322,12 @@ export function MessageDetail({
                       </span>
                       <span>
                         {fullTime(data.receivedAt)}
-                        {data.aliasLabel ? ` · ${data.aliasLabel}` : ""} {t("msg.arrivedAt", { address: data.aliasAddress })}
+                        {data.aliasLabel ? ` · ${data.aliasLabel}` : ""}{" "}
+                        {/* On your own mail the alias is where it went *from*; reading "to" here
+                            would make a sent message look like someone else's letter. */}
+                        {data.direction === MessageDirection.Out
+                          ? t("msg.sentFrom", { address: data.aliasAddress })
+                          : t("msg.arrivedAt", { address: data.aliasAddress })}
                       </span>
                     </div>
                   </div>
@@ -320,6 +344,14 @@ export function MessageDetail({
                 </button>
                 <button className="small" onClick={toggleRead}>
                   {t(data.isRead ? "msg.markUnread" : "msg.markRead")}
+                </button>
+                <button
+                  className="small"
+                  aria-pressed={data.starred}
+                  onClick={() => void toggleStar()}
+                  title={t("msg.starHint")}
+                >
+                  {t(data.starred ? "msg.unstar" : "msg.star")}
                 </button>
                 <button className="small danger" onClick={() => setConfirmDelete(true)}>
                   {t("msg.delete")}
@@ -349,9 +381,30 @@ export function MessageDetail({
           ) : null}
 
           {data.direction === MessageDirection.Out ? (
-            <div className={`banner mt ${data.sendStatus === "FAILED" ? "error" : ""}`}>
+            <div className={`banner mt ${data.sendStatus && sendPill(data.sendStatus) === "error" ? "error" : ""}`}>
               <span className="muted">{t(`send.status.${data.sendStatus ?? "QUEUED"}`)}</span>
               {data.sendError ? <div className="faint detail">{data.sendError}</div> : null}
+              {/* One line per destination, because that is how it actually went: a message to
+                  three people can be delivered to one and refused by two, and a single status
+                  word would be true for at most one of them. */}
+              {data.recipients.length > 0 ? (
+                <>
+                  <div className="faint">{t("msg.deliveryPerAddress")}</div>
+                  <ul className="recip-status">
+                    {data.recipients.map((r) => (
+                      <li key={r.address}>
+                        <span className="addr">{r.address}</span>
+                        {r.list !== "to" ? <span className="faint">{r.list}</span> : null}
+                        <span className={`pill ${sendPill(r.status)}`}>{t(`send.status.${r.status}`)}</span>
+                        {r.smtpCode ? <span className="faint mono">{r.smtpCode}</span> : null}
+                        {r.detail ? <span className="faint detail">{r.detail}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <div className="faint detail">{t("msg.noDeliveryYet")}</div>
+              )}
             </div>
           ) : null}
 

@@ -58,6 +58,11 @@ export interface Env {
    */
   DOMAIN_DENYLIST?: string;
   DEV_AUTH_BYPASS?: string;
+  /**
+   * Name of the queue that Email Sending delivery events land on, since one Worker consumes
+   * both that and the ingest queue and the handler dispatches on `batch.queue`.
+   */
+  DELIVERY_EVENTS_QUEUE?: string;
 
   // Secrets
   CLOUDFLARE_API_TOKEN?: string;
@@ -67,6 +72,13 @@ export interface Env {
 }
 
 export const DEFAULT_MAX_MESSAGE_BYTES = 20 * 1024 * 1024; // 20 MiB safety ceiling
+
+/** The queue Email Sending event subscriptions are pointed at. */
+export const DEFAULT_DELIVERY_EVENTS_QUEUE = "mail-delivery-events";
+
+export function deliveryEventsQueue(env: Env): string {
+  return env.DELIVERY_EVENTS_QUEUE?.trim() || DEFAULT_DELIVERY_EVENTS_QUEUE;
+}
 
 /** Generous for one person writing to other people, tight enough to cap the damage of a runaway client. */
 export const DEFAULT_MAX_SENDS_PER_DAY = 50;

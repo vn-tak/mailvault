@@ -16,6 +16,7 @@ import { writeMetric } from "../lib/metrics";
 import { findActiveAliasByAddress } from "../db/aliases";
 import { getDomainById } from "../db/domains";
 import { countSentSince, findThreadRoot, getMessageRow, indexMessage, insertMessage } from "../db/messages";
+import { failAllRecipients, recordRecipients } from "../db/recipients";
 import type { InsertMessageInput } from "../db/messages";
 import type { MessageRow } from "../db/rows";
 import { buildParsedKey, buildRawKey, putParsed, putRaw } from "../storage/r2";
@@ -224,6 +225,9 @@ export async function sendOutbound(
     // Sent mail is found by who it went to, since there is no external sender to match.
     sender: [...lists.to, ...lists.cc].join(", "),
   });
+  // Every destination starts as `queued` here rather than appearing only when it reports
+  // back, so a message whose recipients never answer still shows who it was addressed to.
+  await recordRecipients(db, storedId, lists);
 
   let response: { messageId: string } | { error: Error };
   const extraHeaders = replyHeaders(inReplyTo, references);
@@ -263,9 +267,9 @@ export async function sendOutbound(
     );
   }
 
-  // The binding resolves once Email Sending has accepted the message; the recipient's
-  // server answering is a separate event, recorded by the delivery-event queue. Until that
-  // exists, `queued` is the honest word for "accepted, not yet confirmed".
+  // The binding resolves once Email Sending has accepted the message. What the recipient's
+  // server then did is a separate fact, and it arrives later as a delivery event — see
+  // `mail/delivery.ts`, which is what moves this row off `queued`.
   await setSendResult(db, storedId, response.messageId, SendStatus.Queued, null);
   writeMetric(env, "sending", { outcome: "accepted" });
   log.info("mail_sent", { messageId: storedId, recipients: recipientCount });
@@ -322,6 +326,12 @@ async function setSendResult(
     .prepare(`UPDATE messages SET provider_message_id = ?2, send_status = ?3, send_error = ?4 WHERE id = ?1`)
     .bind(id, providerMessageId, status, error)
     .run();
+  // A send the transport refused never produces a delivery event, so this is the only place
+  // that can say so. Without it the destinations would sit at `queued` forever on a message
+  // that is plainly marked as failed.
+  if (error && (status === SendStatus.Failed || status === SendStatus.Suppressed)) {
+    await failAllRecipients(db, id, status, error);
+  }
 }
 
 /** Which of the owner's domains may be used as a `From` right now, and why not. */

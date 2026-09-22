@@ -1,6 +1,20 @@
+import { SendStatus } from "@mailvault/shared";
 import { t } from "./i18n";
 
 /** Presentation-only formatting helpers. */
+
+/**
+ * How far a delivery outcome has travelled, as a pill class.
+ *
+ * Only a refusal is red. `deferred` is amber because it is the one state that says "the
+ * other server is still trying", which is the difference between a warning and an alarm.
+ */
+export function sendPill(status: SendStatus): string {
+  if (status === SendStatus.Delivered) return "ok";
+  if (status === SendStatus.Deferred || status === SendStatus.Complained) return "warn";
+  if (status === SendStatus.Queued) return "muted";
+  return "error";
+}
 
 export function relativeTime(iso: string | null | undefined): string {
   if (!iso) return "";

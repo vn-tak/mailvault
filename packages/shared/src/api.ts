@@ -61,6 +61,11 @@ export const MessageListQuerySchema = z.object({
   /** Every message of one thread, oldest first when combined with `all`. */
   threadId: z.string().min(1).optional(),
   /**
+   * The starred tab asks for `true`. Absent means "starred or not", because a list that
+   * deliberately hides marked mail is not a view anybody wants.
+   */
+  starred: z.enum(["true", "false"]).optional(),
+  /**
    * Collapse each conversation to its newest message, the way a mailbox list reads. Off by
    * default so a search or an alias view still shows every hit individually.
    */
@@ -74,6 +79,61 @@ export const MessageListQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 export type MessageListQuery = z.infer<typeof MessageListQuerySchema>;
+
+/**
+ * What a multi-select can do to the messages it names. Every one of these is reversible
+ * except `delete`, which is why delete is the only action the UI asks you to confirm.
+ *
+ * There is no spam/junk action on purpose: this mailbox receives only at addresses the
+ * owner created, so "junk" would mean "the alias I chose to hand over is misbehaving", and
+ * the answer to that is to disable the alias, which is a decision with a visible place.
+ */
+export const BulkMessageAction = {
+  Read: "read",
+  Unread: "unread",
+  Star: "star",
+  Unstar: "unstar",
+  Archive: "archive",
+  Unarchive: "unarchive",
+  Delete: "delete",
+} as const;
+export type BulkMessageAction = (typeof BulkMessageAction)[keyof typeof BulkMessageAction];
+
+/** 200 ids is the same ceiling the list page size uses, and keeps one D1 statement bounded. */
+export const BulkMessageInputSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(200),
+  action: z.enum(Object.values(BulkMessageAction) as [BulkMessageAction, ...BulkMessageAction[]]),
+});
+export type BulkMessageInput = z.infer<typeof BulkMessageInputSchema>;
+
+export const BulkMessageResultSchema = z.object({
+  action: z.nativeEnum(BulkMessageAction),
+  /** Rows the database actually changed, which is not always the number clicked. */
+  affected: z.number().int().nonnegative(),
+  /** Only `delete` reports this: R2 objects the purge asked for, whether or not each one went. */
+  r2ObjectsRemoved: z.number().int().nonnegative().default(0),
+});
+export type BulkMessageResult = z.infer<typeof BulkMessageResultSchema>;
+
+export const CountSchema = z.object({
+  total: z.number().int().nonnegative(),
+  unread: z.number().int().nonnegative(),
+});
+export type Count = z.infer<typeof CountSchema>;
+
+/**
+ * Tab and mailbox badges. Deliberately its own small endpoint rather than extra fields on
+ * every list response: the counters are scoped to the whole mailbox, not to the page you
+ * happen to be looking at, so they stay the same while paging and while a filter changes.
+ */
+export const MessageCountersSchema = z.object({
+  inbox: CountSchema,
+  sent: CountSchema,
+  starred: CountSchema,
+  filed: CountSchema,
+  mailboxes: z.array(z.object({ domainId: z.string(), unread: z.number().int().nonnegative() })).default([]),
+});
+export type MessageCounters = z.infer<typeof MessageCountersSchema>;
 
 /**
  * One domain as the owner sees it: a mailbox with its own mail in it. Counts come

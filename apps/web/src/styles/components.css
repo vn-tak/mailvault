@@ -316,6 +316,17 @@ input[type="checkbox"]:checked::after {
   box-shadow: var(--shadow-1), inset 0 0 0 1px var(--border);
 }
 
+/*
+ * Five tabs on a handset: the strip still wraps rather than scrolls (see the note above),
+ * but a second line of filters pushes the mail itself down the page, which is the one thing
+ * this screen is judged on. The badges beside each label are the last thing that keeps them
+ * from fitting — see the note on `.tab-count`, where they are given up.
+ */
+@media (max-width: 640px) {
+  .tabs { gap: 1px; padding: 2px; }
+  .tabs button { padding: 0 8px; font-size: var(--text-xs); }
+}
+
 /* ── Monogram ──────────────────────────────────────────────────────────── */
 
 /*
@@ -1069,3 +1080,111 @@ tr:last-child td { border-bottom: 0; }
 .msg.is-sent::after { background: var(--border); }
 .msg.is-sent .msg-sender { font-weight: 650; color: var(--muted); }
 .msg.is-sent .msg-avatar { opacity: 0.72; }
+
+/* ── Working over a selection, and reading a search back ────────────────── */
+
+/* The select-all row sits above the list rather than floating over it: an action bar that
+   covers the first two messages hides the very rows you were deciding about. */
+.bulkbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px var(--space-2);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-2);
+  font-size: var(--text-xs);
+}
+.bulk-all { display: inline-grid; place-items: center; }
+.bulk-count { color: var(--muted); font-weight: 650; white-space: nowrap; }
+.bulk-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+.msg-row input[type="checkbox"], .bulkbar input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+/* A row of the selection, kept distinct from the row that is merely open. */
+.msg.is-selected > .msg-row { background: color-mix(in srgb, var(--accent-tint) 90%, var(--surface)); }
+
+/* The checkbox column only exists where a selection can be made, so the grid grows by one
+   track there and stays exactly as it was on a list that cannot select. */
+.msg-check { display: grid; place-items: center start; padding-top: 2px; }
+.msg.is-selectable .msg-row { grid-template-columns: auto auto minmax(0, 1fr) auto; }
+
+/* The star is the one mark with no automation behind it, so it is on the row rather than
+   behind a hover that a touch screen never gives you. */
+.star {
+  pointer-events: auto;
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--faint);
+  cursor: pointer;
+}
+.star:hover { color: var(--muted); }
+.star.is-on { color: var(--warn); }
+
+.tab-count {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  vertical-align: 1px;
+}
+.tabs button.active .tab-count { background: var(--accent-tint); border-color: var(--ok-line); color: var(--accent); }
+
+/*
+ * On a handset the badges are the reason the five tabs will not share their line with the
+ * mailbox picker, and a third line of filters is what this screen is measured against. The
+ * counts stay everywhere wider than a phone; the "unread" number also sits on the app's own
+ * icon, so nothing is lost that could not be found another way.
+ */
+@media (max-width: 640px) {
+  .tab-count { display: none; }
+}
+
+/* What the search box understood. Each chip carries the operator's own name in front of its
+   value so `is:starred` and `has:code` cannot be confused for two keywords. */
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--accent); }
+.chip-k { color: var(--faint); font-family: var(--font-mono); font-size: var(--text-2xs); }
+
+.pill.warn { color: var(--warn); border-color: var(--warn-line); background: var(--warn-tint); }
+.pill.warn::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* One line per destination: this is where a send actually went, address by address. */
+.recip-status {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+  font-size: var(--text-xs);
+}
+.recip-status li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.recip-status .addr { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.recip-status .detail { flex-basis: 100%; }

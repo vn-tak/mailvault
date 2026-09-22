@@ -229,16 +229,17 @@ test("desktop: the same inbox markup grids into a two-line mail row", async ({ p
   await openInbox(page);
   await expect(page.locator(".msg")).toHaveCount(5);
   /*
-   * The row's grid is `.msg-row` (mark · text · aside) since the code chip became a real
-   * button that cannot live inside an anchor. What the contract cares about is unchanged:
-   * one markup that lays out as a compact multi-column row here and as a card on a phone.
+   * The row's grid is `.msg-row` (tick · mark · text · aside) since the code chip became a
+   * real button that cannot live inside an anchor, and the checkbox joined it so several rows
+   * can be picked up at once. What the contract cares about is unchanged: one markup that
+   * lays out as a compact multi-column row here and as a card on a phone.
    */
   const columns = await page
     .locator(".msg")
     .first()
     .locator(".msg-row")
     .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
-  expect(columns).toBe(3);
+  expect(columns).toBe(4);
   const textCells = await page
     .locator(".msg")
     .first()
@@ -295,30 +296,32 @@ test("phone: the More menu inside an engaged row still clears the tab bar @mobil
   await archived.locator(".entity-summary").click();
 
   /*
-   * The case the first version got wrong. The fixed tab bar paints over the bottom of the
+   * The case the first version got wrong: the fixed tab bar paints over the bottom of the
    * screen, so the viewport's measure of "room below" lies and the panel must flip.
    *
-   * The clearance is measured, never hard-coded: this suite caught a stale 166px constant
-   * the day the panel grew a few pixels taller, and a test that fails because a number in
-   * it went out of date is a test that will be deleted rather than trusted. The row is also
-   * lifted with a temporary margin, so there is genuinely room above whatever the list
-   * above it happens to look like.
+   * Lift the row by padding above it until only half the panel's height is left beneath it,
+   * and leave the window alone. Resizing the window to a height computed from a measurement is
+   * what made this flaky: the arithmetic could ask for more than the browser allows, the
+   * request was clamped without saying so, and the row ended up with room below after all — so
+   * the flip stopped being required and the assertion failed for a reason that had nothing to
+   * do with the menu. Padding is never refused.
    */
   const trigger = archived.locator(".menu > button");
   await trigger.click();
-  const panelHeight = (await archived.getByRole("menu").boundingBox())?.height ?? 0;
+  // `scrollHeight`, not the bounding box: the box is still animating while the panel opens.
+  const NEED = (await archived.getByRole("menu").evaluate((el) => el.scrollHeight)) + 16;
   await page.keyboard.press("Escape");
   await expect(archived.getByRole("menu")).toHaveCount(0);
-  const NEED = Math.round(panelHeight + 16);
 
+  const placed = await trigger.evaluate((el) => ({
+    bottom: el.getBoundingClientRect().bottom,
+    vh: window.innerHeight,
+  }));
+  const lift = Math.max(0, Math.round(placed.vh - placed.bottom - NEED / 2));
   await page.evaluate((pad) => {
+    (document.activeElement as HTMLElement | null)?.blur();
     document.body.style.paddingTop = `${pad}px`;
-  }, NEED + 40);
-  const geometry = await trigger.evaluate((el) => {
-    const bar = document.querySelector<HTMLElement>(".sidebar")?.getBoundingClientRect();
-    return { bottom: el.getBoundingClientRect().bottom, barHeight: window.innerHeight - (bar?.top ?? window.innerHeight) };
-  });
-  await page.setViewportSize({ width: 412, height: Math.round(geometry.bottom + NEED + geometry.barHeight / 2) });
+  }, lift);
   const room = await trigger.evaluate((el) => {
     const r = el.getBoundingClientRect();
     const bar = document.querySelector<HTMLElement>(".sidebar")?.getBoundingClientRect();
@@ -328,9 +331,9 @@ test("phone: the More menu inside an engaged row still clears the tab bar @mobil
       above: Math.round(r.top),
     };
   });
-  expect(room.toViewport, "viewport says there is room below").toBeGreaterThanOrEqual(NEED);
-  expect(room.toBar, "the tab bar says there is not").toBeLessThan(NEED);
-  expect(room.above, "and there is room above to flip into").toBeGreaterThan(NEED);
+  expect(room.toViewport, "the bottom of the window is close").toBeLessThan(NEED);
+  expect(room.toBar, "and the tab bar covers even less of it").toBeLessThan(NEED);
+  expect(room.above, "but there is room above to flip into").toBeGreaterThan(NEED);
   await trigger.click();
   const flipped = archived.getByRole("menu");
   await expect(flipped).toHaveClass(/menu-up/);

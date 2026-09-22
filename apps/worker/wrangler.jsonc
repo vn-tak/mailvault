@@ -32,6 +32,7 @@
     "MAX_SENDS_PER_DAY": "50",
     "ALLOWED_EMAILS": "tungbipdz@gmail.com",
     "DOMAIN_DENYLIST": "tungjpstore.net,selinow.com,fball.vn,logivn.com",
+    "DELIVERY_EVENTS_QUEUE": "mail-delivery-events",
     "DEV_AUTH_BYPASS": "false"
   },
 
@@ -54,6 +55,11 @@
   // Staged mail waits here for its D1 commit. A commit that keeps failing is retried
   // three times and then parked in the dead-letter queue — the job carries R2 keys and
   // addressing only, so a queue is never a second home for message content.
+  //
+  // `mail-delivery-events` has no producer in this file: Cloudflare's Email Sending event
+  // subscription writes it, one record per (message, recipient). That subscription is an
+  // account resource rather than part of a deploy, so it is created once with
+  // `wrangler queues subscription create` — see DEPLOYMENT.md.
   "queues": {
     "producers": [
       { "binding": "MAIL_INGEST_QUEUE", "queue": "mail-ingest" }
@@ -66,6 +72,12 @@
         "max_retries": 3,
         "max_concurrency": 5,
         "dead_letter_queue": "mail-ingest-dlq"
+      },
+      {
+        "queue": "mail-delivery-events",
+        "max_batch_size": 20,
+        "max_batch_timeout": 5,
+        "max_retries": 3
       }
     ]
   },

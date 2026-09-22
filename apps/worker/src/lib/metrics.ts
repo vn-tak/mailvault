@@ -9,7 +9,7 @@ import { log } from "./logging";
  * because the dataset is queried as SQL over `blob_N`/`double_N`: reordering the arrays
  * silently relabels every historical query without failing anything.
  *
- *   blob_1 event    — ingest | ingest_commit | push | watchdog
+ *   blob_1 event    — ingest | ingest_commit | push | watchdog | sending | delivery
  *   blob_2 outcome  — stored | rejected | duplicate | failed | ok | skipped
  *   blob_3 reason   — the rejection or failure reason, from a fixed vocabulary
  *   blob_4 verdict  — sender auth verdict for mail rows, "" otherwise

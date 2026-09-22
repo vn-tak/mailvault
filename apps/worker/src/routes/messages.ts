@@ -1,14 +1,26 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { MessageListQuerySchema, ReadFlagSchema, ReplyInputSchema, paginated } from "@mailvault/shared";
+import {
+  BulkMessageAction,
+  BulkMessageInputSchema,
+  MessageListQuerySchema,
+  ReadFlagSchema,
+  ReplyInputSchema,
+  paginated,
+  type BulkMessageResult,
+} from "@mailvault/shared";
 import type { AppEnv } from "../app-env";
 import {
   deleteMessage,
+  deleteMessages,
   findAttachment,
   getMessageDetail,
   getMessageRow,
   listMessages,
+  messageCounters,
   setMessageRead,
+  setFlag,
+  type FlagColumn,
 } from "../db/messages";
 import { AppError, notFound } from "../lib/errors";
 import { log } from "../lib/logging";
@@ -21,6 +33,20 @@ import { actorOf, parseQuery, readJson } from "./_helpers";
 
 const IdParam = z.object({ id: z.string().min(1) });
 const AttachmentParam = z.object({ messageId: z.string().min(1), attachmentId: z.string().min(1) });
+
+/**
+ * Which column each bulk flag action moves, and to what. `delete` is absent because it is
+ * not a flag; it is handled on its own path. Totaling the two coverage sets is what makes
+ * adding a seventh action a compile error rather than a runtime `undefined`.
+ */
+const FLAG_ACTIONS: Record<Exclude<BulkMessageAction, typeof BulkMessageAction.Delete>, [FlagColumn, 0 | 1]> = {
+  [BulkMessageAction.Read]: ["is_read", 1],
+  [BulkMessageAction.Unread]: ["is_read", 0],
+  [BulkMessageAction.Star]: ["starred", 1],
+  [BulkMessageAction.Unstar]: ["starred", 0],
+  [BulkMessageAction.Archive]: ["archived", 1],
+  [BulkMessageAction.Unarchive]: ["archived", 0],
+};
 
 /** Shape persisted by the inbound parser at parsed/{messageId}.json (section 12). */
 interface ParsedEmail {
@@ -49,6 +75,48 @@ export const messagesRoute = new Hono<AppEnv>()
       query.q && (await semanticEnabled(c.env.DB)) ? await searchMessageIds(c.env, query.q) : [];
     const { items, total } = await listMessages(c.env.DB, { ...query, semanticIds });
     return c.json(paginated(items, { limit: query.limit, offset: query.offset, total }));
+  })
+
+  /**
+   * Tab and mailbox badges.
+   *
+   * Mounted above `/api/messages/:id` on purpose: Hono matches in registration order, and a
+   * route registered later would be shadowed by the id param. Message ids are generated, so
+   * nothing can actually be called "counters" — but the order is what makes that true rather
+   * than a comment nobody enforces.
+   */
+  .get("/api/messages/counters", async (c) => {
+    const domainId = c.req.query("domainId") || undefined;
+    return c.json(await messageCounters(c.env.DB, domainId));
+  })
+
+  /**
+   * Apply one action to a selection.
+   *
+   * Everything except `delete` is a flag flip in a single statement, and delete is the same
+   * set of ids the owner can see on screen, so the ceiling is the page size rather than a
+   * number invented here. Ownership needs no extra clause: this mailbox has one owner and
+   * every route is behind the same Access gate — the id list is filtered by existence, not
+   * by identity, exactly as the single-message routes already are.
+   */
+  .post("/api/messages/bulk", async (c) => {
+    const { ids, action } = await readJson(c, BulkMessageInputSchema);
+    if (action === BulkMessageAction.Delete) {
+      const { removed, keys } = await deleteMessages(c.env.DB, ids);
+      const purged = await deleteKeys(c.env.MAIL_BUCKET, keys);
+      // Embeddings are copies of content the owner just deleted; they go with it.
+      for (const id of ids) await removeIndex(c.env, id);
+      log.info("messages_bulk_deleted", { actor: actorOf(c).email, count: removed, r2Attempted: purged.attempted });
+      return c.json({
+        action,
+        affected: removed,
+        r2ObjectsRemoved: purged.attempted - purged.failed.length,
+      } satisfies BulkMessageResult);
+    }
+    const [column, value] = FLAG_ACTIONS[action];
+    const affected = await setFlag(c.env.DB, ids, column, value);
+    log.info("messages_bulk_flag", { actor: actorOf(c).email, action, count: affected });
+    return c.json({ action, affected, r2ObjectsRemoved: 0 } satisfies BulkMessageResult);
   })
 
   /**

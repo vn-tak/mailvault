@@ -69,6 +69,7 @@ export interface MessageRow {
   has_attachments: number;
   attachment_count: number;
   is_read: number;
+  starred: number;
   archived: number;
   rule_tag: string | null;
   applied_rule_id: string | null;
@@ -94,6 +95,19 @@ export interface MessageRow {
   domain_name?: string | null;
   /** bm25 relevance from the search query; absent on unfiltered listing. */
   rank?: number | null;
+}
+
+/** One destination of a sent message, as Email Sending reported it. */
+export interface MessageRecipientRow {
+  id: string;
+  message_id: string;
+  address: string;
+  list: "to" | "cc" | "bcc";
+  status: string;
+  rank: number;
+  smtp_code: string | null;
+  detail: string | null;
+  updated_at: string;
 }
 
 export interface AttachmentRow {

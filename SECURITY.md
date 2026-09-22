@@ -367,13 +367,63 @@ a chain of refusals, each with its own reason code that the UI translates.
   MailVault knows nothing about. An existing `_dmarc` needs both a ticked confirmation and a
   passkey step-up, in the same shape as an MX or catch-all takeover.
 - **Reputation is the domain's own**, not a shared relay's: Cloudflare signs with that
-  domain's DKIM key and returns bounces to `cf-bounce.<domain>`. Complaint and suppression
-  state is surfaced on the message (`send_status`) rather than hidden.
+  domain's DKIM key and returns bounces to `cf-bounce.<domain>`.
+- **Delivery is reported per destination.** `messages.send_status` is a summary of
+  `message_recipients`, which holds one row per (message, address) — see §8.6.
 - **Budget is counted locally.** Cloudflare's `/email/sending/limits` counter was measured to
   lag (three sends left it unchanged), so the daily ceiling (`MAX_SENDS_PER_DAY`, default 50)
   is enforced against `messages` rows, not against that endpoint.
 - Nothing is sent on load, on a schedule, or by a webhook. There is no automatic reply,
   no vacation responder, and no forwarding to a third party anywhere in the send path.
+
+### 8.6 Delivery events — `apps/worker/src/mail/delivery.ts`, `src/db/recipients.ts`
+
+Email Sending publishes lifecycle events to a queue (`mail-delivery-events`) through a Queues
+event subscription, one record per (message, recipient). That makes the queue a second inbound
+write path into the owner's mail rows, so it is held to the same narrowness as the others:
+
+- **The queue is not a source of content.** An event carries a message id, one address, a
+  status and an SMTP line — never a body. The consumer reads it, updates two rows, and
+  acknowledges. It never touches R2, so a delivery event cannot be used to pull mail content
+  into a response or a log.
+- **A message id this mailbox never sent is dropped, not retried.** The lookup is scoped to
+  `direction='OUT'`, and an unmatched id is acknowledged and counted. Retrying could never
+  make an unknown id known, and a poison loop on somebody else's events would cost the ingest
+  queue its concurrency.
+- **Ids are matched bare.** Both sides strip angle brackets before comparing, because the
+  provider reports `a@b` where a header would read `<a@b>`; a mismatch there would leave every
+  sent message reading "queued" forever, which is the failure this feature exists to remove.
+- **A status can only move forward.** Events for one message arrive in whatever order the
+  queues deliver them, so each row stores a rank and the upsert refuses a lower one — a late
+  `deferred` from a retried attempt cannot undo a `delivered` that already happened. The guard
+  is inside one `ON CONFLICT … WHERE` so two concurrent batches cannot interleave around it.
+- **Nothing is derived from an address in an event.** The row it names already holds that
+  address; an event for an address the send never recorded is stored as a destination of that
+  message (the send may predate the tracking) and is never used to route or rewrite anything.
+- The SMTP line is stored on the message for the owner's own reading, capped at 500
+  characters, and kept out of logs and Analytics Engine, where an address could otherwise ride
+  along with it.
+
+### 8.7 Bulk operations — `POST /api/messages/bulk`
+
+A control that acts on many messages at once deserves the same scrutiny as one that deletes a
+whole alias:
+
+- **The action is a closed vocabulary, and so is the column it moves.** `read`, `unread`,
+  `star`, `unstar`, `archive`, `unarchive`, `delete` map to three hard-coded column names
+  through a lookup table; nothing from the request reaches the SQL text.
+- **The id list is bound, never interpolated**, and capped at 200 — the same size as a list
+  page — so one request cannot turn into an unbounded statement.
+- **A count means what it says.** A flag flip only writes rows whose value actually differs,
+  so `affected` is the number of messages that changed rather than the number clicked.
+- **Delete is delete.** It removes the row, its FTS entry and its raw/parsed/attachment
+  objects, and the embedding goes with them. There is no bulk path to anything a rule filed:
+  unarchiving is the only way back, and nothing here deletes a domain, an alias or a zone.
+- Ownership adds no clause because this mailbox has exactly one owner behind the same Access
+  gate as every other route; the id list is filtered by existence, in the same shape as the
+  single-message routes it sits beside.
+- Mail is still only removed when the owner asks. There is no bulk expiry, no "delete older
+  than", and no selection that survives a reload to be acted on later.
 
 ## 9. Domain provisioning safety (the highest-risk feature)
 
@@ -482,12 +532,20 @@ length, pagination limits (≤200), filter enums, etc. Validation failures retur
   quoted word tokens (capped at 8) and the search falls back to LIKE-only when nothing
   usable remains, so a hostile query returns zero rows instead of a `500`. Proven by
   `test/integration/ingest.test.ts` ("FTS5 syntax attacks").
+- **Operators are read server-side, and only from a fixed list.** `from: to: has: is: in:
+  after: before:` are parsed out of `q` by the Worker itself rather than taken from whatever
+  the client decided the query meant, and each maps to a bound comparison against named
+  columns. An unrecognised `something:else` stays an ordinary pair of words — a search that
+  silently turned into "no filters at all" or "show nothing" would both leak and hide. Column
+  names come from a literal table, never from the request.
 
 ## 12. What is deliberately out of scope in V1
 
-- Sending mail (receive-only).
+- Inbound attachments larger than the platform's own ceiling, and **outbound** attachments
+  (compose writes bodies only; the 5 MiB total limit is a per-message fact the UI states).
 - Multi-user tenancy and per-user authorization (single owner behind Access).
-- DKIM signing / outbound reputation (no sending).
+- Retry-on-bounce and suppression lists of MailVault's own making: a refusal is reported, and
+  the account-level suppression list under Email Sending is what enforces it.
 - Automatic conflict resolution (always human-confirmed).
 
 ## 13. Residual risks / operator responsibilities

@@ -102,6 +102,11 @@ VALUES
    '2026-09-19T15:04:11.000Z', 'TRUSTED',
    '{"verdict":"TRUSTED","spf":"pass","dkim":"pass","dmarc":"pass","alignedPass":{"spf":false,"dkim":true,"dmarc":true},"envelopeMismatch":false,"observed":true,"reasons":["dmarc pass, aligned"],"evidence":[]}', NULL, NULL);
 
+-- One starred message, so the starred tab and the star control on a row have something to
+-- show locally. Done as an update rather than another column in every tuple above: the flag
+-- is orthogonal to the mail, and repeating it five times only invites a typo.
+UPDATE messages SET starred = 1 WHERE id = '00000000-0000-4000-8000-0000000000m1';
+
 -- Keep the FTS index in step with the seeded rows (the app does this on ingest).
 DELETE FROM messages_fts WHERE message_id IN
   ('00000000-0000-4000-8000-0000000000m1','00000000-0000-4000-8000-0000000000m2',

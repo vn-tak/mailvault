@@ -36,8 +36,10 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Interaction model: ⌘K / `/` command palette, two-pane inbox with j/k/e, one-tap OTP copy from the row, new-mail toast | ✅ 7 E2E |
 | Sending: compose to anybody or answer a message from its alias, conversations kept in one thread, per-domain Email Sending behind an explicit DMARC confirmation | ✅ 32 send tests, 4 E2E |
 | Reads like a mailbox: one row per conversation, replies that quote what they answer, `c`/`r` shortcuts, recipients completed from your own correspondence, one-click unsubscribe for aligned senders only | ✅ 9 + 5 E2E |
-| Unit + integration tests (291 passing: worker 206, web 85) | ✅ Green |
-| Playwright E2E (43 passing, live workerd + local D1/R2) | ✅ Green |
+| Worked over like a mailbox: multi-select with shift ranges, bulk read/star/file/delete, a star of your own, counts per tab and mailbox, `from:` `to:` `has:` `is:` `in:` `after:` `before:` in search | ✅ 32 + 7 E2E |
+| Delivery reported per address: a send to three people shows which one bounced, from Email Sending's own queue events | ✅ consumer tested through `worker.queue` |
+| Unit + integration tests (324 passing: worker 239, web 85) | ✅ Green |
+| Playwright E2E (51 passing across desktop and 412px, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
 See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at
@@ -168,8 +170,10 @@ state-changing methods, the `x-mailvault: 1` header + same-origin (CSRF).
 | PATCH | `/api/aliases/:id` | Update label, notes, pinned, archived (partial) |
 | POST | `/api/aliases/:id/enable` \| `/disable` | Toggle receiving |
 | DELETE | `/api/aliases/:id` | Delete alias; purge messages only if `purgeMessages` |
-| GET | `/api/messages` | Paginated inbox; filters + FTS5 search over subject/preview/sender, exact OTP-code and alias match |
-| GET | `/api/messages/:id` | Detail with sanitized HTML, codes, links, attachments |
+| GET | `/api/messages` | Paginated inbox; filters + FTS5 search over subject/preview/sender, exact OTP-code and alias match, and `from:` `to:` `has:` `is:` `in:` `after:` `before:` operators in `q` |
+| GET | `/api/messages/counters` | Totals and unread counts per tab and per mailbox, over the whole mailbox rather than the page |
+| POST | `/api/messages/bulk` | Read / unread / star / unstar / archive / unarchive / delete a selection (up to 200 ids) |
+| GET | `/api/messages/:id` | Detail with sanitized HTML, codes, links, attachments, and per-address delivery state |
 | PATCH | `/api/messages/:id/read` | Set read flag |
 | POST | `/api/outbox` | Compose a new message from one of your active aliases |
 | GET | `/api/outbox/capabilities` | Which domains may sign mail, and today's remaining budget |

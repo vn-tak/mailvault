@@ -8,6 +8,13 @@ import type { Page } from "@playwright/test";
  * headers the CSRF guard requires.
  */
 export const SEEDED_UNREAD = ["00000000-0000-4000-8000-0000000000m1", "00000000-0000-4000-8000-0000000000m3"];
+export const SEEDED_MAILS = [
+  "00000000-0000-4000-8000-0000000000m1",
+  "00000000-0000-4000-8000-0000000000m2",
+  "00000000-0000-4000-8000-0000000000m3",
+  "00000000-0000-4000-8000-0000000000m4",
+  "00000000-0000-4000-8000-0000000000m5",
+];
 export const SEEDED_ALIAS = "00000000-0000-4000-8000-00000000al01";
 export const SEEDED_ALIAS_ADDRESS = "github-x9f2@demo.example";
 export const SEEDED_DOMAIN = "demo.example";
@@ -34,4 +41,37 @@ export async function resetSeededAlias(page: Page) {
     });
     if (!res.ok) throw new Error(`reset alias ${id}: ${res.status}`);
   }, SEEDED_ALIAS);
+}
+
+/**
+ * Put the seeded mail back into the state this suite reasons about: nothing filed, and
+ * starred exactly where the test expects. The star and the filing are the two flags a suite
+ * changes by clicking, so a run that leaves them moved would make the next run's counts a
+ * question about history rather than about the app.
+ */
+export async function resetSeededFlags(page: Page, starred: string[]) {
+  await page.evaluate(async ({ all, keep, unread }) => {
+    const bulk = (action: string, messageIds: string[]) =>
+      messageIds.length === 0
+        ? Promise.resolve()
+        : fetch("/api/messages/bulk", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-mailvault": "1" },
+            body: JSON.stringify({ ids: messageIds, action }),
+          }).then((r) => {
+            if (!r.ok) throw new Error(`reset ${action}: ${r.status}`);
+          });
+    await bulk("unarchive", all);
+    await bulk("unstar", all);
+    await bulk("star", keep);
+    // Read state still travels one message at a time; the selection routes take ids in a
+    // body and this one takes a flag, and each is right for what it does.
+    for (const id of unread) {
+      await fetch(`/api/messages/${id}/read`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-mailvault": "1" },
+        body: JSON.stringify({ isRead: false }),
+      });
+    }
+  }, { all: SEEDED_MAILS, keep: starred, unread: SEEDED_UNREAD });
 }

@@ -84,6 +84,8 @@ export function toMessageSummary(row: MessageRow): MessageSummary {
     preview: row.preview,
     receivedAt: row.received_at,
     isRead: row.is_read === 1,
+    // Mail stored before the column existed reads as unstarred rather than undefined.
+    starred: Number(row.starred ?? 0) === 1,
     archived: row.archived === 1,
     ruleTag: row.rule_tag ?? null,
     hasAttachments: row.has_attachments === 1,

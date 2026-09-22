@@ -122,7 +122,7 @@ export const en: Dict = {
   "inbox.filed": "Filed",
   "inbox.allMailboxes": "All mailboxes",
   "inbox.mailbox": "Mailbox",
-  "inbox.placeholder": "Search subject, preview, sender, OTP code, alias…",
+  "inbox.placeholder": "Words, or from:ali · has:attachment · in:sent · is:unread",
   "inbox.clearAlias": "Clear alias filter ✕",
   "inbox.noMatch": "No matching messages",
   "inbox.empty": "Your inbox is empty",
@@ -573,6 +573,44 @@ export const en: Dict = {
   "msg.unsubscribeGo": "Unsubscribe",
   "msg.unsubscribeMail": "By email instead",
   "msg.unsubscribeHidden": "This message offers an unsubscribe, but it is not shown because the sender did not pass authentication — answering one of those tells a stranger this address is read.",
+
+  "inbox.starredTab": "Starred",
+  "inbox.selectAllPage": "Select every message on this page",
+  "inbox.selectAllHint": "Tick rows to work on several at once",
+  "inbox.selectRow": "Select {subject}",
+
+  "msg.star": "Star",
+  "msg.unstar": "Remove star",
+  "msg.starHint": "A star is only ever yours: no rule sets it and no rule clears it",
+  "msg.sentFrom": "· sent from {address}",
+  "msg.deliveryPerAddress": "Delivery to each address",
+  "msg.noDeliveryYet": "No receiving server has answered for these addresses yet.",
+
+  "bulk.actions": "Actions for the selection",
+  "bulk.nSelected": "{n} selected",
+  "bulk.read": "Mark read",
+  "bulk.unread": "Mark unread",
+  "bulk.star": "Star",
+  "bulk.archive": "Archive",
+  "bulk.unarchive": "Back to inbox",
+  "bulk.delete": "Delete",
+  "bulk.deleteTitle": "Delete {n} messages?",
+  "bulk.deleteConfirm": "Delete {n}",
+  "bulk.deleteBody": "The mail and its attachments are removed for good. Nothing else is deleted, and no address is touched.",
+  "bulk.failed": "That did not go through.",
+
+  "search.op.from": "from",
+  "search.op.to": "to",
+  "search.op.has": "has",
+  "search.op.is": "is",
+  "search.op.in": "in",
+  "search.op.after": "after",
+  "search.op.before": "before",
+  "search.chipRemove": "Remove this filter",
+
+  "send.status.DEFERRED": "The other server is retrying",
+  "send.status.REJECTED": "Refused",
+  "send.status.COMPLAINED": "Reported as spam",
 };
 
 export const vi: Dict = {
@@ -675,7 +713,7 @@ export const vi: Dict = {
   "inbox.filed": "Đã xếp",
   "inbox.allMailboxes": "Mọi hộp thư",
   "inbox.mailbox": "Hộp thư",
-  "inbox.placeholder": "Tìm chủ đề, xem trước, người gửi, mã OTP, bí danh…",
+  "inbox.placeholder": "Tìm theo từ, hoặc from:ali · has:attachment · in:sent · is:unread",
   "inbox.clearAlias": "Bỏ lọc theo bí danh ✕",
   "inbox.noMatch": "Không có thư nào khớp",
   "inbox.empty": "Hộp thư trống",
@@ -1124,6 +1162,45 @@ export const vi: Dict = {
   "msg.unsubscribeGo": "Hủy đăng ký",
   "msg.unsubscribeMail": "Hủy bằng email",
   "msg.unsubscribeHidden": "Thư này có đề nghị hủy đăng ký, nhưng nó không được hiển thị vì người gửi không vượt qua xác thực — bấm vào đó chỉ báo cho người lạ biết địa chỉ này vẫn đang được đọc.",
+
+  "inbox.starredTab": "Đã đánh dấu",
+  "inbox.selectAllPage": "Chọn mọi thư trong trang này",
+  "inbox.selectAllHint": "Tích vào từng thư để xử lý nhiều thư cùng lúc",
+  "inbox.selectRow": "Chọn {subject}",
+
+  "msg.star": "Đánh dấu",
+  "msg.unstar": "Bỏ đánh dấu",
+  "msg.starHint": "Dấu sao chỉ do bạn đặt: không quy tắc nào tự thêm hay tự bỏ",
+  "msg.sentFrom": "· gửi từ {address}",
+  "msg.deliveryPerAddress": "Tình trạng giao đến từng địa chỉ",
+  "msg.noDeliveryYet": "Chưa có máy chủ nào trả lời về những địa chỉ này.",
+
+  "bulk.actions": "Thao tác với phần đã chọn",
+  "bulk.nSelected": "đã chọn {n}",
+  "bulk.read": "Đánh dấu đã đọc",
+  "bulk.unread": "Bỏ đánh dấu đã đọc",
+  "bulk.star": "Đánh dấu",
+  "bulk.archive": "Lưu trữ",
+  "bulk.unarchive": "Đưa về hộp thư",
+  "bulk.delete": "Xoá",
+  "bulk.deleteTitle": "Xoá {n} thư?",
+  "bulk.deleteConfirm": "Xoá {n}",
+  "bulk.deleteBody": "Thư và tệp đính kèm bị xoá hẳn. Không có gì khác bị xoá, và không địa chỉ nào bị thay đổi.",
+  "bulk.failed": "Thao tác chưa được thực hiện.",
+
+  "search.op.from": "từ",
+  "search.op.to": "tới",
+  "search.op.has": "có",
+  "search.op.is": "là",
+  "search.op.in": "trong",
+  "search.op.after": "sau",
+  "search.op.before": "trước",
+  "search.chipRemove": "Bỏ bộ lọc này",
+
+  "send.status.DEFERRED": "Máy chủ kia đang thử lại",
+  "send.status.REJECTED": "Bị từ chối",
+  "send.status.COMPLAINED": "Bị báo spam",
+
 };
 
 const DICTS: Record<Lang, Dict> = { en, vi };
