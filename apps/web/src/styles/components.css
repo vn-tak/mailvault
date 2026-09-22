@@ -939,3 +939,78 @@ tr:last-child td { border-bottom: 0; }
 @media (min-width: 900px) {
   .toast-host { bottom: var(--space-3); }
 }
+
+/* ── Composing, and the conversation around it ─────────────────────────── */
+
+.pill.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-tint); }
+.pill.ok::before, .pill.muted::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.muted { color: var(--faint); background: var(--sunken); }
+
+.field-hint { font-size: var(--text-xs); color: var(--faint); margin-top: 5px; }
+.checkbox-row { align-items: flex-start; gap: 10px; margin: var(--space-2) 0; font-size: var(--text-sm); }
+.checkbox-row input { margin-top: 3px; }
+
+.composer { display: grid; gap: var(--space-2); }
+.composer textarea { min-height: 150px; resize: vertical; line-height: 1.55; }
+/* What the server decided, shown as text: an editable field the request cannot change
+   would only promise a control that is not there. */
+.composer-static {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.composer-cc > summary { cursor: pointer; font-size: var(--text-sm); color: var(--muted); padding: 4px 0; }
+.composer-cc input { margin-top: 6px; }
+.composer-foot { align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.composer-foot .row-end { margin-left: auto; }
+
+/* The thread reads as a spine: the current message is marked, the rest are routes to it. */
+.thread-title { font-size: var(--text-sm); text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); margin: 0 0 var(--space-1); }
+.thread-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.thread-list li.is-current .thread-link { background: var(--accent-tint); border-color: var(--ok-line); }
+.thread-link {
+  display: grid;
+  grid-template-columns: auto minmax(96px, 26%) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.thread-link:hover { background: var(--surface-2); border-color: var(--border); }
+.thread-dir { color: var(--faint); font-variant-numeric: tabular-nums; }
+.thread-list li.is-current .thread-dir { color: var(--ok); }
+.thread-who, .thread-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-who { font-weight: 700; font-size: var(--text-sm); }
+.thread-preview { font-size: var(--text-sm); color: var(--muted); }
+.thread-time { font-size: var(--text-xs); white-space: nowrap; }
+
+/* The DNS records an onboarding is about to write, shown before it is confirmed. */
+.record-list {
+  list-style: none;
+  margin: var(--space-2) 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  display: grid;
+  gap: 6px;
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.record-list strong { color: var(--ok); }
+
+/* Outgoing mail is not a judgement about somebody else's authentication, so the rail that
+   reports a verdict goes quiet on it — the row already says who it was sent to. */
+.msg.is-sent::after { background: var(--border); }
+.msg.is-sent .msg-sender { font-weight: 650; color: var(--muted); }
+.msg.is-sent .msg-avatar { opacity: 0.72; }

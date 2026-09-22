@@ -203,6 +203,41 @@ of this system, so this addendum records the difference.
   lifecycle, PWA + payload-free push — were each built, tested and deployed on
   `feat/mailvault-v1`; see `git log` and `SECURITY.md` §6.2/§8.1/§9 for their contracts.
 
+- **The mailbox learned to send** (this round; not yet deployed at the time of writing):
+  - Migration `0009_sending.sql` adds `direction`, `thread_root_id`, `in_reply_to`,
+    `references_json`, `reply_to`, `cc`, `send_status`, `send_error` to `messages` and
+    `sending_status` / `sending_tag` / `sending_checked_at` to `domains`. **Apply it before
+    deploying**, or every read of `messages` fails: `pnpm db:migrate:remote`.
+  - A new `send_email` binding named `EMAIL` must be present on the Worker. Without it the
+    app still receives everything and says so plainly: the composer reports that this server
+    cannot send instead of failing after you have written a message.
+  - **`wrangler dev` cannot simulate it.** The local runtime lists `Send Email: EMAIL` and
+    then injects nothing at any compatibility date it supports (measured on wrangler
+    3.114.17 / workerd 2025-07-18), and `--remote` would send real mail. So the browser E2E
+    asserts the contract an owner sees, and the send logic, threading and every refusal code
+    are asserted against a stubbed binding in `test/integration/send.test.ts` (32 tests).
+    Sending can only be proven end to end against production.
+  - The API token needs **`Email Sending: Edit`** (plus `DNS: Edit`, which provisioning
+    already required) for *Enable sending* to work; the read-only state check needs
+    `Email Sending: Read`. Without them the app surfaces `CLOUDFLARE_PERMISSION` and nothing
+    changes on the zone. The token stays a Worker secret either way.
+  - **Enabling sending for a domain is a domain-wide act.** Email Sending writes
+    `cf-bounce.<domain>` (MX/SPF/DKIM) and `_dmarc.<domain>` = `v=DMARC1; p=reject;`. It never
+    touches the receiving MX records — verified live on `omnipos.tech`, where the apex kept
+    its routing MX and had no DMARC record before or after. But a DMARC policy governs
+    **every** service that sends as that domain, so the dialog lists the exact records from
+    Cloudflare's read-only preview, and an existing `_dmarc` needs a ticked confirmation plus
+    a passkey.
+  - Measured against the real service, worth remembering: any local part on an onboarded
+    domain can send (no alias row needed on the sending side); `queued` rather than
+    `delivered` is normal for a foreign mailbox or any attachment; the limits endpoint is not
+    realtime (`sent` did not move across three sends); total message size including
+    attachments is **5 MiB**; and a first probe from the cold subdomain landed in Gmail
+    **Primary**.
+  - Local `sending_status` for `demo.example` is seeded to `ENABLED` so the compose screen has
+    something to offer. That is a local fiction: the seed only pretends the domain is
+    onboarded, and the local runtime cannot send anyway.
+
 ## Why it was `DEPLOYMENT_BLOCKED_CREDENTIALS`
 
 At implementation time the build could not be deployed here because the required, secret,

@@ -6,7 +6,7 @@ import type {
   MailStatus,
 } from "@mailvault/shared";
 import { MailStatus as MS } from "@mailvault/shared";
-import type { CatchAllStatus, ConflictType, RoutingStatus } from "@mailvault/shared";
+import type { CatchAllStatus, ConflictType, RoutingStatus, SendingStatus } from "@mailvault/shared";
 import { newId, nowIso } from "../lib/util";
 import { toDomain } from "./mappers";
 import type { DomainRow } from "./rows";
@@ -63,6 +63,27 @@ export async function setDomainAuthPolicy(db: D1Database, id: string, policy: Au
     .bind(id, policy, nowIso())
     .run();
   return Number((res.meta as { changes?: number } | undefined)?.changes ?? 0);
+}
+
+/**
+ * What MailVault currently believes about Email Sending for this domain, and when it last
+ * asked Cloudflare. Kept apart from the receiving state machine on purpose: enabling sending
+ * can never disturb MX routing, so a domain can send and fail to receive, or the reverse.
+ */
+export async function setDomainSending(
+  db: D1Database,
+  id: string,
+  patch: { sendingStatus: SendingStatus; sendingTag?: string | null },
+): Promise<void> {
+  const now = nowIso();
+  await db
+    .prepare(
+      `UPDATE domains
+       SET sending_status = ?2, sending_tag = COALESCE(?3, sending_tag), sending_checked_at = ?4, updated_at = ?4
+       WHERE id = ?1`,
+    )
+    .bind(id, patch.sendingStatus, patch.sendingTag ?? null, now)
+    .run();
 }
 
 export interface ProvisionPatch {

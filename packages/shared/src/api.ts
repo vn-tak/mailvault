@@ -52,6 +52,14 @@ export const MessageListQuerySchema = z.object({
   archived: z.enum(["active", "archived", "all"]).default("active"),
   domainId: z.string().min(1).optional(),
   aliasId: z.string().min(1).optional(),
+  /**
+   * Inbox, Sent, or both. Defaults to received mail because that is what an inbox is,
+   * and a conversation view asks for `all` explicitly rather than every list having to
+   * filter sent mail out again.
+   */
+  direction: z.enum(["in", "out", "all"]).default("in"),
+  /** Every message of one thread, oldest first when combined with `all`. */
+  threadId: z.string().min(1).optional(),
   /** Full-text search over subject, preview and sender, plus an exact match on OTP codes. */
   q: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),

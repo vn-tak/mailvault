@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { MessageListQuerySchema, ReadFlagSchema, paginated } from "@mailvault/shared";
+import { MessageListQuerySchema, ReadFlagSchema, ReplyInputSchema, paginated } from "@mailvault/shared";
 import type { AppEnv } from "../app-env";
 import {
   deleteMessage,
@@ -10,8 +10,9 @@ import {
   listMessages,
   setMessageRead,
 } from "../db/messages";
-import { notFound } from "../lib/errors";
+import { AppError, notFound } from "../lib/errors";
 import { log } from "../lib/logging";
+import { sendReply } from "../mail/send";
 import { sanitizeFilename } from "../lib/filename";
 import { deleteKeys, getObject } from "../storage/r2";
 import { removeIndex, searchMessageIds, semanticEnabled } from "../lib/semantic";
@@ -80,6 +81,22 @@ export const messagesRoute = new Hono<AppEnv>()
     const changed = await setMessageRead(c.env.DB, id, isRead);
     if (changed === 0 && !(await getMessageRow(c.env.DB, id))) throw notFound("Message not found");
     return c.json({ id, isRead });
+  })
+
+  /**
+   * Answer this message from the alias it arrived on. Who receives it is taken from the
+   * stored headers, never from the request — see `sendReply`.
+   */
+  .post("/api/messages/:id/reply", async (c) => {
+    const { id } = IdParam.parse({ id: c.req.param("id") });
+    const input = await readJson(c, ReplyInputSchema);
+    const result = await sendReply(id, input, c.env, c.env.DB, c.env.MAIL_BUCKET);
+    if (!result.ok) {
+      log.warn("reply_refused", { messageId: id, code: result.code });
+      throw new AppError(400, result.code, result.message);
+    }
+    log.info("reply_sent", { messageId: id, replyId: result.outcome.id, actor: actorOf(c).email });
+    return c.json(result.outcome, 201);
   })
 
   /** Delete permanently removes the row plus raw/parsed/attachment R2 objects (section 24). */

@@ -5,8 +5,10 @@ import type {
   ExtractedCode,
   MessageAuth,
   MessageSummary,
+  SendStatus,
   VerificationLink,
 } from "@mailvault/shared";
+import { MessageDirection } from "@mailvault/shared";
 import type { AliasRow, DomainRow, MessageRow } from "./rows";
 
 function parseJson<T>(raw: string | null | undefined, fallback: T): T {
@@ -32,6 +34,9 @@ export function toDomain(row: DomainRow): Domain {
     conflictType: row.conflict_type,
     conflictDetails: parseJson<ConflictDetails | null>(row.conflict_details_json, null),
     authPolicy: row.auth_policy,
+    sendingStatus: row.sending_status,
+    sendingTag: row.sending_tag ?? null,
+    sendingCheckedAt: row.sending_checked_at ?? null,
     lastCheckedAt: row.last_checked_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -87,6 +92,12 @@ export function toMessageSummary(row: MessageRow): MessageSummary {
     codeCount: codes.length,
     linkCount: links.length,
     authVerdict: row.auth_verdict,
+    direction: row.direction ?? MessageDirection.In,
+    // Mail stored before threading existed is its own conversation. The fallback lives here
+    // as well as in the migration, so a row can never report that it has no thread.
+    threadRootId: row.thread_root_id ?? row.id,
+    sendStatus: (row.send_status as SendStatus | null) ?? null,
+    cc: row.cc ?? null,
   };
 }
 

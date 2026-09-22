@@ -322,6 +322,41 @@ sits in the same account as the mail itself, protected by the same Access policy
 - The service worker never caches `/api/*` and never proxies a cross-origin request, so the
   offline shell cannot become an unaccessed copy of private mail.
 
+## 8.5 Sending mail — `apps/worker/src/mail/send.ts`, `apps/worker/src/routes/sending.ts`
+
+An inbox that can send is an open relay until proven otherwise, so the send path is built as
+a chain of refusals, each with its own reason code that the UI translates.
+
+- **`From` is never free text.** It must normalise to an **ACTIVE alias row** in this
+  mailbox. Nothing can be sent as an address nobody created, and no request can name an
+  arbitrary sender — the same rule that keeps unknown recipients from being auto-created on
+  the way in keeps forged identities out on the way out.
+- **A reply's recipient comes from the stored message**, not the request: `Reply-To` first,
+  then `From` (and the original `To` when answering your own sent mail). A crafted body
+  cannot point a reply at somebody who never appears in the conversation.
+- **Answering a message that failed sender authentication is refused** (`SPOOFED_PARENT`).
+  Replying is the one action a phisher cannot do for you, so the verdict already recorded on
+  the row gates it. This check runs **before** the transport is consulted, so "this server
+  cannot send" is never the stated reason for a message that should not have been sent at all.
+- **The message is written before it is sent** (raw copy + parsed body in R2, metadata row
+  with `direction='OUT'`), then updated with what the transport said. A send that succeeds
+  while the database is unhappy cannot produce mail the owner sent and never sees again; a
+  send that fails leaves a record marked `FAILED` with the reason.
+- **Per-domain opt-in, with a visible consequence.** Sending is refused unless
+  `domains.sending_status='ENABLED'`, and only an explicit owner action sets it. That action
+  shows the exact DNS records Cloudflare's read-only preview says it will write, because
+  Email Sending creates a **domain-wide DMARC record** — a policy that also covers senders
+  MailVault knows nothing about. An existing `_dmarc` needs both a ticked confirmation and a
+  passkey step-up, in the same shape as an MX or catch-all takeover.
+- **Reputation is the domain's own**, not a shared relay's: Cloudflare signs with that
+  domain's DKIM key and returns bounces to `cf-bounce.<domain>`. Complaint and suppression
+  state is surfaced on the message (`send_status`) rather than hidden.
+- **Budget is counted locally.** Cloudflare's `/email/sending/limits` counter was measured to
+  lag (three sends left it unchanged), so the daily ceiling (`MAX_SENDS_PER_DAY`, default 50)
+  is enforced against `messages` rows, not against that endpoint.
+- Nothing is sent on load, on a schedule, or by a webhook. There is no automatic reply,
+  no vacation responder, and no forwarding to a third party anywhere in the send path.
+
 ## 9. Domain provisioning safety (the highest-risk feature)
 
 `apps/worker/src/provisioning/` + `apps/worker/src/routes/domains.ts`:

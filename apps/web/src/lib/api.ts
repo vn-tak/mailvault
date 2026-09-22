@@ -3,6 +3,7 @@ import type {
   Alias,
   AliasDetail,
   AuthPolicy,
+  ComposeInput,
   CreateAliasInput,
   DashboardStats,
   Domain,
@@ -19,6 +20,9 @@ import type {
   Rule,
   RuleAction,
   RuleMatch,
+  ReplyInput,
+  SendOutcome,
+  SendingPreview,
   UpdateAliasInput,
 } from "@mailvault/shared";
 import { grantHeaders } from "./grant";
@@ -135,6 +139,8 @@ export const api = {
 
   listMessages: (query: Partial<MessageListQuery>) =>
     request<Paginated<MessageSummary>>(`/messages${qs({ ...query })}`),
+  /** One conversation: received and sent rows interleaved, oldest first. */
+  thread: (id: string) => request<{ id: string; items: MessageSummary[] }>(`/threads/${encodeURIComponent(id)}`),
   getMessage: (id: string, remoteImages = false) =>
     request<MessageDetail>(`/messages/${encodeURIComponent(id)}${qs({ remoteImages: remoteImages ? "1" : "" })}`),
   setMessageRead: (id: string, isRead: boolean) =>
@@ -148,6 +154,30 @@ export const api = {
       method: "DELETE",
       headers: { "x-mailvault": "1" },
     }),
+
+  /** What may be sent, and how much is left today. */
+  outboxCapabilities: () =>
+    request<{
+      canCompose: boolean;
+      bindingMissing: boolean;
+      limit: number;
+      sent: number;
+      remaining: number;
+      maxRecipients: number;
+      domains: { domainId: string; name: string; mailStatus: string; sendingStatus: string; canSend: boolean }[];
+    }>("/outbox/capabilities"),
+  compose: (input: ComposeInput) => request<SendOutcome>("/outbox", mutation(input)),
+  reply: (id: string, input: ReplyInput) =>
+    request<SendOutcome>(`/messages/${encodeURIComponent(id)}/reply`, mutation(input)),
+
+  sendingPreview: (zoneId: string) =>
+    request<SendingPreview>(`/domains/${encodeURIComponent(zoneId)}/sending`),
+  refreshSending: () => request<{ items: { domain: string; status: string; error?: string }[] }>("/sending/refresh", mutation()),
+  enableSending: (zoneId: string, allowDmarcTakeover: boolean) =>
+    request<{ domainId: string; sendingStatus: string; alreadyEnabled: boolean }>(
+      `/domains/${encodeURIComponent(zoneId)}/sending`,
+      mutation({ allowDmarcTakeover }),
+    ),
 
   pushPublicKey: () => request<{ key: string | null }>("/push/public-key"),
   pushStatus: () => request<{ enabled: boolean; subscriptions: number }>("/push/status"),

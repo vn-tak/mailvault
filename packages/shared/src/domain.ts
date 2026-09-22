@@ -6,6 +6,7 @@ import {
   ConflictType,
   PreflightClassification,
   AuthPolicy,
+  SendingStatus,
 } from "./enums";
 
 /**
@@ -45,6 +46,15 @@ export const DomainSchema = z.object({
   conflictDetails: ConflictDetailsSchema.nullable(),
   /** How this domain handles mail whose sender failed authentication. */
   authPolicy: z.nativeEnum(AuthPolicy).default(AuthPolicy.Warn),
+  /**
+   * Whether Email Sending is onboarded for this domain, i.e. whether it may be used as a
+   * `From`. Tracked apart from the receiving state because the two have separate DNS
+   * records and separate owner confirmations.
+   */
+  sendingStatus: z.nativeEnum(SendingStatus).default(SendingStatus.Unknown),
+  /** Cloudflare's sending-subdomain tag, kept so the state can be re-read and undone. */
+  sendingTag: z.string().nullable().default(null),
+  sendingCheckedAt: z.string().nullable().default(null),
   lastCheckedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),

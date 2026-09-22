@@ -6,6 +6,7 @@ import {
   MailStatus,
   PreflightClassification,
   RoutingStatus,
+  SendingStatus,
 } from "@mailvault/shared";
 import { CloudflareApiError, type CloudflareClient } from "../../src/cf/api-client";
 import type { DomainRow } from "../../src/db/rows";
@@ -24,6 +25,9 @@ const row: DomainRow = {
   conflict_type: ConflictType.None,
   conflict_details_json: null,
   auth_policy: AuthPolicy.Warn,
+  sending_status: SendingStatus.Unknown,
+  sending_tag: null,
+  sending_checked_at: null,
   last_checked_at: null,
   created_at: "2026-01-01T00:00:00.000Z",
   updated_at: "2026-01-01T00:00:00.000Z",

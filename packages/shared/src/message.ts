@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AuthVerdict } from "./enums";
+import { AuthVerdict, MessageDirection, SendStatus } from "./enums";
 
 /**
  * Message DTOs. `extractedCodes` / `verificationLinks` are stored in D1 as JSON
@@ -99,6 +99,17 @@ export const MessageSummarySchema = z.object({
   primaryCode: z.string().nullable().optional(),
   codeCount: z.number().int().nonnegative().default(0),
   linkCount: z.number().int().nonnegative().default(0),
+  /** `OUT` rows are mail the owner sent, kept in the same list as everything else. */
+  direction: z.nativeEnum(MessageDirection).default(MessageDirection.In),
+  /**
+   * The first message of the conversation this belongs to. Denormalised so a thread is
+   * one indexed lookup instead of a walk, and equal to the row's own id for mail that
+   * started a conversation.
+   */
+  threadRootId: z.string().nullable().default(null),
+  /** Only meaningful on an `OUT` row; received mail has no send state to report. */
+  sendStatus: z.nativeEnum(SendStatus).nullable().default(null),
+  cc: z.string().nullable().default(null),
 });
 export type MessageSummary = z.infer<typeof MessageSummarySchema>;
 
@@ -119,6 +130,12 @@ export const MessageDetailSchema = MessageSummarySchema.extend({
   auth: MessageAuthSchema.nullable().default(null),
   /** Why a rule filed this message, in the words the rule had when it acted. */
   appliedRuleNote: z.string().nullable().default(null),
+  /** Reply bookkeeping, so a conversation can be continued with correct headers. */
+  inReplyTo: z.string().nullable().default(null),
+  references: z.array(z.string()).default([]),
+  replyTo: z.string().nullable().default(null),
+  /** Failure text for an `OUT` row that did not go; null when nothing went wrong. */
+  sendError: z.string().nullable().default(null),
 });
 export type MessageDetail = z.infer<typeof MessageDetailSchema>;
 

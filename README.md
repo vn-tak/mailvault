@@ -1,9 +1,10 @@
 # MailVault V1 — Private Persistent Domain Mail
 
-MailVault is a **receive-only** personal mail system that turns domains you already
-own on Cloudflare into private inboxes of disposable **aliases**, optimized for
-capturing **one-time passcodes (OTPs)**, verification links and password-reset
-mail. Aliases and messages persist **indefinitely** — nothing expires automatically.
+MailVault is a personal mail system that turns domains you already own on Cloudflare
+into private inboxes of disposable **aliases**, optimised for capturing **one-time
+passcodes (OTPs)**, verification links and password-reset mail — and for answering from
+the alias the mail arrived on, so the other side never sees your real address. Aliases and
+messages persist **indefinitely**, in both directions: nothing expires automatically.
 
 It runs as a single Cloudflare Worker (HTTP `fetch` + inbound `email` handlers) with
 D1 for metadata, a private R2 bucket for raw/normalized content and attachments,
@@ -33,8 +34,9 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Vietnamese interface with an English fallback, chosen in Settings and remembered (also for the new-mail notification) | ✅ E2E at 412px |
 | Interface redesign: graphite + paper themes, self-hosted Manrope/JetBrains Mono, icon nav, sender monograms, authentication rail per row, skeletons, motion | ✅ 27 E2E + AA contrast guard |
 | Interaction model: ⌘K / `/` command palette, two-pane inbox with j/k/e, one-tap OTP copy from the row, new-mail toast | ✅ 7 E2E |
-| Unit + integration tests (250 passing: worker 165, web 85) | ✅ Green |
-| Playwright E2E (34 passing, live workerd + local D1/R2) | ✅ Green |
+| Sending: compose to anybody or answer a message from its alias, conversations kept in one thread, per-domain Email Sending behind an explicit DMARC confirmation | ✅ 32 send tests, 4 E2E |
+| Unit + integration tests (282 passing: worker 197, web 85) | ✅ Green |
+| Playwright E2E (38 passing, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
 See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at
@@ -76,6 +78,9 @@ Cloudflare Email Routing (per-domain catch-all rule)
   never injects email markup into its own DOM.
 - **No content ever expires.** No TTL, no cron deletion, no R2 lifecycle rule.
   Deletion happens only through explicit owner actions in the UI.
+- **Sent mail is mail.** An outbound message is a row in the same table with a direction, a
+  thread root and its own stored copy in R2, so a conversation reads as one list and
+  "delete this message" already covers what you sent.
 
 ## Repository layout
 
@@ -164,6 +169,12 @@ state-changing methods, the `x-mailvault: 1` header + same-origin (CSRF).
 | GET | `/api/messages` | Paginated inbox; filters + FTS5 search over subject/preview/sender, exact OTP-code and alias match |
 | GET | `/api/messages/:id` | Detail with sanitized HTML, codes, links, attachments |
 | PATCH | `/api/messages/:id/read` | Set read flag |
+| POST | `/api/outbox` | Compose a new message from one of your active aliases |
+| GET | `/api/outbox/capabilities` | Which domains may sign mail, and today's remaining budget |
+| POST | `/api/messages/:id/reply` | Answer a message from the alias it arrived on (recipient read from the stored headers) |
+| GET | `/api/threads/:id` | Every message of one conversation, received and sent, oldest first |
+| POST | `/api/sending/refresh` | Re-read each domain's Email Sending state from Cloudflare (read-only) |
+| GET/POST | `/api/domains/:id/sending[/preview]` | What enabling sending would write; enabling itself needs an explicit confirmation |
 | DELETE | `/api/messages/:id` | Delete a message (+ its R2 objects) |
 | GET | `/api/messages/:mid/attachments/:aid` | Authenticated attachment download (`Content-Disposition`, `nosniff`) |
 | GET | `/api/push/public-key` \| `/status` | VAPID public key + subscription count (never the endpoints) |
