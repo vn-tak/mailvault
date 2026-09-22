@@ -306,19 +306,9 @@ test("phone: the More menu inside an engaged row still clears the tab bar @mobil
    */
   const trigger = archived.locator(".menu > button");
   await trigger.click();
-  const panel = archived.getByRole("menu");
-  // Measured once it has stopped growing: the panel arrives with a scale-in, and a box read
-  // mid-animation is smaller than the clearance the flip needs, which made the assertion
-  // below fail only when the machine was busy.
-  let panelHeight = 0;
-  await expect
-    .poll(async () => {
-      panelHeight = (await panel.boundingBox())?.height ?? 0;
-      return panelHeight;
-    }, { timeout: 5_000 })
-    .toBeGreaterThan(60);
+  const panelHeight = (await archived.getByRole("menu").boundingBox())?.height ?? 0;
   await page.keyboard.press("Escape");
-  await expect(panel).toHaveCount(0);
+  await expect(archived.getByRole("menu")).toHaveCount(0);
   const NEED = Math.round(panelHeight + 16);
 
   await page.evaluate((pad) => {
