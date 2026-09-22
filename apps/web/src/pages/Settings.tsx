@@ -13,20 +13,21 @@ type Status = { tone: "ok" | "error"; text: string } | null;
 const errText = (e: unknown) => (e instanceof ApiClientError ? e.message : e instanceof Error ? e.message : t("set.requestFailed"));
 
 /**
- * The language is a display preference and nothing else: it changes which dictionary the
- * screen reads, never what the server stores or accepts.
+ * How the interface looks. One card, because language and light/dark are the same kind of
+ * choice — a display preference, stored on this device only, that changes nothing about
+ * what the server stores or accepts.
  */
-function LanguageCard() {
+function AppearanceCard() {
   const current = lang();
+  const { choice } = useTheme();
   return (
     <div className="card">
-      <h2 style={{ marginTop: 0 }}>{t("set.langTitle")}</h2>
-      <p className="muted" style={{ marginTop: 0 }}>
-        {t("set.langHint")}
-      </p>
-      <div className="row wrap" style={{ gap: 8, alignItems: "center" }}>
-        <span className="faint" style={{ fontSize: 13 }}>
-          {t("set.langLabel")}
+      <h2 style={{ marginTop: 0 }}>{t("set.appearanceTitle")}</h2>
+
+      <div className="setting-row">
+        <span className="label">
+          <b>{t("set.langTitle")}</b>
+          <span className="faint">{t("set.langHint")}</span>
         </span>
         <div className="seg" role="group" aria-label={t("set.langLabel")}>
           {LANGS.map((l: Lang) => (
@@ -36,40 +37,29 @@ function LanguageCard() {
           ))}
         </div>
       </div>
-    </div>
-  );
-}
 
-/**
- * A mail client is read at a desk and in bed, so the theme follows the device unless the
- * owner says otherwise. The glyphs are decoration; the label beside them is the control.
- */
-function ThemeCard() {
-  const { choice } = useTheme();
-  const Glyph = choice === "paper" ? IconSun : choice === "graphite" ? IconMoon : IconAuto;
-  return (
-    <div className="card mt">
-      <h2 style={{ marginTop: 0 }}>{t("set.themeTitle")}</h2>
-      <p className="muted" style={{ marginTop: 0 }}>
-        {t("set.themeHint")}
-      </p>
-      <div className="setting-row" style={{ paddingTop: 0 }}>
+      <div className="setting-row">
         <span className="label">
-          <b>{t("set.themeLabel")}</b>
-          <span className="faint" style={{ fontSize: 13 }}>{t(`theme.${choice}`)}</span>
+          <b>{t("set.themeTitle")}</b>
+          <span className="faint">{t("set.themeHint")}</span>
         </span>
         <div className="seg" role="group" aria-label={t("set.themeLabel")}>
-          {THEME_CHOICES.map((c: ThemeChoice) => (
-            <button key={c} type="button" className={choice === c ? "active" : ""} onClick={() => setTheme(c)}>
-              {c === choice ? <Glyph size={16} /> : null}
-              {t(`theme.${c}`)}
-            </button>
-          ))}
+          {THEME_CHOICES.map((c: ThemeChoice) => {
+            const Glyph = c === "paper" ? IconSun : c === "graphite" ? IconMoon : IconAuto;
+            return (
+              <button key={c} type="button" className={choice === c ? "active" : ""} onClick={() => setTheme(c)}>
+                <Glyph size={16} />
+                {t(`theme.${c}`)}
+              </button>
+            );
+          })}
         </div>
       </div>
+
       <p className="faint" style={{ fontSize: 12, margin: 0 }}>
         {t("set.themeNow")} · {themeName(theme())}
-      </p>    </div>
+      </p>
+    </div>
   );
 }
 
@@ -307,8 +297,7 @@ export function Settings() {
         <h1>{t("set.title")}</h1>
       </div>
 
-      <LanguageCard />
-      <ThemeCard />
+      <AppearanceCard />
 
       <div className="card mt">
         <h2 style={{ marginTop: 0 }}>{t("set.notifTitle")}</h2>

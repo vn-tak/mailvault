@@ -114,7 +114,19 @@ function AuthBanner({ verdict, auth }: { verdict: AuthVerdict; auth: MessageAuth
   );
 }
 
-export function MessageDetail({ id }: { id: string }) {
+export function MessageDetail({
+  id,
+  pane,
+  onClose,
+  onRead,
+}: {
+  id: string;
+  /** Rendered inside the inbox's reading pane rather than as its own screen. */
+  pane?: boolean;
+  onClose?: () => void;
+  /** Marks read and lets the list move on, so `j` keeps its rhythm. */
+  onRead?: (id: string) => void;
+}) {
   const [remoteImages, setRemoteImages] = useState(false);
   const [showText, setShowText] = useState(false);
   const [revealSpoofed, setRevealSpoofed] = useState(false);
@@ -144,7 +156,13 @@ export function MessageDetail({ id }: { id: string }) {
 
   async function toggleRead() {
     if (!data) return;
-    await api.setMessageRead(data.id, !data.isRead).catch(() => undefined);
+    const next = !data.isRead;
+    // In the pane, reading something is also a request to be shown the next one.
+    if (next && onRead) {
+      onRead(data.id);
+      return;
+    }
+    await api.setMessageRead(data.id, next).catch(() => undefined);
     reload();
   }
 
@@ -159,10 +177,19 @@ export function MessageDetail({ id }: { id: string }) {
   }
 
   return (
-    <div className="page">
-      <div className="backrow">
-        <Link className="backlink" to="/inbox">{t("msg.back")}</Link>
-      </div>
+    <div className={pane ? "pane-body" : "page"}>
+      {pane ? (
+        <div className="pane-bar">
+          <span className="eyebrow">{t("msg.body")}</span>
+          <button className="ghost small" aria-label={t("common.close")} onClick={onClose}>
+            ✕
+          </button>
+        </div>
+      ) : (
+        <div className="backrow">
+          <Link className="backlink" to="/inbox">{t("msg.back")}</Link>
+        </div>
+      )}
 
       {notice && <div className="banner ok">{notice}</div>}
       {error && <ErrorBanner message={error} />}

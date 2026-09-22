@@ -87,6 +87,15 @@ export function IconSliders(p: IconProps) {
   );
 }
 
+export function IconSearch(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.8-3.8" />
+    </Icon>
+  );
+}
+
 export function IconSun(p: IconProps) {
   return (
     <Icon {...p}>

@@ -2,11 +2,12 @@ import { useMemo } from "react";
 import { api } from "../lib/api";
 import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
-import { relativeTime, senderName } from "../lib/format";
-import { arrivalLabel, splitMailboxes } from "../lib/mailboxes";
+import { relativeTime } from "../lib/format";
+import { splitMailboxes } from "../lib/mailboxes";
 import { t } from "../lib/i18n";
 import { useLiveStatus } from "../lib/live";
-import { ErrorBanner, Monogram, SkeletonList } from "../components/ui";
+import { ErrorBanner, SkeletonList } from "../components/ui";
+import { MsgItem } from "../components/MessageRow";
 import { MailStatus, type MailboxStat } from "@mailvault/shared";
 
 function MailboxCard({ m }: { m: MailboxStat }) {
@@ -151,11 +152,6 @@ export function Dashboard() {
           <div className="card card--flush mt">
             <div className="list-head">
               <h2 style={{ margin: 0 }}>{t("dash.recent")}</h2>
-              <div className="head-actions">
-                <button className="ghost small" onClick={() => navigate("/inbox")}>
-                  {t("dash.openInbox")}
-                </button>
-              </div>
             </div>
             {data.recentMessages.length === 0 ? (
               <p className="muted" style={{ padding: "var(--space-3)" }}>
@@ -164,19 +160,7 @@ export function Dashboard() {
             ) : (
               <ul className="msglist">
                 {data.recentMessages.map((m) => (
-                  <li key={m.id} className={`msg ${m.isRead ? "" : "unread"}`} data-verdict={m.authVerdict}>
-                    <Link to={`/messages/${m.id}`}>
-                      <span className="msg-who">
-                        <span className="msg-avatar">
-                          <Monogram name={senderName(m.headerFrom, m.envelopeFrom)} />
-                        </span>
-                        <span className="msg-sender">{senderName(m.headerFrom, m.envelopeFrom)}</span>
-                      </span>
-                      <span className="msg-time">{relativeTime(m.receivedAt)}</span>
-                      <span className="msg-subject">{m.subject || t("inbox.noSubject")}</span>
-                      <span className="msg-alias">{arrivalLabel(m, false)}</span>
-                    </Link>
-                  </li>
+                  <MsgItem key={m.id} m={m} scoped={false} fresh={false} active={false} wide={false} onOpen={() => undefined} />
                 ))}
               </ul>
             )}

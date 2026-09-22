@@ -1,9 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, matchRoute, useRoute } from "./lib/router";
 import { connectLive, useLiveStatus } from "./lib/live";
 import { t, useLang } from "./lib/i18n";
 import { useTheme } from "./lib/theme";
-import { IconAlias, IconGauge, IconGlobe, IconInbox, IconSliders, VaultMark } from "./components/Icons";
+import { IconAlias, IconGauge, IconGlobe, IconInbox, IconSearch, IconSliders, VaultMark } from "./components/Icons";
+import { CommandPalette } from "./components/CommandPalette";
+import { NewMailToast } from "./components/NewMailToast";
 import { Dashboard } from "./pages/Dashboard";
 import { Domains } from "./pages/Domains";
 import { Aliases } from "./pages/Aliases";
@@ -51,8 +53,27 @@ export function App() {
   useLang();
   useTheme();
   const live = useLiveStatus();
+  const [palette, setPalette] = useState(false);
 
   useEffect(() => connectLive().stop, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((open) => !open);
+        return;
+      }
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const el = document.activeElement;
+        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return;
+        e.preventDefault();
+        setPalette(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="app">
@@ -66,6 +87,11 @@ export function App() {
             <span>{t("brand.tag")}</span>
           </span>
         </div>
+        <button className="rail-search" onClick={() => setPalette(true)}>
+          <IconSearch size={16} />
+          {t("pal.trigger")}
+          <kbd>/</kbd>
+        </button>
         <nav className="nav" aria-label={t("nav.menu")}>
           {NAV.map((n) => {
             const Icon = n.Icon;
@@ -91,6 +117,8 @@ export function App() {
       <main className="main">
         <Route />
       </main>
+      {palette ? <CommandPalette onClose={() => setPalette(false)} /> : null}
+      <NewMailToast />
     </div>
   );
 }
