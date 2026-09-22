@@ -60,7 +60,7 @@ describe("dictionary alignment", () => {
   });
 
   it("keeps every key namespaced by the screen it belongs to", () => {
-    for (const key of Object.keys(en)) expect(key, key).toMatch(/^[a-z]+\.[A-Za-z0-9]+$/);
+    for (const key of Object.keys(en)) expect(key, key).toMatch(/^[a-z]+(\.[A-Za-z0-9]+)+$/);
   });
 });
 

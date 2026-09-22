@@ -111,7 +111,6 @@ export const en: Dict = {
   "dash.noMailYet": "({n} with no mail yet)",
   "dash.empty": "No mail has arrived yet. Create an alias, then use it somewhere external.",
   "dash.recent": "Recent messages",
-  "dash.openInbox": "Open inbox →",
   "dash.noMessages": "No messages yet. Create an alias and use it on an external site.",
   "dash.notReceiving": "not receiving",
 
@@ -404,6 +403,7 @@ export const en: Dict = {
   "set.langTitle": "Language",
   "set.langHint":
     "The app starts in your browser's language and remembers what you choose here. Technical names (SPF, DKIM, MX, OTP) stay as they are, and an error that Cloudflare wrote is shown in its own words.",
+  "set.appearanceTitle": "Language and appearance",
   "set.langLabel": "Interface language",
   "set.themeTitle": "Light or dark",
   "set.themeHint": "It follows your device unless you choose here. Nothing else changes — same mail, same controls, nothing stored about the choice.",
@@ -467,6 +467,25 @@ export const en: Dict = {
   "set.installTitle": "Install",
   "set.installBody":
     "MailVault is installable: use your browser's \"Install app\" (or Share → Add to Home Screen on iOS) to get its own window. It works offline for the screens you already opened; mail and attachments are never cached.",
+
+  "pal.trigger": "Search mail",
+  "pal.title": "Search and commands",
+  "pal.placeholder": "Search mail, aliases, domains…",
+  "pal.empty": "Nothing matches that",
+  "pal.searching": "Searching…",
+  "pal.results": "Results",
+  "pal.hint": "↑↓ move · Enter open · Esc close",
+  "pal.group.go": "Go to",
+  "pal.group.actions": "Actions",
+  "pal.group.mail": "Mail",
+  "pal.group.aliases": "Aliases",
+  "pal.group.domains": "Domains",
+  "pal.sub.readonly": "read-only, changes nothing",
+  "pal.switchTo": "Switch to {name}",
+  "pal.openMailbox": "Open this mailbox",
+
+  "toast.newMail": "{n} new message(s) arrived",
+  "toast.view": "View",
 
   "push.insecure": "Notifications need an HTTPS origin.",
   "push.unsupported": "This browser cannot receive notifications.",
@@ -567,7 +586,6 @@ export const vi: Dict = {
   "dash.noMailYet": "({n} chưa có thư)",
   "dash.empty": "Chưa có thư nào. Hãy tạo một bí danh rồi dùng nó ở một trang bên ngoài.",
   "dash.recent": "Thư mới nhận",
-  "dash.openInbox": "Mở hộp thư →",
   "dash.noMessages": "Chưa có thư. Hãy tạo bí danh và dùng nó ở một dịch vụ bên ngoài.",
   "dash.notReceiving": "không nhận thư",
 
@@ -859,6 +877,7 @@ export const vi: Dict = {
   "set.langTitle": "Ngôn ngữ",
   "set.langHint":
     "Ứng dụng bắt đầu theo ngôn ngữ của trình duyệt và nhớ lựa chọn bạn đặt ở đây. Các tên kỹ thuật (SPF, DKIM, MX, OTP) giữ nguyên, và lỗi do Cloudflare viết thì hiển thị đúng nguyên văn của họ.",
+  "set.appearanceTitle": "Ngôn ngữ và giao diện",
   "set.langLabel": "Ngôn ngữ giao diện",
   "set.themeTitle": "Sáng hay tối",
   "set.themeHint": "Mặc định theo máy của bạn, trừ khi bạn chọn ở đây. Không có gì khác thay đổi — vẫn là thư đó, vẫn các nút đó, và không lưu gì về lựa chọn này ra ngoài máy.",
@@ -921,6 +940,25 @@ export const vi: Dict = {
   "set.installTitle": "Cài ứng dụng",
   "set.installBody":
     "MailVault cài được: dùng \"Install app\" của trình duyệt (hoặc Share → Add to Home Screen trên iOS) để có cửa sổ riêng. Ứng dụng chạy offline với các màn hình bạn đã mở; thư và tệp đính kèm không bao giờ được lưu cache.",
+
+  "pal.trigger": "Tìm thư",
+  "pal.title": "Tìm kiếm và lệnh",
+  "pal.placeholder": "Tìm thư, bí danh, tên miền…",
+  "pal.empty": "Không có gì khớp",
+  "pal.searching": "Đang tìm…",
+  "pal.results": "Kết quả",
+  "pal.hint": "↑↓ chọn · Enter mở · Esc đóng",
+  "pal.group.go": "Đi tới",
+  "pal.group.actions": "Lệnh",
+  "pal.group.mail": "Thư",
+  "pal.group.aliases": "Bí danh",
+  "pal.group.domains": "Tên miền",
+  "pal.sub.readonly": "chỉ đọc, không thay đổi gì",
+  "pal.switchTo": "Chuyển sang {name}",
+  "pal.openMailbox": "Mở hộp thư này",
+
+  "toast.newMail": "Vừa có {n} thư mới",
+  "toast.view": "Xem",
 
   "push.insecure": "Thông báo cần một origin HTTPS.",
   "push.unsupported": "Trình duyệt này không nhận được thông báo.",

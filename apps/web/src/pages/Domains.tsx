@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiClientError } from "../lib/api";
-import { navigate } from "../lib/router";
+import { navigate, useRoute } from "../lib/router";
 import { withStepUp } from "../lib/passkeys";
 import { useAsync } from "../lib/useAsync";
 import { relativeTime } from "../lib/format";
@@ -327,6 +327,23 @@ export function Domains() {
       setBusy(false);
     }
   }
+
+  /*
+   * The command palette runs these by navigating here with a `run` marker, so there is one
+   * implementation of each and its notices appear where the rest of them do. The marker is
+   * replaced out of the URL immediately: reloading the page must not re-fire a call to
+   * Cloudflare that the owner did not ask for twice.
+   */
+  const { query } = useRoute();
+  const run = query.get("run");
+  const fired = useRef<string | null>(null);
+  useEffect(() => {
+    if (!run || fired.current === run) return;
+    fired.current = run;
+    navigate("/domains", true);
+    if (run === "sync") void runSync();
+    if (run === "verify") void runVerify();
+  }, [run]);
 
   function nameOf(zoneId: string): string {
     return domains.find((d) => d.cloudflareZoneId === zoneId)?.name ?? zoneId;

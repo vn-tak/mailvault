@@ -173,6 +173,31 @@ of this system, so this addendum records the difference.
     four-column desktop row, the folded row, the popover flip. Two assertions were updated
     where the design deliberately changed shape (the health dot is an element now; the
     clearance is measured), not where it merely disagreed.
+- **The interaction model moved up a level** (production `f8e95b44`):
+  - **Command palette** on `/` or ⌘K — one box that searches mail (server FTS, so last
+    month is reachable), aliases and domains, and runs actions. It reaches Cloudflare-backed
+    actions by navigating to `#/domains?run=sync`, and the marker is replaced out of the URL
+    immediately, because reloading a page must not call Cloudflare a second time for
+    something the owner only asked for once. **Chromium keeps Ctrl/Cmd+K for its own address
+    bar**, so `/` is the binding that actually arrives at the page — and a visible trigger
+    exists for everyone else.
+  - **Two-pane inbox** at ≥900px: the message opens beside the list from `#/inbox?open=<id>`,
+    with `j`/`k` to walk unread, `e` to mark read and advance, `Esc` to close. The phone keeps
+    the full-screen route — there is no beside on a handset. `/messages/:id` stays canonical,
+    so push notifications and shared links are unaffected.
+  - **The OTP copies from the row.** That needed the row restructured (grid wrapper + a link
+    whose `::after` covers the row + a real button in the aside), because a button inside an
+    `<a>` is not HTML. A forged code still gets no chip.
+  - **A new-mail toast** says only how many arrived. The socket carries no content and the
+    notice does not either; the count comes from the same authenticated list route.
+  - `components/MessageRow.tsx` now exists because the dashboard had quietly kept its own
+    copy of the row markup: when the list CSS moved to `.msg-row`, the dashboard's rows
+    stopped being a grid and made the page 1028px wide on a 412px phone. The overflow test
+    caught it in the suite, not in review.
+  - Two E2E assertions were rewritten where the design genuinely changed shape (the row's
+    grid element, and the palette's keyboard timing — a key typed before the bundle has
+    mounted is simply lost), and one missing dictionary key was caught by the leak check
+    rather than by the parity test, which cannot see a key neither screen defines.
 - **Gates at this writing:** 103 tests (worker 81, web 22), 5 E2E; lint and typecheck clean.
   The five later slices — sender authentication, drift watchdog, FTS5 search, alias
   lifecycle, PWA + payload-free push — were each built, tested and deployed on

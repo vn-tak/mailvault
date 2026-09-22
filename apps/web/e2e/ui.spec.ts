@@ -228,12 +228,23 @@ test("phone: the worker turns a new-mail ping into sender and subject, never a c
 test("desktop: the same inbox markup grids into a two-line mail row", async ({ page }) => {
   await openInbox(page);
   await expect(page.locator(".msg")).toHaveCount(5);
+  /*
+   * The row's grid is `.msg-row` (mark · text · aside) since the code chip became a real
+   * button that cannot live inside an anchor. What the contract cares about is unchanged:
+   * one markup that lays out as a compact multi-column row here and as a card on a phone.
+   */
   const columns = await page
     .locator(".msg")
     .first()
-    .locator("a")
+    .locator(".msg-row")
     .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
-  expect(columns).toBe(4);
+  expect(columns).toBe(3);
+  const textCells = await page
+    .locator(".msg")
+    .first()
+    .locator(".msg-link")
+    .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
+  expect(textCells).toBe(2);
   await page.screenshot({ path: "e2e-screens/inbox-desktop.png" });
 });
 
