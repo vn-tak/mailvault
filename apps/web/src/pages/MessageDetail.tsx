@@ -3,174 +3,26 @@ import { api } from "../lib/api";
 import { attachmentHref } from "../lib/api";
 import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
-import { formatBytes, fullTime, sendPill, senderName } from "../lib/format";
+import { useOutbox } from "../lib/useOutbox";
+import { formatBytes, fullTime, senderName } from "../lib/format";
 import { t } from "../lib/i18n";
 import { MessageHtml } from "../components/MessageHtml";
 import { TextBody } from "../components/TextBody";
-import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Monogram } from "../components/ui";
+import { ConfirmDialog, ErrorBanner, Loading, Monogram } from "../components/ui";
 import { Composer } from "../components/Composer";
-import {
-  AuthVerdict,
-  BulkMessageAction,
-  MessageDirection,
-  type ExtractedCode,
-  type MessageAuth,
-  type VerificationLink,
-} from "@mailvault/shared";
+import { AuthBanner, CodeCard, LinkCard, sortCodes, sortLinks } from "../components/mail/MailInsights";
+import { DeliveryReport } from "../components/mail/DeliveryReport";
+import { UnsubscribeCard, parseUnsubscribe } from "../components/mail/UnsubscribeCard";
+import { AuthVerdict, BulkMessageAction, MessageDirection } from "@mailvault/shared";
 
 /**
- * The unsubscribe the sender offered.
+ * One message, read.
  *
- * Only for a message whose sender authentication aligned. An unsubscribe address is
- * attacker-authored text like any other link, and the one thing it proves when it is hit is
- * that a live human read the mail — which is precisely what a forger is buying. So an
- * unverified sender gets a line explaining why nothing is offered, not a button.
+ * The screen is assembled from parts that each answer one question — who sent this and where
+ * it landed, what it holds for you (a code, a link, a way out), what happened after it left,
+ * and the body — because the order they appear in is the app's argument: the useful thing
+ * about a message is usually what it contains for you, not the HTML it arrived in.
  */
-function UnsubscribeCard({ url, mailto, oneClick }: { url: string | null; mailto: string | null; oneClick: boolean }) {
-  return (
-    <div className="card unsubscribe mt">
-      <div className="row spread wrap" style={{ gap: 10 }}>
-        <div style={{ minWidth: 0 }}>
-          <strong>{t("msg.unsubscribe")}</strong>
-          <div className="faint" style={{ fontSize: 13 }}>
-            {oneClick ? t("msg.unsubscribeOneClick") : t("msg.unsubscribeLink")}
-          </div>
-        </div>
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          {url ? (
-            <a
-              className="small primary"
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer nofollow"
-            >
-              {t("msg.unsubscribeGo")}
-            </a>
-          ) : null}
-          {mailto ? (
-            <a className="small ghost" href={mailto}>
-              {t("msg.unsubscribeMail")}
-            </a>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** `List-Unsubscribe` carries `<https://a>`, `<mailto:b>` — either order, sometimes one. */
-function parseUnsubscribe(raw: string | null): { url: string | null; mailto: string | null } {
-  const uris = [...(raw ?? "").matchAll(/<\s*([^>\s]+)\s*>/g)].map((m) => m[1] ?? "");
-  return {
-    url: uris.find((u) => u.startsWith("https://") || u.startsWith("http://")) ?? null,
-    mailto: uris.find((u) => u.startsWith("mailto:")) ?? null,
-  };
-}
-
-function byConfidence(a: ExtractedCode, b: ExtractedCode): number {
-  return b.confidence - a.confidence || b.length - a.length;
-}
-
-function byScore(a: VerificationLink, b: VerificationLink): number {
-  return b.score - a.score;
-}
-
-function CodeCard({ code }: { code: ExtractedCode }) {
-  return (
-    <div className="code-card">
-      <div>
-        <div className="code">{code.value}</div>
-        <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
-          {t(code.kind === "numeric" ? "msg.numericCode" : "msg.code")} · {t("msg.codeLength", { n: code.length })}
-        </div>
-      </div>
-      <CopyButton text={code.value} label={t("msg.copyCode")} />
-    </div>
-  );
-}
-
-function displayHost(link: VerificationLink): string {
-  try {
-    return new URL(link.destination ?? link.url).hostname;
-  } catch {
-    return link.hostname;
-  }
-}
-
-function LinkCard({ link }: { link: VerificationLink }) {
-  const target = link.destination ?? link.url;
-  const wrapped = !!link.destination && link.destination !== link.url;
-  return (
-    <div className="link-card">
-      <div className="link-card-head">
-        <span className="link-title">{link.label || t("msg.verificationLink")}</span>
-        <span className="link-host">{displayHost(link)}</span>
-      </div>
-      {wrapped && (
-        <div className="link-via">
-          {t("msg.trackingA")}
-          <span className="addr">{link.hostname}</span>
-          {t("msg.trackingB")}
-        </div>
-      )}
-      {/* The whole address, readable and selectable: a 400-char magic link behind an "Open"
-          button tells the owner nothing about where their token is going. */}
-      <div className="link-url">{target}</div>
-      <div className="row wrap" style={{ gap: 8 }}>
-        <CopyButton text={target} label={t("msg.copyLink")} />
-        {/* Explicit user action only: never auto-followed, never prefetched. */}
-        <a
-          className="small"
-          href={target}
-          target="_blank"
-          rel="noopener noreferrer nofollow"
-          aria-label={t("msg.openAria", { host: displayHost(link) })}
-        >
-          {t("msg.open")}
-        </a>
-        {wrapped && (
-          <a className="small ghost" href={link.url} target="_blank" rel="noopener noreferrer nofollow">
-            {t("msg.openAsSent")}
-          </a>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function outcomeLabel(auth: MessageAuth | null): string {
-  if (!auth) return t("msg.authNotAssessed");
-  const mark = (mech: "spf" | "dkim" | "dmarc", value: string | null) =>
-    value ? `${mech}=${value}${auth.alignedPass[mech] ? "*" : ""}` : null;
-  const parts = [mark("spf", auth.spf), mark("dkim", auth.dkim), mark("dmarc", auth.dmarc)].filter(Boolean);
-  if (parts.length === 0) return t("msg.authNone");
-  const aligned = auth.alignedPass.spf || auth.alignedPass.dkim || auth.alignedPass.dmarc;
-  return aligned
-    ? `${parts.join("  ")}  ${t("msg.authVouches")}`
-    : `${parts.join("  ")}  ${t("msg.authNoVouch")}`;
-}
-
-function AuthBanner({ verdict, auth }: { verdict: AuthVerdict; auth: MessageAuth | null }) {
-  // Mail stored before authentication existed has nothing to report; saying "not
-  // verified" every time would train the owner to ignore the real warning.
-  if (!auth && verdict !== AuthVerdict.Spoofed) return null;
-  const head =
-    verdict === AuthVerdict.Trusted ? "msg.authTrusted" : verdict === AuthVerdict.Spoofed ? "msg.authSpoofed" : "msg.authUnverified";
-  const cls = verdict === AuthVerdict.Trusted ? "trusted" : verdict === AuthVerdict.Spoofed ? "spoofed" : "unverified";
-  return (
-    <div className={`ribbon ${cls} mt`} role="status">
-      <span className="dot" aria-hidden="true" />
-      <span className="ribbon-body">
-        <span className="head">{t(head)}</span>
-        <span className="detail">{outcomeLabel(auth)}</span>
-        {verdict === AuthVerdict.Spoofed && auth?.reasons.length ? (
-          <span className="detail">{t("msg.authWhy", { reasons: auth.reasons.join("; ") })}</span>
-        ) : null}
-      </span>
-    </div>
-  );
-}
-
 export function MessageDetail({
   id,
   pane,
@@ -205,14 +57,7 @@ export function MessageDetail({
     () => (threadId ? api.thread(threadId) : Promise.resolve({ id: "", items: [] })),
     [threadId],
   );
-  const { data: capabilities } = useAsync(() => api.outboxCapabilities(), []);
-  const { data: aliasPage } = useAsync(() => api.listAliases(), []);
-  const sendableAliases = useMemo(() => {
-    const sendable = new Set((capabilities?.domains ?? []).filter((d) => d.canSend).map((d) => d.domainId));
-    return (aliasPage?.items ?? [])
-      .filter((a) => a.status === "ACTIVE" && sendable.has(a.domainId))
-      .map((a) => ({ address: a.address, label: a.label }));
-  }, [aliasPage, capabilities]);
+  const outbox = useOutbox();
 
   /*
    * `r` answers the message on screen. The shortcut lives here rather than in the list
@@ -244,11 +89,13 @@ export function MessageDetail({
       });
   }, [data, reload]);
 
-  const codes = useMemo(() => (data?.extractedCodes ?? []).slice().sort(byConfidence), [data]);
-  const links = useMemo(() => (data?.verificationLinks ?? []).slice().sort(byScore), [data]);
+  const codes = useMemo(() => sortCodes(data?.extractedCodes ?? []), [data]);
+  const links = useMemo(() => sortLinks(data?.verificationLinks ?? []), [data]);
   // A spoofed message's "code" and "verify link" are the payload a phisher wants read,
   // so they stay hidden until the owner explicitly asks for them.
   const hidingSecrets = !!data && data.authVerdict === AuthVerdict.Spoofed && !revealSpoofed;
+  const sent = data?.direction === MessageDirection.Out;
+  const canReply = !!data?.aliasAddress && outbox.aliases.some((a) => a.address === data.aliasAddress);
 
   async function toggleRead() {
     if (!data) return;
@@ -314,18 +161,23 @@ export function MessageDetail({
                     <h1 style={{ marginBottom: 6 }}>{data.subject || t("inbox.noSubject")}</h1>
                     <div className="subject-meta">
                       <span className="who">
-                        {senderName(data.headerFrom, data.envelopeFrom)}
-                        <span className="addr"> · {data.envelopeFrom}</span>
+                        {sent ? t("msg.youSent") : senderName(data.headerFrom, data.envelopeFrom)}
+                        {/* Your own alias is not a header worth unpicking; on received mail the
+                            address behind the display name is the thing worth reading. */}
+                        {!sent && <span className="addr"> · {data.envelopeFrom}</span>}
                       </span>
-                      <span>
-                        {t("msg.to")} <span className="addr">{data.headerTo || data.aliasAddress}</span>
-                      </span>
+                      {/* The alias is said once, on the last line. A `To:` that only repeats it
+                          is the same address twice on one screen, which is how this header used
+                          to read; it stays when it says more than the alias does. */}
+                      {data.headerTo && (sent || data.headerTo !== data.aliasAddress) ? (
+                        <span>
+                          {t("msg.to")} <span className="addr">{data.headerTo}</span>
+                        </span>
+                      ) : null}
                       <span>
                         {fullTime(data.receivedAt)}
                         {data.aliasLabel ? ` · ${data.aliasLabel}` : ""}{" "}
-                        {/* On your own mail the alias is where it went *from*; reading "to" here
-                            would make a sent message look like someone else's letter. */}
-                        {data.direction === MessageDirection.Out
+                        {sent
                           ? t("msg.sentFrom", { address: data.aliasAddress })
                           : t("msg.arrivedAt", { address: data.aliasAddress })}
                       </span>
@@ -337,20 +189,15 @@ export function MessageDetail({
                 <button
                   className="small primary"
                   onClick={() => setReplying(true)}
-                  disabled={!data.aliasAddress || !sendableAliases.some((a) => a.address === data.aliasAddress)}
-                  title={t("composer.noAliases")}
+                  disabled={!canReply}
+                  title={canReply ? undefined : t("composer.noAliases")}
                 >
                   {t("msg.reply")}
                 </button>
                 <button className="small" onClick={toggleRead}>
                   {t(data.isRead ? "msg.markUnread" : "msg.markRead")}
                 </button>
-                <button
-                  className="small"
-                  aria-pressed={data.starred}
-                  onClick={() => void toggleStar()}
-                  title={t("msg.starHint")}
-                >
+                <button className="small" aria-pressed={data.starred} onClick={() => void toggleStar()} title={t("msg.starHint")}>
                   {t(data.starred ? "msg.unstar" : "msg.star")}
                 </button>
                 <button className="small danger" onClick={() => setConfirmDelete(true)}>
@@ -364,9 +211,9 @@ export function MessageDetail({
 
           {/* Our own outgoing mail has no external sender to authenticate: Email Sending
               signs it with this domain's own key, so a verdict banner would only confuse. */}
-          {data.direction === MessageDirection.In ? <AuthBanner verdict={data.authVerdict} auth={data.auth ?? null} /> : null}
+          {!sent ? <AuthBanner verdict={data.authVerdict} auth={data.auth ?? null} /> : null}
 
-          {data.direction === MessageDirection.In && data.listUnsubscribe ? (
+          {!sent && data.listUnsubscribe ? (
             data.authVerdict === AuthVerdict.Trusted ? (
               <UnsubscribeCard
                 url={parseUnsubscribe(data.listUnsubscribe).url}
@@ -380,33 +227,7 @@ export function MessageDetail({
             )
           ) : null}
 
-          {data.direction === MessageDirection.Out ? (
-            <div className={`banner mt ${data.sendStatus && sendPill(data.sendStatus) === "error" ? "error" : ""}`}>
-              <span className="muted">{t(`send.status.${data.sendStatus ?? "QUEUED"}`)}</span>
-              {data.sendError ? <div className="faint detail">{data.sendError}</div> : null}
-              {/* One line per destination, because that is how it actually went: a message to
-                  three people can be delivered to one and refused by two, and a single status
-                  word would be true for at most one of them. */}
-              {data.recipients.length > 0 ? (
-                <>
-                  <div className="faint">{t("msg.deliveryPerAddress")}</div>
-                  <ul className="recip-status">
-                    {data.recipients.map((r) => (
-                      <li key={r.address}>
-                        <span className="addr">{r.address}</span>
-                        {r.list !== "to" ? <span className="faint">{r.list}</span> : null}
-                        <span className={`pill ${sendPill(r.status)}`}>{t(`send.status.${r.status}`)}</span>
-                        {r.smtpCode ? <span className="faint mono">{r.smtpCode}</span> : null}
-                        {r.detail ? <span className="faint detail">{r.detail}</span> : null}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <div className="faint detail">{t("msg.noDeliveryYet")}</div>
-              )}
-            </div>
-          ) : null}
+          {sent ? <DeliveryReport status={data.sendStatus} error={data.sendError} recipients={data.recipients} /> : null}
 
           {/* Says why this mail is where it is, in the words the rule had at the time —
               so an archive still explains itself after the rule is edited or deleted. */}
@@ -527,29 +348,30 @@ export function MessageDetail({
           <ol className="thread-list">
             {thread.items.map((m) => {
               const current = m.id === data.id;
-              const label =
-                m.direction === MessageDirection.Out
-                  ? `${t("msg.youSent")} → ${m.headerTo || m.aliasAddress}`
-                  : senderName(m.headerFrom, m.envelopeFrom);
-              const body = (
-                <>
-                  <span className={`thread-dir ${m.direction === MessageDirection.Out ? "out" : ""}`}>
-                    {m.direction === MessageDirection.Out ? "↗" : "↘"}
-                  </span>
-                  <span className="thread-who">{label}</span>
-                  <span className="thread-preview">{m.subject || t("inbox.noSubject")}</span>
-                  <span className="thread-time faint">{fullTime(m.receivedAt)}</span>
-                </>
+              const outgoing = m.direction === MessageDirection.Out;
+              const entry = (
+                <ThreadEntry
+                  outgoing={outgoing}
+                  label={
+                    outgoing
+                      ? `${t("msg.youSent")} → ${m.headerTo || m.aliasAddress}`
+                      : senderName(m.headerFrom, m.envelopeFrom)
+                  }
+                  subject={m.subject}
+                  when={m.receivedAt}
+                />
               );
               return (
                 <li key={m.id} aria-current={current ? "true" : undefined} className={current ? "is-current" : ""}>
+                  {/* Same content either way; only the gesture differs, and it is the one the
+                      surrounding screen can honour — a pane swaps, a page navigates. */}
                   {onOpenMessage ? (
                     <button type="button" className="thread-link" onClick={() => onOpenMessage(m.id)}>
-                      {body}
+                      {entry}
                     </button>
                   ) : (
                     <Link to={`/messages/${m.id}`} className="thread-link">
-                      {body}
+                      {entry}
                     </Link>
                   )}
                 </li>
@@ -562,14 +384,16 @@ export function MessageDetail({
       {replying ? (
         <Composer
           replyTo={data}
-          sendableAliases={sendableAliases}
-          remaining={capabilities?.remaining ?? 0}
-          bindingMissing={capabilities?.bindingMissing}
+          sendableAliases={outbox.aliases}
+          remaining={outbox.capabilities?.remaining ?? 0}
+          bindingMissing={outbox.capabilities?.bindingMissing}
           onClose={() => setReplying(false)}
           onSent={() => {
             setReplying(false);
             reload();
             reloadThread();
+            // The day's budget moved with the send, and the composer shows it.
+            outbox.reload();
             setNotice(t("msg.replySent"));
           }}
         />
@@ -585,5 +409,26 @@ export function MessageDetail({
         />
       )}
     </div>
+  );
+}
+
+function ThreadEntry({
+  outgoing,
+  label,
+  subject,
+  when,
+}: {
+  outgoing: boolean;
+  label: string;
+  subject: string | null;
+  when: string;
+}) {
+  return (
+    <>
+      <span className={`thread-dir ${outgoing ? "out" : ""}`}>{outgoing ? "↗" : "↘"}</span>
+      <span className="thread-who">{label}</span>
+      <span className="thread-preview">{subject || t("inbox.noSubject")}</span>
+      <span className="thread-time faint">{fullTime(when)}</span>
+    </>
   );
 }

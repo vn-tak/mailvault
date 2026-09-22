@@ -91,7 +91,9 @@ test("archiving takes mail out of the working list, and back", async ({ page }) 
   await page.getByRole("button", { name: "Back to inbox" }).click();
   await expect(page.locator(`[data-msg-id="${M1}"]`)).toHaveCount(0);
 
-  await page.getByRole("button", { name: /^All/ }).click();
+  // Scoped to the strip: the rail beside it carries an "All mailboxes" entry, and two
+  // controls that both start with "All" should not be told apart by which one came first.
+  await page.locator(".tabs").getByRole("button", { name: /^All/ }).click();
   await expect(page.locator(`[data-msg-id="${M1}"]`)).toBeVisible();
 });
 

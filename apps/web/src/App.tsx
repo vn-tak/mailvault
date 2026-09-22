@@ -6,6 +6,7 @@ import { useTheme } from "./lib/theme";
 import { IconAlias, IconGauge, IconGlobe, IconInbox, IconSearch, IconSliders, VaultMark } from "./components/Icons";
 import { CommandPalette } from "./components/CommandPalette";
 import { NewMailToast } from "./components/NewMailToast";
+import { MailboxRail } from "./components/mail/MailboxRail";
 import { Dashboard } from "./pages/Dashboard";
 import { Domains } from "./pages/Domains";
 import { Aliases } from "./pages/Aliases";
@@ -49,11 +50,14 @@ function Route() {
 }
 
 export function App() {
-  const { path } = useRoute();
+  const { path, query } = useRoute();
   useLang();
   useTheme();
   const live = useLiveStatus();
   const [palette, setPalette] = useState(false);
+  // The mailboxes are one screen's sub-navigation, not a global section, so they appear in
+  // the rail only while that screen is on screen.
+  const onInbox = path === "/inbox";
 
   useEffect(() => connectLive().stop, []);
 
@@ -103,6 +107,7 @@ export function App() {
             );
           })}
         </nav>
+        {onInbox ? <MailboxRail current={query.get("domain") ?? undefined} /> : null}
         <div className="spacer" />
         {/* The socket is the only thing that makes "it refreshes itself" true, so its state
             is stated rather than assumed. */}

@@ -38,7 +38,8 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Reads like a mailbox: one row per conversation, replies that quote what they answer, `c`/`r` shortcuts, recipients completed from your own correspondence, one-click unsubscribe for aligned senders only | ✅ 9 + 5 E2E |
 | Worked over like a mailbox: multi-select with shift ranges, bulk read/star/file/delete, a star of your own, counts per tab and mailbox, `from:` `to:` `has:` `is:` `in:` `after:` `before:` in search | ✅ 32 + 7 E2E |
 | Delivery reported per address: a send to three people shows which one bounced, from Email Sending's own queue events | ✅ consumer tested through `worker.queue` |
-| Unit + integration tests (324 passing: worker 239, web 85) | ✅ Green |
+| Frontend structure: `components/mail/*` for the parts of a mail screen, `lib/*` for the decisions (which tab asks for what, what a selection holds, which aliases may sign), mailboxes in the rail as navigation | ✅ 15 unit + 51 E2E |
+| Unit + integration tests (339 passing: worker 239, web 100) | ✅ Green |
 | Playwright E2E (51 passing across desktop and 412px, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 

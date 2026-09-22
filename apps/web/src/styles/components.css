@@ -1098,6 +1098,11 @@ tr:last-child td { border-bottom: 0; }
 .bulk-all { display: inline-grid; place-items: center; }
 .bulk-count { color: var(--muted); font-weight: 650; white-space: nowrap; }
 .bulk-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* On a phone the actions take the full width below the count rather than floating to the
+   right of it, so the wrapped rows read as one group of choices instead of a ragged edge. */
+@media (max-width: 640px) {
+  .bulk-actions { width: 100%; margin-left: 0; }
+}
 
 .msg-row input[type="checkbox"], .bulkbar input[type="checkbox"] {
   width: 17px;

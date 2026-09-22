@@ -25,18 +25,21 @@ test("dashboard presents the domain with mail as its own mailbox", async ({ page
   await expect(page.locator(".msg-alias").first()).toHaveText("GitHub (demo)");
 });
 
-test("the inbox switcher narrows to one mailbox and back", async ({ page }) => {
+test("the rail narrows the inbox to one mailbox and back", async ({ page }) => {
   await page.goto("/#/inbox");
-  const picker = page.getByLabel("Mailbox");
-  await expect(picker).toHaveValue("");
+  const rail = page.locator(".rail-mailboxes");
+  // A mailbox is a place, so it is offered where places are chosen — not beside the search
+  // box, where it read as one more filter over the same list.
+  await expect(rail.getByRole("button", { name: /^All mailboxes/ })).toHaveCount(1);
   await expect(page.locator(".msg-alias").first()).toContainText("demo.example");
 
-  await picker.selectOption({ index: 1 });
+  await rail.getByRole("button", { name: /demo\.example/ }).click();
   await expect(page).toHaveURL(/#\/inbox\?domain=/);
   await expect(page.locator(".msg")).toHaveCount(5);
   await expect(page.locator(".msg-alias").first()).toHaveText("GitHub (demo)");
+  await expect(rail.getByRole("button", { name: /demo\.example/ })).toHaveClass(/active/);
 
-  await picker.selectOption("");
+  await rail.getByRole("button", { name: /^All mailboxes/ }).click();
   await expect(page).toHaveURL(/#\/inbox$/);
   await expect(page.locator(".msg-alias").first()).toContainText("demo.example");
 });

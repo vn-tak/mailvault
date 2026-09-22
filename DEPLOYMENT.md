@@ -210,6 +210,24 @@ of this system, so this addendum records the difference.
   Autocomplete reads the mailbox's own history (`GET /api/recipients`), capped at 8 rows per
   keystroke burst and never wider than 25. Unsubscribe is stored verbatim and rendered only
   for an aligned sender; `SECURITY.md` §6.3 records why.
+- **The frontend got a structure** (this round; UI only, no API or schema change):
+  - `apps/web/src/components/mail/` now holds the parts of a mail screen — toolbar, bulk bar,
+    delivery report, unsubscribe card, the header's codes/links/auth ribbon, the rail's
+    mailbox list — and `apps/web/src/lib/` holds the decisions: `mailviews.ts` for what each
+    tab asks the server for, `useSelection.ts` for a multi-select with shift ranges,
+    `useOutbox.ts` for which aliases may sign. `Inbox.tsx` and `MessageDetail.tsx` went from
+    611 and 589 lines to 431 and 434 while doing more, because both had been re-deriving the
+    same facts separately.
+  - The mailbox switcher moved from the inbox toolbar into the rail, under Inbox, where it can
+    carry its unread count too. `GET /api/messages/counters` is then fetched twice per inbox
+    view (rail and tabs) — two cheap `SUM(CASE …)` passes, chosen over a shared cache because
+    a cache is a second source of truth about a number allowed to change under you.
+  - The phone keeps the `<select>`: a 412px bar is a tab bar and nothing else fits in it, and
+    `mailboxes.spec.ts` measures that its filters still take only two lines.
+  - Two E2E expectations were rewritten where the design genuinely changed shape: the desktop
+    mailbox switcher is the rail now, and "All" needed scoping to the tab strip because the
+    rail beside it carries an "All mailboxes" entry.
+
 - **Gates at this writing:** 103 tests (worker 81, web 22), 5 E2E; lint and typecheck clean.
   The five later slices — sender authentication, drift watchdog, FTS5 search, alias
   lifecycle, PWA + payload-free push — were each built, tested and deployed on

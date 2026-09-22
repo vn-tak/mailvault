@@ -30,6 +30,7 @@ export const en: Dict = {
   "nav.aliases": "Aliases",
   "nav.inbox": "Inbox",
   "nav.settings": "Settings",
+  "rail.mailboxes": "Mailboxes",
 
   "common.refresh": "Refresh",
   "common.search": "Search",
@@ -468,7 +469,7 @@ export const en: Dict = {
   "set.installBody":
     "MailVault is installable: use your browser's \"Install app\" (or Share → Add to Home Screen on iOS) to get its own window. It works offline for the screens you already opened; mail and attachments are never cached.",
 
-  "pal.trigger": "Search mail",
+  "pal.trigger": "Jump to",
   "pal.title": "Search and commands",
   "pal.placeholder": "Search mail, aliases, domains…",
   "pal.empty": "Nothing matches that",
@@ -621,6 +622,7 @@ export const vi: Dict = {
   "nav.aliases": "Bí danh",
   "nav.inbox": "Hộp thư",
   "nav.settings": "Cài đặt",
+  "rail.mailboxes": "Các hộp thư",
 
   "common.refresh": "Làm mới",
   "common.search": "Tìm",
@@ -1057,7 +1059,7 @@ export const vi: Dict = {
   "set.installBody":
     "MailVault cài được: dùng \"Install app\" của trình duyệt (hoặc Share → Add to Home Screen trên iOS) để có cửa sổ riêng. Ứng dụng chạy offline với các màn hình bạn đã mở; thư và tệp đính kèm không bao giờ được lưu cache.",
 
-  "pal.trigger": "Tìm thư",
+  "pal.trigger": "Nhảy tới",
   "pal.title": "Tìm kiếm và lệnh",
   "pal.placeholder": "Tìm thư, bí danh, tên miền…",
   "pal.empty": "Không có gì khớp",

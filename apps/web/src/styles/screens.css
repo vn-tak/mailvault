@@ -70,6 +70,8 @@
   animation: grow var(--dur-2) var(--ease-out) both;
 }
 .main { display: block; }
+/* The mailbox list is rail furniture; a phone's bar carries only the five sections. */
+.rail-mailboxes { display: none; }
 .page {
   max-width: 1120px;
   margin: 0 auto;
@@ -304,7 +306,9 @@
   .rail-search kbd { margin-left: auto; }
   .sidebar .spacer { display: block; margin-top: auto; }
   .rail-foot { display: grid; }
-  .nav { flex-direction: column; gap: 3px; padding: 0; }
+  /* `flex: 1` is a phone rule that makes the bar fill the strip; on a rail it would stretch
+     the nav down the whole column and push the mailbox list off the end of it. */
+  .nav { flex: 0 0 auto; flex-direction: column; gap: 3px; padding: 0; }
   /* Without this the mobile `flex: 1` makes each item a fifth of the viewport tall. */
   .nav a {
     flex: 0 0 auto;
@@ -344,4 +348,41 @@
   .entity-facts { grid-column: 3; grid-row: 1; justify-content: flex-end; }
   .entity-note { grid-column: 1 / -1; grid-row: 2; }
   .entity-summary { gap: 16px; }
+  /* ── Mailboxes in the rail ────────────────────────────────────────────────
+   * A mailbox is a place, not a filter, so it sits under Inbox where the eye
+   * looks for somewhere to go. Hidden below the rail breakpoint: a phone's bar
+   * is a tab bar and nothing else may sit inside it.
+   */
+  .rail-mailboxes { display: grid; gap: 4px; }
+  .rail-mailboxes ul { list-style: none; display: grid; gap: 2px; margin: 0; padding: 0; }
+  .rail-mailboxes button {
+    display: flex;
+    /* The shared button reset centres its content; a list of places reads left-to-right, and
+       a centred label under a left-aligned heading looks like a mistake. */
+    justify-content: flex-start;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    min-height: 36px;
+    padding: 5px 11px;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-weight: 650;
+    text-align: left;
+    cursor: pointer;
+  }
+  .rail-mailboxes button:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+  .rail-mailboxes button.active { background: var(--accent-tint); color: var(--accent); }
+  .mbx-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mbx-count {
+    margin-left: auto;
+    color: var(--faint);
+    font-size: var(--text-2xs);
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+  }
+  .rail-mailboxes button.active .mbx-count { color: var(--accent); }
 }

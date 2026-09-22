@@ -170,16 +170,7 @@ export const api = {
     }),
 
   /** What may be sent, and how much is left today. */
-  outboxCapabilities: () =>
-    request<{
-      canCompose: boolean;
-      bindingMissing: boolean;
-      limit: number;
-      sent: number;
-      remaining: number;
-      maxRecipients: number;
-      domains: { domainId: string; name: string; mailStatus: string; sendingStatus: string; canSend: boolean }[];
-    }>("/outbox/capabilities"),
+  outboxCapabilities: () => request<OutboxCapabilities>("/outbox/capabilities"),
   /** Who this mailbox has actually corresponded with, for completing an address. */
   recipients: (q: string) =>
     request<{ items: RecipientSuggestion[] }>(`/recipients${qs({ q })}`),
@@ -226,6 +217,17 @@ export const api = {
     request<{ enabled: boolean; indexed: number; total: number; purged: number }>("/semantic", mutation({ enabled })),
   semanticBackfill: () => request<{ indexed: number; remaining: number }>("/semantic/backfill", mutation()),
 };
+
+/** What the server says about its own ability to send, and today's budget. */
+export interface OutboxCapabilities {
+  canCompose: boolean;
+  bindingMissing: boolean;
+  limit: number;
+  sent: number;
+  remaining: number;
+  maxRecipients: number;
+  domains: { domainId: string; name: string; mailStatus: string; sendingStatus: string; canSend: boolean }[];
+}
 
 export interface SemanticStatus {
   enabled: boolean;
