@@ -241,12 +241,14 @@ of this system, so this addendum records the difference.
   - A new `send_email` binding named `EMAIL` must be present on the Worker. Without it the
     app still receives everything and says so plainly: the composer reports that this server
     cannot send instead of failing after you have written a message.
-  - **`wrangler dev` cannot simulate it.** The local runtime lists `Send Email: EMAIL` and
-    then injects nothing at any compatibility date it supports (measured on wrangler
-    3.114.17 / workerd 2025-07-18), and `--remote` would send real mail. So the browser E2E
-    asserts the contract an owner sees, and the send logic, threading and every refusal code
-    are asserted against a stubbed binding in `test/integration/send.test.ts` (32 tests).
-    Sending can only be proven end to end against production.
+  - **`wrangler dev` simulates it — since wrangler 4.** On wrangler 3.114.17 / workerd
+    2025-07-18 the local runtime listed `Send Email: EMAIL` and then injected nothing at any
+    compatibility date it supported, so the compose path could only be proven against
+    production. On wrangler 4.136.x / workerd 2026-09-21 `dev` builds the message, logs its
+    parts to `.wrangler/tmp/email/…` and delivers nothing — which is what a simulator should
+    do. The browser suite now sends for real (`sending.spec.ts`), and the state where a
+    deployment has *no* binding is asserted in `test/integration/send.test.ts`, where it can
+    be forced rather than waited for.
   - The API token needs **`Email Sending: Edit`** (plus `DNS: Edit`, which provisioning
     already required) for *Enable sending* to work; the read-only state check needs
     `Email Sending: Read`. Without them the app surfaces `CLOUDFLARE_PERMISSION` and nothing
@@ -334,16 +336,44 @@ pnpm build:web
 pnpm test:e2e
 ```
 
-Verified locally with the bundled `wrangler 3.114.17` + its workerd, using
-`wrangler.dev.jsonc` (`compatibility_date: 2024-12-30`, `DEV_AUTH_BYPASS=true`,
-`ENVIRONMENT=development`). Result: **5 passed**.
+Verified locally with `wrangler 4.136.x` + its workerd, using `wrangler.dev.jsonc`
+(`compatibility_date: 2025-07-18`, `DEV_AUTH_BYPASS=true`, `ENVIRONMENT=development`).
 
-> Note: `wrangler dev` and Playwright work fine from this project path. The path-space
-> problem is confined to `@cloudflare/vitest-pool-workers`, whose virtual-module
+> Note: `wrangler dev` and Playwright have always run fine from this project path. The
+> path-space problem was confined to `@cloudflare/vitest-pool-workers`, whose virtual-module
 > resolution mis-encodes the space in `mail sever`; that is why the worker's integration
-> tests drive D1/R2 through programmatic Miniflare instead. Upgrading wrangler to v4
-> (and the pool with it) would let those tests run on the same workerd build the
-> production Worker uses — a worthwhile follow-up, not a blocker.
+> tests drive D1/R2 through programmatic Miniflare instead. The pool has now been dropped
+> rather than upgraded, so it is no longer a dependency waiting on that fix.
+
+### Toolchain: wrangler 3 → 4 (2026-09-23)
+
+The pin moved to `wrangler@^4.136` because wrangler 4 stopped being able to share
+credentials with v3: v4 stores the OAuth token in an encrypted, Keychain-backed
+`config/default.enc`, which v3 cannot read, so `wrangler deploy` and
+`d1 migrations apply --remote` began failing with "set a CLOUDFLARE_API_TOKEN" while v4
+was logged in. CI was already deploying with `npx wrangler deploy` (unpinned, so v4) and
+its rollback job uses `wrangler versions deploy`, which only exists in v4 — the local pin
+was the last thing still on v3.
+
+What came with it:
+
+- `@cloudflare/workers-types` to v5, which resolves the peer requirement v4 states.
+- `@cloudflare/vitest-pool-workers` removed (unused; it also pinned a second, older
+  wrangler into the tree) along with the `worker-env.d.ts` stub that only referenced it.
+  `tsconfig.json` already declares the Cloudflare types directly, so nothing was lost.
+- The send payload now goes to the binding as the runtime's own `EmailMessageBuilder`
+  instead of a hand-written interface plus a cast. That cast existed because the old
+  types described only the raw-MIME form of `send()`; with it gone, `from: { name, email }`,
+  `cc`, `bcc`, `replyTo` and `headers` are checked against the contract Cloudflare
+  publishes.
+- Nothing in `wrangler.jsonc` needed changing: a v4 `deploy --dry-run` resolved the same
+  bindings, vars and triggers (including the Durable Object declared with `name` only).
+- `wrangler.dev.jsonc` lost its `ai` binding. v4 treats Workers AI as always-remote and opens
+  an authenticated proxy session to start `dev` with one, which the CI E2E job has no
+  credentials for and should not have. Verified by starting the dev server with an empty
+  `HOME` (no Cloudflare auth at all): it serves, and `POST /api/outbox` still returns 201
+  against the local `send_email` simulator. Semantic search was never available locally
+  anyway — there is no Vectorize backend in the dev config either.
 
 ---
 

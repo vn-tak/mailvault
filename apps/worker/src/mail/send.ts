@@ -41,26 +41,15 @@ export interface OutboundRequest {
 
 export type SendResult = { ok: true; outcome: SendOutcome } | { ok: false; code: string; message: string };
 
-interface SendEmailRequest {
-  from: string | { email: string; name?: string };
-  to: string | string[];
-  subject: string;
-  text?: string;
-  html?: string;
-  replyTo?: string;
-  cc?: string | string[];
-  bcc?: string | string[];
-  headers?: Record<string, string>;
-}
-
 /**
- * The binding accepts these fields, but the installed runtime types still describe only the
- * `EmailMessage` form of `send()`. The cast is confined to this one call so that a
- * workers-types bump which adds the fields shows up as an unnecessary assertion rather than
- * quietly shipping a payload shape nobody checked.
+ * The payload goes to the binding as the runtime's own `EmailMessageBuilder`, not as a local
+ * lookalike. That is what makes `from: { name, email }`, `cc`, `bcc`, `replyTo` and `headers`
+ * checked against the contract Cloudflare documents rather than against a paraphrase of it —
+ * an earlier version of this file carried a hand-written interface and a cast, because the
+ * installed types described only the raw-MIME form of `send()`.
  */
-async function dispatch(email: SendEmail, request: SendEmailRequest): Promise<{ messageId: string }> {
-  return email.send(request as unknown as Parameters<SendEmail["send"]>[0]);
+async function dispatch(email: SendEmail, request: EmailMessageBuilder): Promise<EmailSendResult> {
+  return email.send(request);
 }
 
 function utf8Bytes(value: string): number {

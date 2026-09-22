@@ -67,9 +67,11 @@
     { "binding": "ANALYTICS", "dataset": "mailvault-events" }
   ],
 
-  // Local workerd has no Vectorize backend, so the settings screen reports
-  // "not available here" rather than pretending the index exists.
-  "ai": { "binding": "AI" },
+  // Deliberately absent here, unlike production: an `ai` binding always talks to the real
+  // Workers AI endpoint, so `wrangler dev` opens an authenticated remote proxy session for
+  // it — which the CI job has no credentials for, and should not have. Semantic search is
+  // opt-in and off by default, and the settings screen already reports it as unavailable
+  // locally (there is no Vectorize backend in the dev config either).
 
   // The local simulator accepts this binding and logs instead of delivering, so the compose
   // path can be exercised end to end without a message ever reaching a real person.

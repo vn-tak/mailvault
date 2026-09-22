@@ -3,13 +3,12 @@ import { expect, test } from "@playwright/test";
 /*
  * Sending, checked in the browser.
  *
- * The local runtime `wrangler dev` starts lists a `send_email` binding and then injects
- * nothing, so what these cover is the contract the owner can actually see: which senders are
- * offered, who a reply is aimed at, and what the app says when the server itself cannot send.
- * The send logic, the thread bookkeeping and every refusal reason are asserted against a
- * stubbed binding in `test/integration/send.test.ts`, where they can be checked exactly
- * rather than approximated — a browser cannot prove a message was recorded correctly when the
- * transport it is testing does not exist.
+ * The local runtime now really runs the `send_email` binding: `wrangler dev` on wrangler 4
+ * hands the Worker a simulator that builds the message, logs it, and delivers nothing. So the
+ * compose path is exercised end to end here — which it could not be when the runtime listed
+ * the binding and injected nothing. What the refusal reasons, the thread bookkeeping and the
+ * per-address states do *inside* the Worker is still asserted against a stub in
+ * `test/integration/send.test.ts`, where each branch can be forced rather than waited for.
  */
 
 const DOMAIN = "demo.example";
@@ -35,15 +34,42 @@ test("desktop: the composer offers only aliases on a domain that may sign mail",
   await expect(dialog.getByLabel("Message", { exact: true })).toBeVisible();
 });
 
-test("desktop: when the server cannot send, the composer says so instead of failing on Submit", async ({ page }) => {
+test("desktop: composing goes out, and the Sent row is the receipt", async ({ page }) => {
+  const subject = `A letter from the runtime ${Date.now()}`;
+  const recipient = `probe-${Date.now()}@example.com`;
+
   await page.goto("/#/inbox");
   await page.getByRole("button", { name: "Compose" }).click();
   const dialog = page.getByRole("dialog", { name: "New message" });
+  // The server can send, so nothing warns and nothing is blocked: this is the ordinary path.
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
+  await dialog.getByLabel("To", { exact: true }).fill(recipient);
+  await dialog.getByLabel("Subject", { exact: true }).fill(subject);
+  await dialog.getByLabel("Message", { exact: true }).fill("Written in the browser, accepted by the runtime.");
+  await dialog.getByRole("button", { name: "Send" }).click();
 
-  await expect(dialog.getByRole("alert")).toContainText("not available");
-  await dialog.getByLabel("To", { exact: true }).fill("customer@example.com");
-  await dialog.getByLabel("Message", { exact: true }).fill("Whatever I write.");
-  await expect(dialog.getByRole("button", { name: "Send" })).toBeDisabled();
+  // The composer closes, the list moves to Sent, and the row that answers for the send is
+  // opened beside it — the owner never has to trust a toast that disappears.
+  await expect(dialog).toHaveCount(0);
+  const row = page.locator(".msg").filter({ hasText: subject });
+  await expect(row).toBeVisible();
+  await expect(row.locator(".pill")).toContainText("waiting");
+
+  const pane = page.locator(".mail-pane");
+  // The destination the send named is recorded as its own line, waiting for an answer —
+  // per-address tracking, proven against the real runtime rather than a stub.
+  await expect(pane.getByText("Delivery to each address")).toBeVisible();
+  await expect(pane.locator(".recip-status li")).toHaveCount(1);
+  await expect(pane.locator(".recip-status .addr")).toHaveText(recipient);
+  await expect(pane.locator(".recip-status .pill")).toContainText("waiting");
+
+  // Take the message out again. The local database survives between runs, and a leftover
+  // sent row would move the dashboard's mailbox count for whichever suite reads it next.
+  const id = await row.getAttribute("data-msg-id");
+  await page.evaluate(async (messageId) => {
+    const res = await fetch(`/api/messages/${messageId}`, { method: "DELETE", headers: { "x-mailvault": "1" } });
+    if (!res.ok) throw new Error(`cleanup ${messageId}: ${res.status}`);
+  }, id);
 });
 
 test("desktop: a reply names its recipient as a fact, not as a field to edit", async ({ page }) => {

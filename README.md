@@ -205,14 +205,13 @@ See [`SECURITY.md`](./SECURITY.md) for the full model. Highlights:
 
 ## Notes on this build environment
 
-`@cloudflare/vitest-pool-workers` cannot boot `workerd` from this project path
-(contains a space, which breaks the pool's virtual-module resolution). Integration
-tests therefore run in a normal Node Vitest pool and drive real D1/R2 through
+`@cloudflare/vitest-pool-workers` could not boot `workerd` from this project path (it
+contains a space, which breaks the pool's virtual-module resolution), so it has been
+dropped. Integration tests run in a normal Node Vitest pool and drive real D1/R2 through
 programmatic **Miniflare**. Application code runs on Node's native
 `fetch`/`Response`/`crypto`. This keeps the tests exercising genuine storage
-engines without depending on the broken pool.
+engines without depending on a pool that cannot start here.
 
-This limitation is confined to that Vitest pool: `wrangler dev` and the Playwright E2E
-suite both run correctly from the same path, so the Worker is exercised in a real
-workerd runtime end-to-end. Upgrading `wrangler` (and the pool) to v4 would let the
-worker integration tests run on the same workerd build as production.
+`wrangler dev` and the Playwright E2E suite run correctly from the same path, so the Worker
+is exercised in a real workerd runtime end to end — including sending, since wrangler 4's
+runtime simulates the `send_email` binding instead of leaving it undefined.
