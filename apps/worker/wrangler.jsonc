@@ -29,6 +29,7 @@
     "CF_ACCESS_TEAM_DOMAIN": "https://little-bar-8ffa.cloudflareaccess.com",
     "CF_ACCESS_AUD": "61f4423b34844e1a86c2b4680a77549acab6026bb3a0ed78af75d78ff00d10b4",
     "MAX_MESSAGE_BYTES": "20971520",
+    "MAX_SENDS_PER_DAY": "50",
     "ALLOWED_EMAILS": "tungbipdz@gmail.com",
     "DOMAIN_DENYLIST": "tungjpstore.net,selinow.com,fball.vn,logivn.com",
     "DEV_AUTH_BYPASS": "false"
@@ -92,6 +93,11 @@
   "vectorize": [
     { "binding": "VECTORIZE", "index_name": "mailvault-messages" }
   ],
+
+  // Email Sending. Receiving is Email Routing's `email()` handler above; this is the way
+  // out. Composing is refused per-domain unless that domain shows ENABLED in its sending
+  // status, which only an owner-confirmed onboarding can set.
+  "send_email": [{ "name": "EMAIL" }],
 
   "assets": {
     "directory": "../web/dist",

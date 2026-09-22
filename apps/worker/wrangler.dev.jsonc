@@ -2,7 +2,7 @@
   "$schema": "https://developers.cloudflare.com/workers/configuration/wrangler-file/",
   "name": "mail-vault-dev",
   "main": "src/index.ts",
-  "compatibility_date": "2024-12-30",
+  "compatibility_date": "2025-07-18",
   "compatibility_flags": ["nodejs_compat"],
   "logpush": false,
 
@@ -15,6 +15,7 @@
     "CF_ACCESS_TEAM_DOMAIN": "http://localhost:8787",
     "CF_ACCESS_AUD": "dev-bypass",
     "MAX_MESSAGE_BYTES": "20971520",
+    "MAX_SENDS_PER_DAY": "50",
     "ALLOWED_EMAILS": "",
     "DOMAIN_DENYLIST": "tungjpstore.net,selinow.com,fball.vn,logivn.com"
   },
@@ -64,6 +65,10 @@
   // Local workerd has no Vectorize backend, so the settings screen reports
   // "not available here" rather than pretending the index exists.
   "ai": { "binding": "AI" },
+
+  // The local simulator accepts this binding and logs instead of delivering, so the compose
+  // path can be exercised end to end without a message ever reaching a real person.
+  "send_email": [{ "name": "EMAIL" }],
 
   "assets": {
     "directory": "../web/dist",

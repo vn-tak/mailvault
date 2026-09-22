@@ -5,6 +5,7 @@ import {
   ConflictType,
   MailStatus,
   RoutingStatus,
+  SendingStatus,
   type Domain,
 } from "@mailvault/shared";
 import { CloudflareApiError, type CloudflareClient } from "../../src/cf/api-client";
@@ -26,6 +27,9 @@ function domain(over: Partial<Domain> = {}): Domain {
     conflictType: ConflictType.None,
     conflictDetails: null,
     authPolicy: AuthPolicy.Warn,
+    sendingStatus: SendingStatus.Unknown,
+    sendingTag: null,
+    sendingCheckedAt: null,
     lastCheckedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

@@ -4,6 +4,10 @@ import type {
   CfEmailRoutingDnsRecord,
   CfEmailRoutingSettings,
   CfEnvelope,
+  CfSendingDomain,
+  CfSendingIssue,
+  CfSendingPreview,
+  CfSendingRecord,
   CfZone,
 } from "./types";
 
@@ -56,6 +60,15 @@ export interface CloudflareClient {
   enableEmailRouting(zoneId: string): Promise<void>;
   getCatchAll(zoneId: string): Promise<CfCatchAllRule | null>;
   setCatchAllWorker(zoneId: string, workerName: string): Promise<void>;
+  /**
+   * The DNS that enabling sending would write, and what stands in its way. Cloudflare
+   * documents this endpoint as a read-only dry run, so a confirmation screen can show the
+   * exact records before anything changes.
+   */
+  previewSending(zoneId: string, name: string): Promise<CfSendingPreview>;
+  listSendingDomains(zoneId: string): Promise<CfSendingDomain[]>;
+  /** Creates the sending row and publishes its own DNS. Never touches the receiving records. */
+  enableSending(zoneId: string, name: string): Promise<CfSendingDomain>;
 }
 
 type Query = Record<string, string | number | undefined>;
@@ -209,6 +222,25 @@ export function createCloudflareClient(options: CloudflareClientOptions): Cloudf
           enabled: true,
           source: "api",
         },
+      });
+    },
+
+    async previewSending(zoneId, name): Promise<CfSendingPreview> {
+      const r = await requestResult<{ records?: CfSendingRecord[]; errors?: CfSendingIssue[] }>(
+        "POST",
+        `/zones/${zoneId}/email/sending/subdomains/preview`,
+        { body: { name } },
+      );
+      return { records: r.records ?? [], errors: r.errors ?? [] };
+    },
+
+    async listSendingDomains(zoneId): Promise<CfSendingDomain[]> {
+      return requestResult<CfSendingDomain[]>("GET", `/zones/${zoneId}/email/sending/subdomains`);
+    },
+
+    async enableSending(zoneId, name): Promise<CfSendingDomain> {
+      return requestResult<CfSendingDomain>("POST", `/zones/${zoneId}/email/sending/subdomains`, {
+        body: { name },
       });
     },
   };

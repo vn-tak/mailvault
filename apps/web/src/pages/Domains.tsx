@@ -121,6 +121,7 @@ export function Domains() {
   const [takeover, setTakeover] = useState(false);
   const [mxTakeover, setMxTakeover] = useState(false);
   const [removing, setRemoving] = useState<Domain | null>(null);
+  const [sendingFor, setSendingFor] = useState<Domain | null>(null);
   const [retryTakeover, setRetryTakeover] = useState<Domain | null>(null);
   const folded = useOpenRow();
 
@@ -480,6 +481,17 @@ export function Domains() {
                             {d.zoneStatus} · {d.zoneType === "full" ? t("dom.full") : d.zoneType}
                           </span>
                           {pf ? <ClassPill c={pf.classification} /> : null}
+                          {/* Sending is its own capability: a domain can receive and still
+                              not be allowed to sign outbound mail. */}
+                          <span className={`pill ${d.sendingStatus === "ENABLED" ? "ok" : "neutral"}`}>
+                            {t(
+                              d.sendingStatus === "ENABLED"
+                                ? "dom.sendingEnabled"
+                                : d.sendingStatus === "DISABLED"
+                                  ? "dom.sendingDisabled"
+                                  : "dom.sendingUnknown",
+                            )}
+                          </span>
                           <span>{t("dom.checked", { at: relativeTime(d.lastCheckedAt) })}</span>
                         </div>
                       </>
@@ -496,6 +508,11 @@ export function Domains() {
                             <button className="small" onClick={() => navigate(`/inbox?domain=${d.id}`)}>
                               {t("dom.openMailbox")}
                             </button>
+                            {d.sendingStatus !== "ENABLED" ? (
+                              <button className="small" onClick={() => setSendingFor(d)} disabled={busy}>
+                                {t("dom.enableSending")}
+                              </button>
+                            ) : null}
                             <select
                               className="small"
                               value={d.authPolicy}
@@ -647,6 +664,19 @@ export function Domains() {
         </Modal>
       )}
 
+      {sendingFor && (
+        <SendingDialog
+          domain={sendingFor}
+          onClose={() => setSendingFor(null)}
+          onDone={(message) => {
+            setSendingFor(null);
+            setNotice(message);
+            reload();
+          }}
+          onError={setActionError}
+        />
+      )}
+
       {removing && (
         <ConfirmDialog
           title={t("dom.removeTitle")}
@@ -666,5 +696,89 @@ export function Domains() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Enabling Email Sending for one domain.
+ *
+ * The dialog exists because the change reaches past this app: the DNS records are the
+ * domain's own, and a DMARC policy written at the domain affects every service that sends as
+ * it — including services MailVault has never heard of. So the exact records are listed from
+ * Cloudflare's read-only preview before anything happens, and a conflicting DMARC needs both
+ * a ticked box and a passkey.
+ */
+function SendingDialog({
+  domain,
+  onClose,
+  onDone,
+  onError,
+}: {
+  domain: Domain;
+  onClose: () => void;
+  onDone: (message: string) => void;
+  onError: (message: string) => void;
+}) {
+  const { data: preview, error, loading } = useAsync(() => api.sendingPreview(domain.cloudflareZoneId), [domain.cloudflareZoneId]);
+  const [confirmDmarc, setConfirmDmarc] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const blocked = !!preview?.dmarcConflict && !confirmDmarc;
+
+  async function enable() {
+    setBusy(true);
+    try {
+      // The route decides that a DMARC takeover needs the passkey; the page only reacts to
+      // the 403 and replays the call, so a gate added later cannot be missed here.
+      const r = await withStepUp(() => api.enableSending(domain.cloudflareZoneId, !!preview?.dmarcConflict));
+      onDone(t(r.alreadyEnabled ? "dom.sendingAlreadyOn" : "dom.sendingEnabledDone", { domain: domain.name }));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t("dom.sendingNeedsPermission"));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={t("dom.enableSendingTitle", { domain: domain.name })} onClose={onClose}>
+      {loading && <SkeletonList rows={3} />}
+      {error && <ErrorBanner message={error} />}
+      {preview && (
+        <>
+          {preview.alreadyEnabled ? (
+            <div className="banner ok">{t("dom.sendingAlreadyOn")}</div>
+          ) : (
+            <>
+              <p className="muted">{t("dom.enableSendingBody", { domain: domain.name })}</p>
+              <ul className="record-list mono">
+                {preview.records.map((r) => (
+                  <li key={`${r.type}:${r.name}`}>
+                    <strong>{r.type}</strong> {r.name} → {r.content.slice(0, 90)}
+                    {r.content.length > 90 ? "…" : ""}
+                  </li>
+                ))}
+              </ul>
+              <div className="banner">{t("dom.enableSendingNote", { domain: domain.name })}</div>
+              {preview.dmarcConflict ? (
+                <>
+                  <div className="banner error">{t("dom.dmarcConflict", { domain: domain.name })}</div>
+                  <label className="row checkbox-row">
+                    <input type="checkbox" checked={confirmDmarc} onChange={(e) => setConfirmDmarc(e.target.checked)} />
+                    <span>{t("dom.dmarcConfirm", { domain: domain.name })}</span>
+                  </label>
+                </>
+              ) : null}
+            </>
+          )}
+          <div className="row-end">
+            <button onClick={onClose}>{t("common.cancel")}</button>
+            {preview.alreadyEnabled ? null : (
+              <button className="primary" disabled={blocked || busy} aria-busy={busy} onClick={() => void enable()}>
+                {t("dom.enableSending")}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }

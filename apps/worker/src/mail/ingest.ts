@@ -7,7 +7,7 @@ import { findActiveAliasByAddress } from "../db/aliases";
 import { getDomainById } from "../db/domains";
 import { fileByRule, listEnabledRules, recordRuleHits } from "../db/rules";
 import { applyRules, NO_RULES, type AppliedRules } from "./rules";
-import { insertMessage, insertAttachments, dedupeKeyExists, indexMessage } from "../db/messages";
+import { insertMessage, insertAttachments, dedupeKeyExists, indexMessage, findThreadRoot } from "../db/messages";
 import type { InsertMessageInput, InsertAttachmentInput } from "../db/messages";
 import {
   buildRawKey,
@@ -59,8 +59,12 @@ interface StagedParse {
   subject: string | null;
   from: string | null;
   to: string | null;
+  cc: string | null;
   date: string;
   messageId: string | null;
+  inReplyTo: string | null;
+  references: string[];
+  replyTo: string | null;
   text: string | null;
   html: string | null;
   degraded: boolean;
@@ -176,7 +180,11 @@ export async function stageEmail(
   let subject: string | null = null;
   let headerFrom: string | null = null;
   let headerTo: string | null = null;
+  let headerCc: string | null = null;
   let providerMessageId: string | null = null;
+  let inReplyTo: string | null = null;
+  let references: string[] = [];
+  let replyTo: string | null = null;
   let receivedAt = message.headers.get("date") || nowIso();
   let parsedAttachments: { filename: string; contentType: string; contentId: string | null; bytes: Uint8Array }[] = [];
   let authResults: string[] = [];
@@ -188,7 +196,11 @@ export async function stageEmail(
     subject = parsed.subject;
     headerFrom = parsed.headerFrom;
     headerTo = parsed.headerTo;
+    headerCc = parsed.headerCc;
     providerMessageId = parsed.messageId;
+    inReplyTo = parsed.inReplyTo;
+    references = parsed.references;
+    replyTo = parsed.replyTo;
     if (parsed.date) receivedAt = parsed.date;
     parsedAttachments = parsed.attachments;
     authResults = parsed.authResults;
@@ -239,8 +251,12 @@ export async function stageEmail(
       subject,
       from: headerFrom,
       to: headerTo,
+      cc: headerCc,
       date: receivedAt,
       messageId: providerMessageId,
+      inReplyTo,
+      references,
+      replyTo,
       text,
       html,
       degraded,
@@ -302,6 +318,13 @@ export async function commitIngest(job: IngestJob, db: D1Database, bucket: R2Buc
     domainId: job.domainId,
     aliasId: job.aliasId,
     providerMessageId: staged.messageId,
+    // The reply chain decides which conversation this belongs to; a message that quotes
+    // nothing we have never seen starts its own.
+    threadRootId: await findThreadRoot(db, [staged.inReplyTo, ...staged.references]),
+    inReplyTo: staged.inReplyTo,
+    references: staged.references,
+    replyTo: staged.replyTo,
+    cc: staged.cc,
     dedupeKey: job.dedupeKey,
     envelopeFrom: job.envelopeFrom,
     envelopeTo: job.envelopeTo,

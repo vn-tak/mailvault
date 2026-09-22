@@ -8,7 +8,8 @@ import { t } from "../lib/i18n";
 import { MessageHtml } from "../components/MessageHtml";
 import { TextBody } from "../components/TextBody";
 import { ConfirmDialog, CopyButton, ErrorBanner, Loading, Monogram } from "../components/ui";
-import { AuthVerdict, type ExtractedCode, type MessageAuth, type VerificationLink } from "@mailvault/shared";
+import { Composer } from "../components/Composer";
+import { AuthVerdict, MessageDirection, type ExtractedCode, type MessageAuth, type VerificationLink } from "@mailvault/shared";
 
 function byConfidence(a: ExtractedCode, b: ExtractedCode): number {
   return b.confidence - a.confidence || b.length - a.length;
@@ -119,6 +120,7 @@ export function MessageDetail({
   pane,
   onClose,
   onRead,
+  onOpenMessage,
 }: {
   id: string;
   /** Rendered inside the inbox's reading pane rather than as its own screen. */
@@ -126,15 +128,35 @@ export function MessageDetail({
   onClose?: () => void;
   /** Marks read and lets the list move on, so `j` keeps its rhythm. */
   onRead?: (id: string) => void;
+  /** Inside the pane, a thread entry swaps the pane rather than leaving the list. */
+  onOpenMessage?: (id: string) => void;
 }) {
   const [remoteImages, setRemoteImages] = useState(false);
   const [showText, setShowText] = useState(false);
   const [revealSpoofed, setRevealSpoofed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [replying, setReplying] = useState(false);
   const markedRef = useRef<string | null>(null);
 
   const { data, error, loading, reload } = useAsync(() => api.getMessage(id, remoteImages), [id, remoteImages]);
+  /*
+   * The conversation, asked for by root rather than by this message: opening any reply
+   * has to show the whole thread, including the one you are reading.
+   */
+  const threadId = data?.threadRootId ?? data?.id ?? null;
+  const { data: thread, reload: reloadThread } = useAsync(
+    () => (threadId ? api.thread(threadId) : Promise.resolve({ id: "", items: [] })),
+    [threadId],
+  );
+  const { data: capabilities } = useAsync(() => api.outboxCapabilities(), []);
+  const { data: aliasPage } = useAsync(() => api.listAliases(), []);
+  const sendableAliases = useMemo(() => {
+    const sendable = new Set((capabilities?.domains ?? []).filter((d) => d.canSend).map((d) => d.domainId));
+    return (aliasPage?.items ?? [])
+      .filter((a) => a.status === "ACTIVE" && sendable.has(a.domainId))
+      .map((a) => ({ address: a.address, label: a.label }));
+  }, [aliasPage, capabilities]);
 
   // Opening a message marks it read once per id; ignore failures silently.
   useEffect(() => {
@@ -221,6 +243,14 @@ export function MessageDetail({
                 </div>
               </div>
               <div className="row wrap actions-cell">
+                <button
+                  className="small primary"
+                  onClick={() => setReplying(true)}
+                  disabled={!data.aliasAddress || !sendableAliases.some((a) => a.address === data.aliasAddress)}
+                  title={t("composer.noAliases")}
+                >
+                  {t("msg.reply")}
+                </button>
                 <button className="small" onClick={toggleRead}>
                   {t(data.isRead ? "msg.markUnread" : "msg.markRead")}
                 </button>
@@ -233,7 +263,16 @@ export function MessageDetail({
 
           {data.parseDegraded && <div className="banner error mt">{t("msg.degraded")}</div>}
 
-          <AuthBanner verdict={data.authVerdict} auth={data.auth ?? null} />
+          {/* Our own outgoing mail has no external sender to authenticate: Email Sending
+              signs it with this domain's own key, so a verdict banner would only confuse. */}
+          {data.direction === MessageDirection.In ? <AuthBanner verdict={data.authVerdict} auth={data.auth ?? null} /> : null}
+
+          {data.direction === MessageDirection.Out ? (
+            <div className={`banner mt ${data.sendStatus === "FAILED" ? "error" : ""}`}>
+              <span className="muted">{t(`send.status.${data.sendStatus ?? "QUEUED"}`)}</span>
+              {data.sendError ? <div className="faint detail">{data.sendError}</div> : null}
+            </div>
+          ) : null}
 
           {/* Says why this mail is where it is, in the words the rule had at the time —
               so an archive still explains itself after the rule is edited or deleted. */}
@@ -340,6 +379,67 @@ export function MessageDetail({
           </div>
         </>
       )}
+
+      {/*
+        The conversation under the message you asked for. A reply that appears somewhere
+        else is the failure this removes: the whole exchange, in order, on one screen —
+        including your own outgoing answers, which live in the same table.
+      */}
+      {data && thread && thread.items.length > 1 ? (
+        <section className="thread mt">
+          <h2 className="thread-title">
+            {t("msg.threadTitle")} <span className="faint">{thread.items.length}</span>
+          </h2>
+          <ol className="thread-list">
+            {thread.items.map((m) => {
+              const current = m.id === data.id;
+              const label =
+                m.direction === MessageDirection.Out
+                  ? `${t("msg.youSent")} → ${m.headerTo || m.aliasAddress}`
+                  : senderName(m.headerFrom, m.envelopeFrom);
+              const body = (
+                <>
+                  <span className={`thread-dir ${m.direction === MessageDirection.Out ? "out" : ""}`}>
+                    {m.direction === MessageDirection.Out ? "↗" : "↘"}
+                  </span>
+                  <span className="thread-who">{label}</span>
+                  <span className="thread-preview">{m.subject || t("inbox.noSubject")}</span>
+                  <span className="thread-time faint">{fullTime(m.receivedAt)}</span>
+                </>
+              );
+              return (
+                <li key={m.id} aria-current={current ? "true" : undefined} className={current ? "is-current" : ""}>
+                  {onOpenMessage ? (
+                    <button type="button" className="thread-link" onClick={() => onOpenMessage(m.id)}>
+                      {body}
+                    </button>
+                  ) : (
+                    <Link to={`/messages/${m.id}`} className="thread-link">
+                      {body}
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      ) : null}
+
+      {replying ? (
+        <Composer
+          replyTo={data}
+          sendableAliases={sendableAliases}
+          remaining={capabilities?.remaining ?? 0}
+          bindingMissing={capabilities?.bindingMissing}
+          onClose={() => setReplying(false)}
+          onSent={() => {
+            setReplying(false);
+            reload();
+            reloadThread();
+            setNotice(t("msg.replySent"));
+          }}
+        />
+      ) : null}
 
       {confirmDelete && (
         <ConfirmDialog

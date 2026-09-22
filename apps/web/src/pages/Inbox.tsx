@@ -7,6 +7,7 @@ import { useMediaQuery } from "../lib/useMediaQuery";
 import { NEW_MAIL_EVENT } from "../lib/live";
 import { t } from "../lib/i18n";
 import { EmptyState, ErrorBanner, SkeletonList } from "../components/ui";
+import { Composer } from "../components/Composer";
 import { MsgItem } from "../components/MessageRow";
 import { MessageDetail } from "./MessageDetail";
 
@@ -15,8 +16,9 @@ const PAGE = 50;
 export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: string }) {
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"all" | "unread" | "archived">("all");
+  const [view, setView] = useState<"all" | "unread" | "archived" | "sent">("all");
   const [offset, setOffset] = useState(0);
+  const [composing, setComposing] = useState(false);
   const { query: route } = useRoute();
   const wide = useMediaQuery("(min-width: 900px)");
   const openId = wide ? route.get("open") : null;
@@ -27,6 +29,8 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
       filter: view === "unread" ? ("unread" as const) : ("all" as const),
       // A rule files mail out of the working list; the Archived tab is how it comes back.
       archived: view === "archived" ? ("archived" as const) : ("active" as const),
+      // Sent mail is the same table, so the tab says which side of the conversation to show.
+      direction: view === "sent" ? ("out" as const) : ("in" as const),
       q: search || undefined,
       aliasId,
       domainId,
@@ -38,6 +42,16 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
 
   const { data, error, loading, reload } = useAsync(() => api.listMessages(query), [query]);
   const { data: domainPage } = useAsync(() => api.listDomains(), []);
+  const { data: capabilities } = useAsync(() => api.outboxCapabilities(), []);
+  const { data: aliasPage } = useAsync(() => api.listAliases(), []);
+
+  /** Aliases that can actually be signed for, which is not every alias. */
+  const sendableAliases = useMemo(() => {
+    const sendable = new Set((capabilities?.domains ?? []).filter((d) => d.canSend).map((d) => d.domainId));
+    return (aliasPage?.items ?? [])
+      .filter((a) => a.status === "ACTIVE" && sendable.has(a.domainId))
+      .map((a) => ({ address: a.address, label: a.label }));
+  }, [aliasPage, capabilities]);
 
   const mailboxes = useMemo(
     () =>
@@ -242,8 +256,35 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
           <button className="ghost small" onClick={reload}>
             {t("common.refresh")}
           </button>
+          {/* Reachable even when the server cannot send: a control that is simply greyed out
+              tells nobody why, and the composer states the reason in its own words. */}
+          <button
+            className="primary small"
+            onClick={() => setComposing(true)}
+            disabled={sendableAliases.length === 0}
+            title={sendableAliases.length === 0 ? t("composer.noAliases") : undefined}
+          >
+            {t("inbox.compose")}
+          </button>
         </div>
       </div>
+
+      {composing && (
+        <Composer
+          sendableAliases={sendableAliases}
+          remaining={capabilities?.remaining ?? 0}
+          bindingMissing={capabilities?.bindingMissing}
+          onClose={() => setComposing(false)}
+          onSent={(outcome) => {
+            setComposing(false);
+            setView("sent");
+            reload();
+            // The row is the receipt: opening it shows exactly what was sent, so the owner
+            // never has to trust a toast that disappears.
+            if (wide) openMessage(outcome.id);
+          }}
+        />
+      )}
 
       {error && <ErrorBanner message={error} />}
 
@@ -257,6 +298,9 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
           </button>
           <button type="button" className={view === "archived" ? "active" : ""} onClick={() => setView("archived")}>
             {t("inbox.filed")}
+          </button>
+          <button type="button" className={view === "sent" ? "active" : ""} onClick={() => setView("sent")}>
+            {t("inbox.sentTab")}
           </button>
         </div>
         {/* One mailbox at a time, because mail for different domains arriving in one
@@ -290,7 +334,13 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
         <div className="mail-split">
           <div className="mail-list">{list}</div>
           <div className="mail-pane" key={openId}>
-            <MessageDetail id={openId} pane onClose={() => openMessage(null)} onRead={(id) => void markRead(id, true, true)} />
+            <MessageDetail
+              id={openId}
+              pane
+              onClose={() => openMessage(null)}
+              onOpenMessage={openMessage}
+              onRead={(id) => void markRead(id, true, true)}
+            />
           </div>
         </div>
       ) : (

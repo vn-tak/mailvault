@@ -9,6 +9,8 @@ import { dashboardRoute } from "./routes/dashboard";
 import { domainsRoute } from "./routes/domains";
 import { aliasesRoute } from "./routes/aliases";
 import { messagesRoute } from "./routes/messages";
+import { outboxRoute } from "./routes/outbox";
+import { sendingRoute } from "./routes/sending";
 import { pushRoute } from "./routes/push";
 import { liveRoute } from "./routes/live";
 import { securityRoute } from "./routes/security";
@@ -56,6 +58,8 @@ export function createApp(): Hono<AppEnv> {
   app.route("/", domainsRoute);
   app.route("/", aliasesRoute);
   app.route("/", messagesRoute);
+  app.route("/", outboxRoute);
+  app.route("/", sendingRoute);
   app.route("/", pushRoute);
   app.route("/", liveRoute);
   app.route("/", securityRoute);

@@ -52,6 +52,42 @@ export interface CfCatchAllRule {
   catch_all?: boolean;
 }
 
+/**
+ * Email Sending. A sending "subdomain" row is Cloudflare's unit of onboarding — the apex
+ * counts as one too — and its DNS lives on `cf-bounce.<name>` plus `_dmarc.<name>`, never on
+ * the receiving records, which is why enabling sending cannot disturb a domain's MX.
+ */
+export interface CfSendingRecord {
+  name: string;
+  type: string;
+  content: string;
+  priority?: number;
+  ttl?: number;
+}
+
+/** One problem found while checking the DNS a sending onboarding needs. */
+export interface CfSendingIssue {
+  code: string;
+  missing?: CfSendingRecord;
+  existing?: CfSendingRecord;
+  multiple?: CfSendingRecord[];
+}
+
+export interface CfSendingPreview {
+  records: CfSendingRecord[];
+  errors: CfSendingIssue[];
+}
+
+export interface CfSendingDomain {
+  tag: string;
+  name: string;
+  enabled: boolean;
+  return_path_domain?: string;
+  dkim_selector?: string;
+  created?: string;
+  modified?: string;
+}
+
 export interface CfError {
   code: number | string;
   message: string;

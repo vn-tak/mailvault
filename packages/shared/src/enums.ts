@@ -87,3 +87,34 @@ export const AuthPolicy = {
   Reject: "REJECT",
 } as const;
 export type AuthPolicy = (typeof AuthPolicy)[keyof typeof AuthPolicy];
+
+/** Which way a message travelled. Sent mail lives in the same list as received mail. */
+export const MessageDirection = {
+  In: "IN",
+  Out: "OUT",
+} as const;
+export type MessageDirection = (typeof MessageDirection)[keyof typeof MessageDirection];
+
+/**
+ * Outcome of a send, as reported by Email Sending. `queued` is normal for a large message
+ * or a recipient that accepts asynchronously, so it is a state and not a warning.
+ */
+export const SendStatus = {
+  Queued: "QUEUED",
+  Delivered: "DELIVERED",
+  Bounced: "BOUNCED",
+  Suppressed: "SUPPRESSED",
+  Failed: "FAILED",
+} as const;
+export type SendStatus = (typeof SendStatus)[keyof typeof SendStatus];
+
+/**
+ * Whether this domain may be used as a `From`. Independent of receiving: Email Sending
+ * writes its own DNS records, so a domain can receive and still not be allowed to send.
+ */
+export const SendingStatus = {
+  Unknown: "UNKNOWN",
+  Disabled: "DISABLED",
+  Enabled: "ENABLED",
+} as const;
+export type SendingStatus = (typeof SendingStatus)[keyof typeof SendingStatus];

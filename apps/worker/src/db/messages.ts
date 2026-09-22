@@ -6,8 +6,10 @@ import type {
   MessageDetail,
   MessageListQuery,
   MessageSummary,
+  SendStatus,
   VerificationLink,
 } from "@mailvault/shared";
+import { MessageDirection } from "@mailvault/shared";
 import { newId, nowIso } from "../lib/util";
 import { parseJson, toMessageAuth, toMessageSummary } from "./mappers";
 import type { AttachmentRow, MessageRow } from "./rows";
@@ -16,8 +18,14 @@ import type { AttachmentRow, MessageRow } from "./rows";
  * The validated query plus whatever the caller resolved first. `semanticIds` comes from
  * Vectorize and is not something a client may send directly — it is looked up server-side
  * only when the owner has turned semantic search on.
+ *
+ * `direction` is optional here because an internal caller naming no direction means the
+ * inbox, which is also what the API schema defaults to; the two must not disagree.
  */
-export type ListInput = MessageListQuery & { semanticIds?: string[] };
+export type ListInput = Omit<MessageListQuery, "direction"> & {
+  direction?: MessageListQuery["direction"];
+  semanticIds?: string[];
+};
 
 export interface InsertMessageInput {
   domainId: string;
@@ -40,6 +48,15 @@ export interface InsertMessageInput {
   links: VerificationLink[];
   authVerdict: AuthVerdict;
   auth: MessageAuth | null;
+  /** Omitted for received mail, where both default to the inbound shape. */
+  direction?: MessageDirection;
+  threadRootId?: string | null;
+  inReplyTo?: string | null;
+  references?: string[];
+  replyTo?: string | null;
+  cc?: string | null;
+  sendStatus?: SendStatus | null;
+  sendError?: string | null;
 }
 
 export interface InsertAttachmentInput {
@@ -66,8 +83,13 @@ export async function insertMessage(db: D1Database, m: InsertMessageInput): Prom
           envelope_from, envelope_to, header_from, header_to, subject, preview,
           received_at, raw_size, raw_r2_key, parsed_r2_key, has_attachments,
           attachment_count, is_read, extracted_codes_json, verification_links_json,
-          auth_verdict, auth_json, created_at
-        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,0,?18,?19,?20,?21,?22)`,
+          auth_verdict, auth_json, created_at,
+          direction, thread_root_id, in_reply_to, references_json, reply_to, cc,
+          send_status, send_error
+        ) VALUES (
+          ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,
+          ?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31
+        )`,
       )
       .bind(
         id,
@@ -87,11 +109,23 @@ export async function insertMessage(db: D1Database, m: InsertMessageInput): Prom
         m.parsedR2Key,
         m.hasAttachments ? 1 : 0,
         m.attachmentCount,
+        // Sent mail is written as read: the owner just composed it.
+        m.direction === MessageDirection.Out ? 1 : 0,
         JSON.stringify(m.codes),
         JSON.stringify(m.links),
         m.authVerdict,
         m.auth ? JSON.stringify(m.auth) : null,
         nowIso(),
+        m.direction ?? MessageDirection.In,
+        // A message that starts a conversation is that conversation. Filled in by the
+        // caller when the thread is known, and back-filled below when it is not.
+        m.threadRootId ?? id,
+        m.inReplyTo ?? null,
+        m.references && m.references.length > 0 ? JSON.stringify(m.references) : null,
+        m.replyTo ?? null,
+        m.cc ?? null,
+        m.sendStatus ?? null,
+        m.sendError ?? null,
       )
       .run();
     return id;
@@ -100,6 +134,61 @@ export async function insertMessage(db: D1Database, m: InsertMessageInput): Prom
     if (/UNIQUE constraint failed: messages.dedupe_key/i.test(msg)) return null;
     throw err;
   }
+}
+
+/**
+ * The thread a reply belongs to: the newest message whose Message-ID appears in this
+ * one's In-Reply-To or References, and that message's own root.
+ *
+ * Falls back to a fresh thread rather than guessing from the subject, because "Re: Invoice"
+ * between two unrelated customers is not the same conversation, and merging them would put
+ * one customer's mail where another can read it.
+ */
+export async function findThreadRoot(
+  db: D1Database,
+  refs: (string | null | undefined)[],
+): Promise<string | null> {
+  const ids = [...new Set(refs.filter((r): r is string => !!r))].slice(0, 20);
+  if (ids.length === 0) return null;
+  const placeholders = ids.map((_, i) => `?${i + 1}`).join(", ");
+  const row = await db
+    .prepare(
+      `SELECT COALESCE(thread_root_id, id) AS root
+       FROM messages WHERE provider_message_id IN (${placeholders})
+       ORDER BY received_at DESC LIMIT 1`,
+    )
+    .bind(...ids)
+    .first<{ root: string }>();
+  return row?.root ?? null;
+}
+
+/** Every message of one conversation, oldest first — the shape a thread view renders. */
+export async function listThread(db: D1Database, rootId: string): Promise<MessageSummary[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT m.*, a.label AS alias_label, a.address AS alias_address, d.name AS domain_name
+       FROM messages m
+       LEFT JOIN aliases a ON a.id = m.alias_id
+       LEFT JOIN domains d ON d.id = m.domain_id
+       WHERE m.thread_root_id = ?1 OR m.id = ?1
+       ORDER BY m.received_at ASC, m.id ASC`,
+    )
+    .bind(rootId)
+    .all<MessageRow>();
+  return (results ?? []).map(toMessageSummary);
+}
+
+/**
+ * How many messages have gone out since the UTC day began. Cloudflare's own
+ * `/email/sending/limits` counter is not realtime — it did not move across three sends
+ * when measured — so the daily budget has to be counted here to mean anything.
+ */
+export async function countSentSince(db: D1Database, sinceIso: string): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS c FROM messages WHERE direction = 'OUT' AND received_at >= ?1`)
+    .bind(sinceIso)
+    .first<{ c: number }>();
+  return Number(row?.c ?? 0);
 }
 
 /**
@@ -168,6 +257,17 @@ function buildListFilters(query: ListInput): { where: string; params: unknown[];
     return params.length;
   };
   if (query.filter === "unread") clauses.push("m.is_read = 0");
+  // Received and sent share the table, so a list says which side it wants — and wants it
+  // explicitly, because "an inbox" is received mail. `all` is what a conversation view
+  // uses; a thread without its own replies is not a thread.
+  const direction = query.direction ?? "in";
+  if (direction === "in") clauses.push("m.direction = 'IN'");
+  else if (direction === "out") clauses.push("m.direction = 'OUT'");
+  if (query.threadId) {
+    const a = push(query.threadId);
+    const b = push(query.threadId);
+    clauses.push(`(m.thread_root_id = ?${a} OR m.id = ?${b})`);
+  }
   // Rules file mail out of the working list; they never remove it. `all` is what the
   // archived view and any "show me everything" query uses.
   if (query.archived === "active") clauses.push("m.archived = 0");
@@ -279,6 +379,10 @@ export async function getMessageDetail(db: D1Database, id: string): Promise<Mess
     textBody: null,
     parseDegraded: !row.parsed_r2_key,
     auth: toMessageAuth(row),
+    inReplyTo: row.in_reply_to ?? null,
+    references: parseJson<string[]>(row.references_json, []),
+    replyTo: row.reply_to ?? null,
+    sendError: row.send_error ?? null,
   };
 }
 

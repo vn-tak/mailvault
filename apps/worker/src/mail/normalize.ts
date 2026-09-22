@@ -36,3 +36,36 @@ export function normalizeLookupAddress(address: string): string {
   if (!valid) return "";
   return `${local.toLowerCase()}@${domain}`;
 }
+
+/**
+ * Every bare address in a header value.
+ *
+ * `Name <a@b>, "Other" <c@d>` is what `From`, `Reply-To` and `To` actually look like after
+ * parsing, so taking the last `@` of the whole string would answer a two-recipient message
+ * with one address and the wrong domain. Angle brackets win when present; a value without
+ * them is treated as a single bare address, which is how these fields arrive from most
+ * mailers.
+ */
+export function addressesOf(value: string | null | undefined): string[] {
+  if (!value) return [];
+  const bracketed = [...value.matchAll(/<([^>]*)>/g)].map((m) => normalizeLookupAddress(m[1] ?? ""));
+  const found = bracketed.filter(Boolean);
+  if (found.length > 0) return [...new Set(found)];
+  return [
+    ...new Set(
+      value
+        .split(",")
+        .map((part) => normalizeLookupAddress(stripDisplayName(part)))
+        .filter(Boolean),
+    ),
+  ];
+}
+
+/** `"Acme, Inc." <x@y>` or plain `x@y` — quotes make a naive comma split wrong. */
+function stripDisplayName(part: string): string {
+  const trimmed = part.trim();
+  const quoted = /^"[^"]*"\s*(.*)$/.exec(trimmed);
+  if (quoted) return quoted[1] ?? "";
+  const colon = trimmed.lastIndexOf(":");
+  return colon > 0 && !trimmed.includes("@", colon) ? trimmed.slice(colon + 1) : trimmed;
+}

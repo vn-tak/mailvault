@@ -5,7 +5,7 @@ import { arrivalLabel } from "../lib/mailboxes";
 import { copyText } from "../lib/clipboard";
 import { t } from "../lib/i18n";
 import { Monogram } from "./ui";
-import { AuthVerdict, type MessageSummary } from "@mailvault/shared";
+import { AuthVerdict, MessageDirection, type MessageSummary } from "@mailvault/shared";
 
 /**
  * One message row, used by the inbox and by the dashboard's recent list. It lives in one
@@ -55,10 +55,11 @@ export function MsgItem({
   onOpen: (id: string) => void;
 }) {
   const sender = senderName(m.headerFrom, m.envelopeFrom);
+  const sent = m.direction === MessageDirection.Out;
   const href = wide ? `/inbox?open=${encodeURIComponent(m.id)}` : `/messages/${m.id}`;
   return (
     <li
-      className={`msg ${m.isRead ? "" : "unread"} ${fresh ? "is-live" : ""} ${active ? "is-active" : ""}`}
+      className={`msg ${m.isRead ? "" : "unread"} ${fresh ? "is-live" : ""} ${active ? "is-active" : ""} ${sent ? "is-sent" : ""}`}
       data-verdict={m.authVerdict}
       data-msg-id={m.id}
     >
@@ -75,13 +76,20 @@ export function MsgItem({
             if (wide) onOpen(m.id);
           }}
         >
-          <span className="msg-sender">{sender}</span>
+          {/* Outgoing mail is addressed *to* somebody; naming the peer as the sender would
+              read as "this person wrote to me", so the row says who it went to instead. */}
+          <span className="msg-sender">{sent ? `${t("msg.toPrefix")} ${m.headerTo || m.aliasAddress}` : sender}</span>
           <span className="msg-subject">{m.subject || t("inbox.noSubject")}</span>
           <span className="msg-line">
-            <span className="msg-alias">{arrivalLabel(m, scoped)}</span>
+            <span className="msg-alias">{sent ? m.aliasAddress : arrivalLabel(m, scoped)}</span>
             {m.preview ? <span className="msg-preview">{m.preview}</span> : null}
             <span className="msg-badges">
-              {m.authVerdict === AuthVerdict.Spoofed ? (
+              {sent && m.sendStatus ? (
+                <span className={`pill ${m.sendStatus === "FAILED" || m.sendStatus === "BOUNCED" ? "error" : "muted"}`}>
+                  {t(`send.status.${m.sendStatus}`)}
+                </span>
+              ) : null}
+              {!sent && m.authVerdict === AuthVerdict.Spoofed ? (
                 // Never echo a forger's payload in the list — the detail view explains it.
                 <span className="pill error">{t("inbox.unverified")}</span>
               ) : null}
@@ -96,7 +104,7 @@ export function MsgItem({
           <span className="msg-time">{relativeTime(m.receivedAt)}</span>
           {/* Getting the code is this app's main job; opening the message to reach it is a
               round trip the row can skip. A forged code stays hidden, as in the detail. */}
-          {m.authVerdict !== AuthVerdict.Spoofed && m.primaryCode ? <CodeChip code={m.primaryCode} /> : null}
+          {m.authVerdict !== AuthVerdict.Spoofed && !sent && m.primaryCode ? <CodeChip code={m.primaryCode} /> : null}
         </span>
       </div>
     </li>

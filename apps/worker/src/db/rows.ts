@@ -5,7 +5,9 @@ import type {
   CatchAllStatus,
   ConflictType,
   MailStatus,
+  MessageDirection,
   RoutingStatus,
+  SendingStatus,
 } from "@mailvault/shared";
 
 /** Raw D1 row shapes (snake_case, TEXT/INTEGER). Mappers convert these to DTOs. */
@@ -23,6 +25,9 @@ export interface DomainRow {
   conflict_type: ConflictType;
   conflict_details_json: string | null;
   auth_policy: AuthPolicy;
+  sending_status: SendingStatus;
+  sending_tag: string | null;
+  sending_checked_at: string | null;
   last_checked_at: string | null;
   created_at: string;
   updated_at: string;
@@ -72,6 +77,14 @@ export interface MessageRow {
   verification_links_json: string | null;
   auth_verdict: AuthVerdict;
   auth_json: string | null;
+  direction: MessageDirection;
+  thread_root_id: string | null;
+  in_reply_to: string | null;
+  references_json: string | null;
+  reply_to: string | null;
+  cc: string | null;
+  send_status: string | null;
+  send_error: string | null;
   created_at: string;
   // Joined context columns
   alias_label?: string | null;

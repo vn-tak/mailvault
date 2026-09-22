@@ -30,6 +30,11 @@ export interface Env {
    */
   AI?: Ai;
   VECTORIZE?: VectorizeIndex;
+  /**
+   * Email Sending. Optional by design, exactly like the AI bindings: a deployment without it
+   * still receives mail, and the compose screen says so rather than failing at send time.
+   */
+  EMAIL?: SendEmail;
 
   // Plain-text vars
   ENVIRONMENT?: string; // "development" | "production" (default production)
@@ -39,6 +44,12 @@ export interface Env {
   CF_ACCESS_TEAM_DOMAIN?: string;
   CF_ACCESS_AUD?: string;
   MAX_MESSAGE_BYTES?: string;
+  /**
+   * How many messages the owner may send per UTC day. This is MailVault's own brake, not
+   * Cloudflare's quota: the account-level counter is not realtime, so it cannot be trusted
+   * to stop anything.
+   */
+  MAX_SENDS_PER_DAY?: string;
   ALLOWED_EMAILS?: string; // comma-separated owner allowlist (empty = any Access user)
   /**
    * Comma-separated domains the owner has ruled out of MailVault management because they
@@ -56,6 +67,16 @@ export interface Env {
 }
 
 export const DEFAULT_MAX_MESSAGE_BYTES = 20 * 1024 * 1024; // 20 MiB safety ceiling
+
+/** Generous for one person writing to other people, tight enough to cap the damage of a runaway client. */
+export const DEFAULT_MAX_SENDS_PER_DAY = 50;
+
+export function maxSendsPerDay(env: Env): number {
+  const raw = Number.parseInt(env.MAX_SENDS_PER_DAY ?? "", 10);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_MAX_SENDS_PER_DAY;
+  // Cloudflare's own account quota is the hard wall; never claim a budget above it.
+  return Math.min(raw, 1000);
+}
 
 export function maxMessageBytes(env: Env): number {
   const raw = Number.parseInt(env.MAX_MESSAGE_BYTES ?? "", 10);
