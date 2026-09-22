@@ -51,7 +51,7 @@ async function deliver(over: {
   references?: string[];
   listUnsubscribe?: string;
   listUnsubscribePost?: string;
-  at?: string;
+  at?: Date;
 }) {
   const head = [
     `From: ${over.fromDisplay ?? over.from}`,
@@ -107,7 +107,8 @@ describe("a conversation is one row", () => {
   async function exchange() {
     const first = await deliver({ from: "billing@shop.example", subject: "Your order", body: "Order 44 is paid.", messageId: "m-1" });
     expect(first.status).toBe("stored");
-    const rootId = first.messageId;
+    // The variant is narrowed by the status above, which is what the assertion is for.
+    const rootId = (first as { messageId: string }).messageId;
 
     // The owner answers from the alias, then the shop answers that.
     const composed = await j(

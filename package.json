@@ -19,6 +19,7 @@
     "test:unit": "pnpm --filter @mailvault/worker test:unit",
     "test:integration": "pnpm --filter @mailvault/worker test:integration",
     "test:e2e": "pnpm --filter @mailvault/web test:e2e",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build:web && pnpm test:e2e",
     "dev": "pnpm --filter @mailvault/worker dev",
     "web:dev": "pnpm --filter @mailvault/web dev",
     "clean": "rm -rf apps/*/dist apps/*/.wrangler node_modules/.vite && pnpm -r exec rm -rf dist .turbo",
