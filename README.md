@@ -41,7 +41,7 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Sends under a name of its own choosing: a domain may send through an onboarded subdomain of the same zone, so the DMARC policy lands where nothing else sends and answers still come back to the alias | ✅ 9 integration tests |
 | Frontend structure: `components/mail/*` for the parts of a mail screen, `lib/*` for the decisions (which tab asks for what, what a selection holds, which aliases may sign), mailboxes in the rail as navigation | ✅ 15 unit + 51 E2E |
 | Unit + integration tests (364 passing: worker 264, web 100) | ✅ Green |
-| Playwright E2E (52 passing across desktop and 412px, live workerd + local D1/R2) | ✅ Green |
+| Playwright E2E (58 passing across desktop and 412px, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
 See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at
