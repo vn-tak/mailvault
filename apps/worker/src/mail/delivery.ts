@@ -48,6 +48,9 @@ const STATUS_BY_EVENT: Record<string, SendStatus> = {
   complained: SendStatus.Complained,
 };
 
+/** How many unmatchable ids one batch may name in the log, so a bad hour cannot flood it. */
+const UNMATCHED_IDS_LOGGED = 3;
+
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -121,6 +124,13 @@ export interface DeliveryTally {
 /**
  * Apply a batch of delivery events. The caller acks per message, so this must distinguish a
  * database failure (worth retrying) from a record it simply cannot use (never worth it).
+ *
+ * An event that names a message this mailbox never sent is logged with its id, once per batch at
+ * most a few times. The count alone was the first design, and it is useless for the one question
+ * that matters here: Email Sending's `payload.messageId` is documented as an internal id
+ * (`…-msg-…`), while the `send_email` binding hands back the RFC 822 Message-ID it generated. If
+ * those never coincide, no event will ever match, and the only way to know that from here is to
+ * see the id. It is the owner's own message identifier, already stored in D1 — not mail content.
  */
 export async function consumeDeliveryEvents(
   bodies: unknown[],
@@ -129,6 +139,7 @@ export async function consumeDeliveryEvents(
 ): Promise<DeliveryTally> {
   const timer = new Elapsed();
   const tally: DeliveryTally = { applied: 0, unmatched: 0, malformed: 0 };
+  let idsLogged = 0;
   for (const body of bodies) {
     const event = parseDeliveryEvent(body);
     if (!event) {
@@ -138,6 +149,10 @@ export async function consumeDeliveryEvents(
     const messageId = await findOutboundByProviderId(db, event.providerMessageId);
     if (!messageId) {
       tally.unmatched += 1;
+      if (idsLogged < UNMATCHED_IDS_LOGGED) {
+        idsLogged += 1;
+        log.warn("delivery_event_unmatched", { providerMessageId: event.providerMessageId, status: event.status });
+      }
       continue;
     }
     await applyDeliveryEvent(db, messageId, event);
