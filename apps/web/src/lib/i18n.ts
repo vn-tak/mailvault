@@ -116,7 +116,6 @@ export const en: Dict = {
   "dash.notReceiving": "not receiving",
 
   "inbox.title": "Inbox",
-  "inbox.eyebrow": "Newest first",
   "inbox.clearFilters": "Clear filters",
   "inbox.all": "All",
   "inbox.unreadTab": "Unread",
@@ -135,6 +134,7 @@ export const en: Dict = {
   "inbox.noSubject": "(no subject)",
   "inbox.unverified": "⚠ unverified sender",
   "inbox.filedTag": "Filed by a rule",
+  "inbox.arrivedAt": "Arrived at",
   "inbox.codeTitle": "Detected code",
   "inbox.nAttachments": "{n} attachment(s)",
 
@@ -722,7 +722,6 @@ export const vi: Dict = {
   "dash.notReceiving": "không nhận thư",
 
   "inbox.title": "Hộp thư",
-  "inbox.eyebrow": "Mới nhất trước",
   "inbox.clearFilters": "Bỏ bộ lọc",
   "inbox.all": "Tất cả",
   "inbox.unreadTab": "Chưa đọc",
@@ -741,6 +740,7 @@ export const vi: Dict = {
   "inbox.noSubject": "(không chủ đề)",
   "inbox.unverified": "⚠ người gửi chưa xác minh",
   "inbox.filedTag": "Do quy tắc xếp loại",
+  "inbox.arrivedAt": "Nhận tại",
   "inbox.codeTitle": "Mã đã nhận diện",
   "inbox.nAttachments": "{n} tệp đính kèm",
 

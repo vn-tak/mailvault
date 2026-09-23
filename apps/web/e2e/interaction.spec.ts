@@ -61,8 +61,8 @@ test("phone: the code in a row copies without opening the message @mobile", asyn
   await page.reload();
 
   const row = page.locator(".msg", { hasText: "verification code" });
-  const chip = row.locator(".code-chip");
-  await expect(chip).toHaveText("55905149");
+  const chip = row.locator(".msg-code");
+  await expect(chip).toContainText("55905149");
 
   await chip.click();
   await expect(chip).toHaveClass(/is-copied/);
@@ -76,7 +76,7 @@ test("phone: a forged code is still not offered for copying @mobile", async ({ p
   await resetSeededMail(page);
   await page.reload();
   const spoofed = page.locator(".msg", { hasText: "Urgent" });
-  await expect(spoofed.locator(".code-chip")).toHaveCount(0);
+  await expect(spoofed.locator(".msg-code")).toHaveCount(0);
   await expect(spoofed.getByText("unverified sender")).toBeVisible();
 });
 

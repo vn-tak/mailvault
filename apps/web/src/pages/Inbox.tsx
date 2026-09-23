@@ -329,28 +329,10 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
   return (
     <div className="page">
       <div className="page-head">
-        <div>
-          <span className="eyebrow">{t("inbox.eyebrow")}</span>
-          <h1>{t("inbox.title")}</h1>
-        </div>
+        {/* The title says what the screen is, and one button says what to do here. The rest of
+            the controls belong to the list they act on, so they sit with it. */}
+        <h1>{t("inbox.title")}</h1>
         <div className="actions">
-          {/* A view preference, not a filter: grouping changes how the same messages are
-              stacked, and it keeps its place beside the other view control. */}
-          <button
-            className="ghost small"
-            aria-pressed={grouped}
-            title={search ? t("inbox.groupOffWhileSearching") : t("inbox.groupHint")}
-            onClick={() => {
-              const next = !grouped;
-              setGrouped(next);
-              localStorage.setItem("mailvault-threaded", next ? "1" : "0");
-            }}
-          >
-            {t("inbox.groupConversations")}
-          </button>
-          <button className="ghost small" onClick={reload}>
-            {t("common.refresh")}
-          </button>
           {/* Reachable even when the server cannot send: a control that is simply greyed out
               tells nobody why, and the composer states the reason in its own words. */}
           <button
@@ -396,6 +378,12 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
         mailboxes={mailboxes}
         domainId={domainId}
         aliasId={aliasId}
+        grouped={grouped}
+        onGrouped={(next) => {
+          setGrouped(next);
+          localStorage.setItem("mailvault-threaded", next ? "1" : "0");
+        }}
+        onRefresh={reload}
         mailboxPicker={!wide}
       />
 

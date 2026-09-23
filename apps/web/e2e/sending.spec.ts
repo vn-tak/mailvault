@@ -53,7 +53,7 @@ test("desktop: composing goes out, and the Sent row is the receipt", async ({ pa
   await expect(dialog).toHaveCount(0);
   const row = page.locator(".msg").filter({ hasText: subject });
   await expect(row).toBeVisible();
-  await expect(row.locator(".pill")).toContainText("waiting");
+  await expect(row.locator(".msg-state")).toContainText("waiting");
 
   const pane = page.locator(".mail-pane");
   // The destination the send named is recorded as its own line, waiting for an answer —
@@ -102,7 +102,8 @@ test("desktop: a composed message carries a file, and the vault keeps its copy",
   await expect(dialog).toHaveCount(0);
 
   const row = page.locator(".msg").filter({ hasText: subject });
-  await expect(row.locator(".badge")).toContainText("📎 1");
+  await expect(row.locator(".msg-file")).toContainText("📎");
+  await expect(row.locator(".msg-file")).toContainText("1");
 
   const pane = page.locator(".mail-pane");
   const download = pane.locator(".attach a");

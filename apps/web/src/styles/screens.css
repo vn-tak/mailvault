@@ -145,15 +145,18 @@
  */
 .mail-split { display: grid; grid-template-columns: minmax(360px, 460px) minmax(0, 1fr); gap: var(--space-3); align-items: start; }
 .mail-list { min-width: 0; }
-/* A 460px column is a phone, not a desktop row: stack the sender, subject and where it
-   arrived instead of truncating all three to three letters. */
-.mail-list .msg-link { grid-template-columns: minmax(0, 1fr); }
-/* `auto` rows, not just column 1: the wide-screen rule pins sender and subject to
-   row 1, and in one column that stacks them on top of each other. */
-.mail-list .msg-sender,
-.mail-list .msg-subject,
-.mail-list .msg-line { grid-column: 1; grid-row: auto; }
-.mail-list .msg-line { gap: 8px; }
+/* A 460px column is a phone, not a desktop row: sender, subject and preview truncated into
+   what is left of it after the tick and the time say nothing. The pane therefore keeps the
+   phone's two-line stacking even though the window is wide. */
+.mail-list .msg-row {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "check star sender time"
+    "check star line   line";
+  gap: 1px 8px;
+  min-height: 0;
+  padding: 7px 10px;
+}
 .mail-pane {
   position: sticky;
   top: var(--space-2);
@@ -250,17 +253,15 @@
 /* ── Tablet and up ─────────────────────────────────────────────────────── */
 
 @media (min-width: 700px) {
-  /* The classic two-line mail row: who and what on one line, where and preview under it. */
-  .msg-row { align-items: center; padding: 11px 14px; }
-  .msg-link {
-    grid-template-columns: minmax(150px, 216px) minmax(0, 1fr);
-    column-gap: 16px;
-    align-items: baseline;
+  /* One line, the way a desktop list is read: the sender holds a column, everything the message
+     is made of flows in the space left to it, and the row is 40px rather than 120. */
+  .msg-row {
+    grid-template-columns: auto auto minmax(88px, 200px) minmax(0, 1fr) auto;
+    grid-template-areas: "check star sender line time";
+    gap: 0 10px;
+    min-height: 40px;
+    padding: 0 14px;
   }
-  .msg-sender { grid-column: 1; grid-row: 1; }
-  .msg-subject { grid-column: 2; grid-row: 1; }
-  .msg-line { grid-column: 2; grid-row: 2; }
-  .msg-alias { max-width: none; }
   .detail-head { flex-direction: row; align-items: flex-start; justify-content: space-between; }
   .detail-head .actions-cell { justify-content: flex-end; }
   .vault { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: var(--space-3); }
