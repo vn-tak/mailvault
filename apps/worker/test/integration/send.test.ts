@@ -505,10 +505,27 @@ describe("sending files along with a message", () => {
     expect((await DB.prepare(`SELECT count(*) AS n FROM attachments`).first<any>()).n).toBe(0);
   });
 
+  it("refuses files that cannot fit together before it decodes any of them", async () => {
+    // Each of these is individually within the request's own ceiling, and each is a base64
+    // string that cannot be decoded (its length is 1 mod 4). The code says which guard ran: the
+    // size one, so nothing was ever turned into bytes.
+    const unusable = "A".repeat(4_000_001);
+    const { res, body } = await composeWith({
+      attachments: [
+        { filename: "a.bin", type: "application/octet-stream", content: unusable },
+        { filename: "b.bin", type: "application/octet-stream", content: unusable },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe("TOO_LARGE");
+    expect(sent).toHaveLength(0);
+  });
+
   it("measures the whole message, not each part, against the ceiling", async () => {
-    // Three files of 1.9 MB each: every one of them could be sent alone, and the assembled
-    // message cannot. The refusal has to come before anything is written down.
-    const big = new Uint8Array(1_900_000).fill(7);
+    // Three files of 1.5 MB each: individually fine, together under the guard that reads the
+    // request's own numbers, and over the ceiling once they are a message. The refusal has to
+    // come before anything is written down.
+    const big = new Uint8Array(1_500_000).fill(7);
     const { res, body } = await composeWith({
       attachments: [file("a.bin", big, "application/octet-stream"), file("b.bin", big, "application/octet-stream"), file("c.bin", big, "application/octet-stream")],
     });

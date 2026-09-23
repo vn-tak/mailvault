@@ -5,30 +5,31 @@ import { z } from "zod";
  * rejected compose can say which one was hit instead of passing an upstream error
  * through untranslated. The ones that are ours say so.
  */
+const MAX_TOTAL_BYTES = 5 * 1024 * 1024;
+
 export const SEND_LIMITS = {
   /** Combined to + cc + bcc, as one message. */
   maxRecipients: 50,
   /** Subject is capped by Email Sending at 998 characters. */
   maxSubjectChars: 998,
   /** Whole message including body and attachments, measured in UTF-8 bytes. */
-  maxTotalBytes: 5 * 1024 * 1024,
+  maxTotalBytes: MAX_TOTAL_BYTES,
   /** Our own guard on how many addresses one person may compose at once. */
   maxDraftAddresses: 50,
   /** Our own guard on how many files one message may carry. Cloudflare counts bytes, not files. */
   maxAttachments: 8,
+  /**
+   * Base64 of a whole message's worth of bytes: four characters for every three, so this is the
+   * ceiling on the *encoded* form. Not a limit of its own — a number a request can be measured
+   * against before any of it is decoded, which is the only thing decoding costs.
+   */
+  maxTotalBase64Chars: Math.ceil(MAX_TOTAL_BYTES / 3) * 4,
 } as const;
-
-/**
- * Base64 writes four characters for every three bytes, and no single file can be bigger than the
- * whole message that carries it — so that is the ceiling on the encoded form. It is a bound on
- * the request, not the rule: the Worker measures the assembled message and refuses on that.
- */
-const maxAttachmentChars = Math.ceil(SEND_LIMITS.maxTotalBytes / 3) * 4;
 
 const Base64Content = z
   .string()
   .min(1)
-  .max(maxAttachmentChars)
+  .max(SEND_LIMITS.maxTotalBase64Chars)
   .regex(/^[A-Za-z0-9+/]*={0,2}$/, "Expected base64");
 
 /**

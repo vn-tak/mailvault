@@ -376,9 +376,18 @@ The pin moved to `wrangler@^4.136` because wrangler 4 stopped being able to shar
 credentials with v3: v4 stores the OAuth token in an encrypted, Keychain-backed
 `config/default.enc`, which v3 cannot read, so `wrangler deploy` and
 `d1 migrations apply --remote` began failing with "set a CLOUDFLARE_API_TOKEN" while v4
-was logged in. CI was already deploying with `npx wrangler deploy` (unpinned, so v4) and
-its rollback job uses `wrangler versions deploy`, which only exists in v4 — the local pin
-was the last thing still on v3.
+was logged in. CI's deploy and rollback jobs were already written against v4
+(`npx wrangler deploy`, and `wrangler versions deploy`, which only exists in v4) — the local
+pin was the last thing still on v3.
+
+**Neither CI job has ever run.** The deploy one is manual-only, and the first
+`workflow_dispatch` (2026-09-23, after PR #8) failed at wrangler with *"In a
+non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN"*: the token is a
+**Worker secret**, deliberately never copied into GitHub, so the workflow has nothing to
+deploy with. Deploys are therefore run from this machine against the wrangler login —
+`pnpm build:web && pnpm --filter @mailvault/worker deploy` — and the CI path stays unused
+until the owner chooses to add a scoped Actions secret for it. The `verify` job, which needs
+no credentials, is what gates every push and PR.
 
 What came with it:
 

@@ -109,6 +109,12 @@ function prepareFiles(list: ComposeAttachment[] | undefined): { ok: true; files:
   if ((list?.length ?? 0) > SEND_LIMITS.maxAttachments) {
     return { ok: false, refusal: { code: "TOO_MANY_ATTACHMENTS", message: `At most ${SEND_LIMITS.maxAttachments} files per message.` } };
   }
+  // The same rule as the assembled measurement below, taken on the cheapest number available:
+  // files that cannot fit even before the text is added are refused here, so a request built to
+  // be impossible never pays for decoding itself.
+  if ((list ?? []).reduce((n, a) => n + a.content.length, 0) > SEND_LIMITS.maxTotalBase64Chars) {
+    return { ok: false, refusal: { code: "TOO_LARGE", message: "Those files are more than one message can hold." } };
+  }
   const files: PreparedFile[] = [];
   for (const a of list ?? []) {
     let bytes: Uint8Array;
