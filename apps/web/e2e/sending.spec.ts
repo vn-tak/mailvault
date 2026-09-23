@@ -72,6 +72,61 @@ test("desktop: composing goes out, and the Sent row is the receipt", async ({ pa
   }, id);
 });
 
+test("desktop: a composed message carries a file, and the vault keeps its copy", async ({ page }) => {
+  const subject = `Invoice with a file ${Date.now()}`;
+  const recipient = `probe-${Date.now()}@example.com`;
+  const filename = "Hoá đơn tháng 9.txt";
+  const contents = "Tổng: 1.500.000đ\n";
+
+  await page.goto("/#/inbox");
+  await page.getByRole("button", { name: "Compose" }).click();
+  const dialog = page.getByRole("dialog", { name: "New message" });
+  await dialog.getByLabel("To", { exact: true }).fill(recipient);
+  await dialog.getByLabel("Subject", { exact: true }).fill(subject);
+  await dialog.getByLabel("Message", { exact: true }).fill("Attached as you asked.");
+  await dialog.getByLabel("Attach files").setInputFiles({
+    name: filename,
+    mimeType: "text/plain",
+    buffer: Buffer.from(contents, "utf8"),
+  });
+
+  // The chip keeps the name the owner's file had, and the running total says what the message
+  // will weigh — the number the platform measures against, not the number on disk.
+  const chip = dialog.locator(".file-list li");
+  await expect(chip).toHaveCount(1);
+  await expect(chip).toContainText(filename);
+  await expect(chip).toContainText(`${Buffer.byteLength(contents, "utf8")} B`);
+  await expect(dialog.getByText(/would weigh/)).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Send" }).click();
+  await expect(dialog).toHaveCount(0);
+
+  const row = page.locator(".msg").filter({ hasText: subject });
+  await expect(row.locator(".badge")).toContainText("📎 1");
+
+  const pane = page.locator(".mail-pane");
+  const download = pane.locator(".attach a");
+  await expect(pane.locator(".attach")).toContainText(filename);
+  await expect(pane.locator(".attach")).toContainText("text/plain");
+
+  // Read the stored copy back through the same authenticated route that serves received files.
+  const href = await download.getAttribute("href");
+  const fetched = await page.evaluate(async (path) => {
+    const res = await fetch(path as string);
+    return { status: res.status, disposition: res.headers.get("content-disposition"), body: await res.text() };
+  }, href);
+  expect(fetched.status).toBe(200);
+  // A safe name on the way out of storage, and never inline.
+  expect(fetched.disposition).toMatch(/^attachment; filename="[A-Za-z0-9._-]+\.txt"$/);
+  expect(fetched.body).toBe(contents);
+
+  const id = await row.getAttribute("data-msg-id");
+  await page.evaluate(async (messageId) => {
+    const res = await fetch(`/api/messages/${messageId}`, { method: "DELETE", headers: { "x-mailvault": "1" } });
+    if (!res.ok) throw new Error(`cleanup ${messageId}: ${res.status}`);
+  }, id);
+});
+
 test("desktop: a reply names its recipient as a fact, not as a field to edit", async ({ page }) => {
   await page.goto("/#/messages/00000000-0000-4000-8000-0000000000m4");
   const reply = page.getByRole("button", { name: "Reply" });
@@ -99,7 +154,7 @@ test("phone: the compose sheet fits the viewport and its fields stay thumb-sized
   expect(box).not.toBeNull();
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width + 1);
 
-  for (const label of ["From", "To", "Subject", "Message"]) {
+  for (const label of ["From", "To", "Subject", "Message", "Attach files"]) {
     const size = await dialog.getByLabel(label).evaluate((el) => getComputedStyle(el).fontSize);
     expect(parseFloat(size)).toBeGreaterThanOrEqual(16);
   }

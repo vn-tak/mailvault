@@ -11,6 +11,20 @@
  * and a composed message can never break the transport by containing a bare `--`.
  */
 
+/**
+ * A file riding along with the message. `contentBase64` is the file exactly as the compose
+ * request carried it: re-folding it rather than decoding and encoding again keeps the wire copy
+ * and the request agreeing byte for byte, and folding is what makes it safe — no line of a
+ * re-folded base64 body can begin a MIME boundary. `filename` is the *stored safe* name rather
+ * than the owner's original, because the same string is written into this record and handed to
+ * the sending binding for the copy that actually leaves.
+ */
+export interface OutboundAttachment {
+  filename: string;
+  contentType: string;
+  contentBase64: string;
+}
+
 export interface OutboundRfc822 {
   /** Envelope + header From, the owner's alias address. */
   from: string;
@@ -27,6 +41,7 @@ export interface OutboundRfc822 {
   date: Date;
   inReplyTo?: string | null;
   references?: string[];
+  attachments?: OutboundAttachment[];
   extraHeaders?: Record<string, string>;
 }
 
@@ -76,9 +91,43 @@ function angle(id: string): string {
   return id.startsWith("<") ? id : `<${id}>`;
 }
 
+/** A boundary token from the message id: unique per message, and only characters a boundary may hold. */
+function boundaryToken(messageId: string): string {
+  return `_mv_${messageId.replace(/[^A-Za-z0-9]/g, "").slice(0, 24)}`;
+}
+
+function textEntity(contentType: string, value: string): string[] {
+  return [
+    `Content-Type: ${contentType}; charset=utf-8`,
+    "Content-Transfer-Encoding: base64",
+    "",
+    foldBase64(base64Utf8(value)),
+  ];
+}
+
+/**
+ * A file. Its name is already the safe form from `lib/filename`, so the quoted value cannot be
+ * closed early or carry a second header line, and its content is re-folded rather than copied
+ * verbatim, so no line of it can begin the delimiter.
+ */
+function attachmentEntity(a: OutboundAttachment): string[] {
+  return [
+    `Content-Type: ${a.contentType}; name="${a.filename}"`,
+    "Content-Transfer-Encoding: base64",
+    `Content-Disposition: attachment; filename="${a.filename}"`,
+    "",
+    foldBase64(a.contentBase64.replace(/[\r\n]/g, "")),
+  ];
+}
+
+/** Entities laid out under one delimiter, closed the way a multipart body is closed. */
+function multipart(header: string, token: string, entities: string[][]): string[] {
+  const delim = `--${token}`;
+  return [header, "", ...entities.flatMap((e) => [delim, ...e]), `${delim}--`];
+}
+
 export function buildOutboundMime(m: OutboundRfc822): string {
-  const boundaryToken = `_mv_${m.messageId.replace(/[^A-Za-z0-9]/g, "").slice(0, 24)}`;
-  const delim = `--${boundaryToken}`;
+  const token = boundaryToken(m.messageId);
   const headers: (string | null)[] = [
     `From: ${displayAddress(m.from, m.fromName)}`,
     `To: ${addressList(m.to) ?? ""}`,
@@ -95,33 +144,25 @@ export function buildOutboundMime(m: OutboundRfc822): string {
     ...Object.entries(m.extraHeaders ?? {}).map(([k, v]) => `${k}: ${encodeHeaderValue(v)}`),
   ];
 
-  const textPart = [
-    "Content-Type: text/plain; charset=utf-8",
-    "Content-Transfer-Encoding: base64",
-    "",
-    foldBase64(base64Utf8(m.text)),
-  ];
-
-  let body: string[];
-  if (m.html) {
-    const htmlPart = [
-      "Content-Type: text/html; charset=utf-8",
-      "Content-Transfer-Encoding: base64",
-      "",
-      foldBase64(base64Utf8(m.html)),
-    ];
-    body = [
-      `Content-Type: multipart/alternative; boundary="${boundaryToken}"`,
-      "",
-      delim,
-      ...textPart,
-      delim,
-      ...htmlPart,
-      `${delim}--`,
-    ];
-  } else {
-    body = [...textPart];
-  }
+  const files = m.attachments ?? [];
+  // Files sit at the top level, so the text becomes a nested entity and needs a boundary of its
+  // own; without files the text is the message and the one token is enough.
+  const contentToken = files.length > 0 ? `${token}_alt` : token;
+  const text = textEntity("text/plain", m.text);
+  const content = m.html
+    ? multipart(
+        `Content-Type: multipart/alternative; boundary="${contentToken}"`,
+        contentToken,
+        [text, textEntity("text/html", m.html)],
+      )
+    : text;
+  const body =
+    files.length === 0
+      ? content
+      : multipart(`Content-Type: multipart/mixed; boundary="${token}"`, token, [
+          content,
+          ...files.map(attachmentEntity),
+        ]);
 
   const head = headers.filter((h): h is string => !!h).join(NEWLINE);
   // Bcc is deliberately absent: it is an envelope-only recipient and must not be written

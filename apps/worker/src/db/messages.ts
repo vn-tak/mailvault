@@ -64,6 +64,11 @@ export interface InsertMessageInput {
 }
 
 export interface InsertAttachmentInput {
+  /**
+   * Minted here when absent. An outbound send passes its own because the object is written to
+   * R2 before the row exists, and its key names this id.
+   */
+  id?: string;
   filename: string;
   safeFilename: string;
   contentType: string | null;
@@ -237,7 +242,7 @@ export async function insertAttachments(
         `INSERT INTO attachments (id, message_id, filename, safe_filename, content_type, size, r2_key, content_id, created_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)`,
       )
-      .bind(newId(), messageId, a.filename, a.safeFilename, a.contentType, a.size, a.r2Key, a.contentId, now),
+      .bind(a.id ?? newId(), messageId, a.filename, a.safeFilename, a.contentType, a.size, a.r2Key, a.contentId, now),
   );
   await db.batch(stmts);
 }

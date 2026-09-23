@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type ApiClientError } from "../lib/api";
-import { fullTime } from "../lib/format";
-import type { MessageDetail, RecipientSuggestion, SendOutcome } from "@mailvault/shared";
+import { formatBytes, fullTime } from "../lib/format";
+import { SEND_LIMITS, type MessageDetail, type RecipientSuggestion, type SendOutcome } from "@mailvault/shared";
 import { t } from "../lib/i18n";
 import { Modal } from "./ui";
 
@@ -19,6 +19,8 @@ const ERROR_KEYS: Record<string, string> = {
   EMPTY_BODY: "send.err.empty",
   TOO_LARGE: "send.err.tooLarge",
   BAD_ADDRESS: "send.err.badAddress",
+  TOO_MANY_ATTACHMENTS: "send.err.tooManyAttachments",
+  BAD_ATTACHMENT: "send.err.badAttachment",
   E_RECIPIENT_SUPPRESSED: "send.err.suppressed",
   E_DAILY_LIMIT_EXCEEDED: "send.err.dailyLimit",
   E_SENDER_NOT_VERIFIED: "send.err.sendingDisabled",
@@ -31,6 +33,44 @@ function splitAddresses(raw: string): string[] {
     .split(/[,\n;]+/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/** A chosen file, read into memory and waiting for the send button. */
+interface PendingFile {
+  name: string;
+  type: string;
+  /** Bytes on disk, which is what the owner reads in the chip. */
+  size: number;
+  /** The same bytes as the request carries them. */
+  content: string;
+}
+
+/** Base64 of a file, chunked so a large one cannot blow the argument list. */
+async function readAsBase64(file: File): Promise<PendingFile> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return {
+    name: file.name,
+    type: file.type || "application/octet-stream",
+    size: bytes.byteLength,
+    content: btoa(binary),
+  };
+}
+
+/**
+ * What this compose will weigh once it is a message.
+ *
+ * Base64 writes four characters for every three bytes, so a file is always a third bigger on
+ * the wire than on disk. This is deliberately the rough figure the compose screen can update on
+ * every keystroke; the Worker measures the assembled bytes and has the last word.
+ */
+function wireSize(text: string, files: PendingFile[]): number {
+  const payload = new TextEncoder().encode(text).byteLength + files.reduce((n, f) => n + f.size, 0);
+  return Math.ceil((payload / 3) * 4);
 }
 
 
@@ -214,6 +254,7 @@ export function Composer({
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
   const [text, setText] = useState(() => (replyTo ? quoteOf(replyTo) : ""));
+  const [files, setFiles] = useState<PendingFile[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const body = useRef<HTMLTextAreaElement>(null);
@@ -229,23 +270,56 @@ export function Composer({
   }, [replyTo]);
 
   const recipientCount = splitAddresses(to).length + splitAddresses(cc).length;
+  const total = wireSize(text, files);
+  const overBudget = total > SEND_LIMITS.maxTotalBytes;
   const canSend =
-    !bindingMissing && (isReply ? text.trim().length > 0 : splitAddresses(to).length > 0 && text.trim().length > 0);
+    !bindingMissing &&
+    !overBudget &&
+    (isReply ? text.trim().length > 0 : splitAddresses(to).length > 0 && text.trim().length > 0);
+
+  /**
+   * Read what was chosen, and say so when one of them cannot go.
+   *
+   * A file too big to fit is reported and skipped rather than failing the whole pick: dropping
+   * four good invoices because the fifth was a video nobody meant to attach would throw away
+   * work the owner just did.
+   */
+  async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = [...(e.target.files ?? [])];
+    // Cleared first, or choosing the same file again after removing it would be no change.
+    e.target.value = "";
+    const room = SEND_LIMITS.maxAttachments - files.length;
+    if (picked.length > room) setError(t("composer.tooManyFiles", { n: SEND_LIMITS.maxAttachments }));
+    const accepted: PendingFile[] = [];
+    for (const f of picked.slice(0, Math.max(room, 0))) {
+      // A file larger than a whole message can never be sent, and reading it into base64 to
+      // find that out would freeze the tab. Everything else is kept and counted against the
+      // budget below, which is where a message made of several near-limit files is caught.
+      if (f.size > SEND_LIMITS.maxTotalBytes) {
+        setError(t("composer.fileTooLarge", { name: f.name, max: formatBytes(SEND_LIMITS.maxTotalBytes) }));
+        continue;
+      }
+      accepted.push(await readAsBase64(f));
+    }
+    if (accepted.length > 0) setFiles((current) => [...current, ...accepted]);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSend || busy) return;
     setBusy(true);
     setError(null);
+    const attachments = files.map((f) => ({ filename: f.name, type: f.type, content: f.content }));
     try {
       const outcome = isReply
-        ? await api.reply(replyTo.id, { text })
+        ? await api.reply(replyTo.id, { text, ...(attachments.length > 0 ? { attachments } : {}) })
         : await api.compose({
             fromAddress: from,
             to: splitAddresses(to),
             ...(splitAddresses(cc).length > 0 ? { cc: splitAddresses(cc) } : {}),
             subject,
             text,
+            ...(attachments.length > 0 ? { attachments } : {}),
           });
       onSent(outcome);
     } catch (err) {
@@ -304,6 +378,38 @@ export function Composer({
             onChange={(e) => setText(e.target.value)}
             placeholder={t("composer.bodyHint")}
           />
+        </div>
+
+        <div className="field composer-files">
+          {/* Left as the native control it is: the browser's own file picker is what brings
+              "take a photo" and "browse files" on a phone, and restyling it as a button of ours
+              would put an invisible input behind a visible label. */}
+          <label htmlFor="compose-files">{t("composer.attach")}</label>
+          <input id="compose-files" type="file" multiple onChange={onPickFiles} />
+          <div className="field-hint">
+            {files.length > 0
+              ? t("composer.attachBudget", { size: formatBytes(total), max: formatBytes(SEND_LIMITS.maxTotalBytes) })
+              : t("composer.attachHint", { n: SEND_LIMITS.maxAttachments, max: formatBytes(SEND_LIMITS.maxTotalBytes) })}
+          </div>
+          {files.length > 0 ? (
+            <ul className="file-list">
+              {files.map((f, i) => (
+                <li key={`${f.name}-${i}`}>
+                  <span className="file-name">{f.name}</span>
+                  <span className="faint">{formatBytes(f.size)}</span>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    aria-label={t("composer.removeFile", { name: f.name })}
+                    onClick={() => setFiles((current) => current.filter((_, j) => j !== i))}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {overBudget ? <div className="field-hint is-error">{t("composer.overBudget")}</div> : null}
         </div>
 
         {bindingMissing && (

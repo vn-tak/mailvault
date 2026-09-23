@@ -91,6 +91,72 @@ describe("outbound MIME", () => {
   });
 });
 
+/** A file as the compose request brings it: base64, next to the name it had on disk. */
+function clip(filename: string, text: string) {
+  return { filename, contentType: "text/plain", contentBase64: Buffer.from(text, "utf8").toString("base64") };
+}
+
+/** The base64 payload of the entity starting at `at`, decoded back. */
+function decodeFrom(raw: string, at: number): string {
+  const body = raw.slice(raw.indexOf("\r\n\r\n", at) + 4);
+  const b64 = body
+    .split("\r\n")
+    .filter((line) => /^[A-Za-z0-9+/=]+$/.test(line))
+    .join("");
+  return Buffer.from(b64, "base64").toString("utf8");
+}
+
+describe("outbound MIME with files attached", () => {
+  it("gives each file its own part, and keeps the bytes it was handed", () => {
+    const raw = buildOutboundMime({ ...base, attachments: [clip("Ho_n.pdf.txt", "Tổng: 1.500.000đ")] });
+    expect(raw).toContain('Content-Type: multipart/mixed; boundary="_mv_');
+    expect(raw).toContain('Content-Disposition: attachment; filename="Ho_n.pdf.txt"');
+    expect(decodeFrom(raw, raw.indexOf("Content-Disposition"))).toBe("Tổng: 1.500.000đ");
+    // The message's own text is still there, ahead of the files, and still readable back.
+    expect(decodeFrom(raw, raw.indexOf("Content-Type: text/plain; charset"))).toBe("Thanks for your order.");
+  });
+
+  it("nests the alternatives under the files rather than beside them", () => {
+    const raw = buildOutboundMime({ ...base, html: "<p>Thanks</p>", attachments: [clip("a.txt", "one"), clip("b.txt", "two")] });
+    const outer = /boundary="(_mv_[A-Za-z0-9]+)"/.exec(raw)?.[1] ?? "";
+    const inner = /boundary="(_mv_[A-Za-z0-9]+_alt)"/.exec(raw)?.[1] ?? "";
+    expect(outer).toBeTruthy();
+    expect(inner).toBeTruthy();
+    // Two delimiters, because a reader that only understood the outer one would otherwise treat
+    // the HTML as a file.
+    expect(raw).toContain(`multipart/alternative; boundary="${inner}"`);
+    expect(raw).toContain(`multipart/mixed; boundary="${outer}"`);
+    // Both text types are inside the first part, so a reader that only understands the outer
+    // delimiter still sees one message and two files rather than three files.
+    expect(raw.indexOf("text/html")).toBeLessThan(raw.indexOf("Content-Disposition"));
+    // The outer delimiter opens, separates the content from each file, and closes. Counted with
+    // the line endings on both sides, because the inner boundary begins with the same characters.
+    expect(raw.split(`\r\n--${outer}\r\n`).length - 1).toBe(3);
+    expect(raw.trimEnd().endsWith(`--${outer}--`)).toBe(true);
+    expect(raw.split(`\r\n--${inner}\r\n`).length - 1).toBe(2);
+  });
+
+  it("folds a file's base64 so no line of it can begin the delimiter", () => {
+    // A boundary needs characters outside the base64 alphabet apart from `-`, and a folded body
+    // line is at most 76 characters, so a file's contents cannot open a part of their own.
+    const payload = "file bytes ".repeat(20_000);
+    const raw = buildOutboundMime({
+      ...base,
+      attachments: [{ filename: "big.bin", contentType: "application/octet-stream", contentBase64: Buffer.from(payload, "utf8").toString("base64") }],
+    });
+    const boundary = /boundary="(_mv_[A-Za-z0-9]+)"/.exec(raw)?.[1] ?? "";
+    const lines = raw.split("\r\n");
+    expect(lines.filter((l) => l === `--${boundary}` || l === `--${boundary}--`)).toHaveLength(3);
+    expect(lines.every((l) => l.length <= 76 || !/^[A-Za-z0-9+/=]+$/.test(l) || l.startsWith("Content-"))).toBe(true);
+    expect(decodeFrom(raw, raw.indexOf("Content-Disposition"))).toBe(payload);
+  });
+
+  it("leaves a text-only message exactly as it was without files", () => {
+    const withNone = buildOutboundMime({ ...base, attachments: [] });
+    expect(withNone).toBe(buildOutboundMime(base));
+  });
+});
+
 describe("reading addresses out of a header", () => {
   it("prefers what is inside angle brackets", () => {
     expect(addressesOf('GitHub <noreply@github.com>')).toEqual(["noreply@github.com"]);

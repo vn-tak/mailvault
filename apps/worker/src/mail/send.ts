@@ -4,22 +4,38 @@ import {
   SEND_LIMITS,
   SendingStatus,
   SendStatus,
+  type ComposeAttachment,
   type Domain,
   type SendOutcome,
 } from "@mailvault/shared";
 import type { Env } from "../env";
 import { maxSendsPerDay } from "../env";
 import { badRequest } from "../lib/errors";
+import { sanitizeFilename } from "../lib/filename";
 import { log } from "../lib/logging";
 import { newId, nowIso } from "../lib/util";
 import { writeMetric } from "../lib/metrics";
 import { findActiveAliasByAddress } from "../db/aliases";
 import { getDomainById } from "../db/domains";
-import { countSentSince, findThreadRoot, getMessageRow, indexMessage, insertMessage } from "../db/messages";
+import {
+  countSentSince,
+  findThreadRoot,
+  getMessageRow,
+  indexMessage,
+  insertAttachments,
+  insertMessage,
+} from "../db/messages";
+import type { InsertAttachmentInput, InsertMessageInput } from "../db/messages";
 import { failAllRecipients, recordRecipients } from "../db/recipients";
-import type { InsertMessageInput } from "../db/messages";
 import type { MessageRow } from "../db/rows";
-import { buildParsedKey, buildRawKey, putParsed, putRaw } from "../storage/r2";
+import {
+  buildAttachmentKey,
+  buildParsedKey,
+  buildRawKey,
+  putAttachment,
+  putParsed,
+  putRaw,
+} from "../storage/r2";
 import { addressesOf, normalizeLookupAddress, splitAddress } from "./normalize";
 import { buildPreview } from "./preview";
 import { buildOutboundMime } from "./mime";
@@ -37,6 +53,8 @@ export interface OutboundRequest {
   replyTo?: string;
   /** Mail id being answered. Drives In-Reply-To/References and the thread it joins. */
   replyToMessageId?: string;
+  /** Files as the compose screen read them: base64, with the name the owner's file had. */
+  attachments?: ComposeAttachment[];
 }
 
 export type SendResult = { ok: true; outcome: SendOutcome } | { ok: false; code: string; message: string };
@@ -52,8 +70,56 @@ async function dispatch(email: SendEmail, request: EmailMessageBuilder): Promise
   return email.send(request);
 }
 
-function utf8Bytes(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
+function megabytes(n: number): string {
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** The request carries a file as base64; the vault keeps what that decodes to. */
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value.replace(/\s/g, ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/** Why a send was refused, before any of it is written down. */
+type SendFailure = { code: string; message: string };
+
+/** One file, ready to go out and ready to be kept. */
+interface PreparedFile {
+  /** The caller's entry, kept whole so the record knows the name the file actually had. */
+  input: ComposeAttachment;
+  /**
+   * The name written into the MIME headers and into the R2 key. `lib/filename`'s safest form,
+   * because a name is the one part of a file the sender picks and a header is where a chosen
+   * string can start writing lines of its own.
+   */
+  safeName: string;
+  bytes: Uint8Array;
+}
+
+/**
+ * Read the files a compose carries, refusing the ones that cannot be sent.
+ *
+ * Only readability is judged here. Size is judged on the assembled message further down, which
+ * is the only measurement that means anything: base64 adds a third to every file, and the
+ * ceiling counts the bodies and the headers as well.
+ */
+function prepareFiles(list: ComposeAttachment[] | undefined): { ok: true; files: PreparedFile[] } | { ok: false; refusal: SendFailure } {
+  if ((list?.length ?? 0) > SEND_LIMITS.maxAttachments) {
+    return { ok: false, refusal: { code: "TOO_MANY_ATTACHMENTS", message: `At most ${SEND_LIMITS.maxAttachments} files per message.` } };
+  }
+  const files: PreparedFile[] = [];
+  for (const a of list ?? []) {
+    let bytes: Uint8Array;
+    try {
+      bytes = decodeBase64(a.content);
+    } catch {
+      return { ok: false, refusal: { code: "BAD_ATTACHMENT", message: `${a.filename} did not arrive as readable file content.` } };
+    }
+    files.push({ input: a, safeName: sanitizeFilename(a.filename), bytes });
+  }
+  return { ok: true, files };
 }
 
 /** Normalise, drop duplicates across to/cc/bcc, and reject anything not an address. */
@@ -133,9 +199,10 @@ export async function sendOutbound(
   const baseSubject = (req.subject || parent?.subject || "").slice(0, SEND_LIMITS.maxSubjectChars);
   const subject = parent && baseSubject && !/^re:/i.test(baseSubject) ? `Re: ${baseSubject}` : baseSubject;
   if (!req.text.trim() && !req.html?.trim()) return fail("EMPTY_BODY", "Write something first.");
-  if (utf8Bytes(req.text) + utf8Bytes(req.html ?? "") > SEND_LIMITS.maxTotalBytes) {
-    return fail("TOO_LARGE", "The body is over the size limit for a single message.");
-  }
+
+  const prepared = prepareFiles(req.attachments);
+  if (!prepared.ok) return fail(prepared.refusal.code, prepared.refusal.message);
+  const files = prepared.files;
 
   const inReplyTo = parent?.provider_message_id ?? null;
   const references = [...readReferences(parent?.references_json), ...(inReplyTo ? [inReplyTo] : [])];
@@ -144,32 +211,62 @@ export async function sendOutbound(
   const preview = buildPreview(req.text, req.html ?? null);
   const rawKey = buildRawKey(domain.id, alias.id, sentAt, messageId);
   const parsedKey = buildParsedKey(messageId);
+
+  // Written down before it goes, and measured here rather than guessed at: the only size that
+  // decides whether Cloudflare accepts this message is the whole of it — headers, both bodies,
+  // and every file with base64's third added on top.
+  const rawBytes = new TextEncoder().encode(
+    buildOutboundMime({
+      from,
+      fromName: req.fromName,
+      to: lists.to,
+      cc: lists.cc,
+      bcc: lists.bcc,
+      replyTo: req.replyTo,
+      subject,
+      text: req.text,
+      html: req.html,
+      // Our own id: Email Sending assigns the final Message-ID on the wire, so this is
+      // the composed record rather than a transcript of the bytes that left.
+      messageId: `${messageId}@${domain.name}`,
+      date: new Date(sentAt),
+      inReplyTo,
+      references,
+      attachments: files.map((f) => ({
+        filename: f.safeName,
+        contentType: f.input.type,
+        contentBase64: f.input.content,
+      })),
+    }),
+  );
+  if (rawBytes.byteLength > SEND_LIMITS.maxTotalBytes) {
+    return fail(
+      "TOO_LARGE",
+      `This message would be ${megabytes(rawBytes.byteLength)}, and one message may be at most ${megabytes(SEND_LIMITS.maxTotalBytes)} counting its files.`,
+    );
+  }
+
   const threadRoot =
     (await findThreadRoot(db, [inReplyTo, ...references])) ?? parent?.thread_root_id ?? parent?.id ?? null;
 
-  await putRaw(
-    bucket,
-    rawKey,
-    new TextEncoder().encode(
-      buildOutboundMime({
-        from,
-        fromName: req.fromName,
-        to: lists.to,
-        cc: lists.cc,
-        bcc: lists.bcc,
-        replyTo: req.replyTo,
-        subject,
-        text: req.text,
-        html: req.html,
-        // Our own id: Email Sending assigns the final Message-ID on the wire, so this is
-        // the composed record rather than a transcript of the bytes that left.
-        messageId: `${messageId}@${domain.name}`,
-        date: new Date(sentAt),
-        inReplyTo,
-        references,
-      }),
-    ),
-  );
+  await putRaw(bucket, rawKey, rawBytes);
+  const attachmentRows: InsertAttachmentInput[] = [];
+  for (const f of files) {
+    // The id is minted here because the object's key names it, and the stored copy has to be
+    // findable by the row that points at it.
+    const attachmentId = newId();
+    const key = buildAttachmentKey(messageId, attachmentId, f.safeName);
+    await putAttachment(bucket, key, f.bytes, f.input.type);
+    attachmentRows.push({
+      id: attachmentId,
+      filename: f.input.filename,
+      safeFilename: f.safeName,
+      contentType: f.input.type,
+      size: f.bytes.byteLength,
+      r2Key: key,
+      contentId: null,
+    });
+  }
   await putParsed(bucket, parsedKey, { text: req.text, html: req.html ?? null, degraded: false });
 
   const storedId = await insertMessage(db, {
@@ -184,11 +281,11 @@ export async function sendOutbound(
     subject: subject.slice(0, 500),
     preview,
     receivedAt: sentAt,
-    rawSize: utf8Bytes(req.text) + utf8Bytes(req.html ?? ""),
+    rawSize: rawBytes.byteLength,
     rawR2Key: rawKey,
     parsedR2Key: parsedKey,
-    hasAttachments: false,
-    attachmentCount: 0,
+    hasAttachments: attachmentRows.length > 0,
+    attachmentCount: attachmentRows.length,
     codes: [],
     links: [],
     // Our own mail is authenticated by definition: Email Sending signs it with this
@@ -208,6 +305,9 @@ export async function sendOutbound(
   } satisfies InsertMessageInput);
 
   if (!storedId) throw badRequest("That message was already sent");
+  // The bytes were already put; these rows are what makes them reachable again, through the
+  // same authenticated download route that serves received attachments.
+  await insertAttachments(db, storedId, attachmentRows);
   await indexMessage(db, storedId, {
     subject,
     preview,
@@ -220,6 +320,14 @@ export async function sendOutbound(
 
   let response: { messageId: string } | { error: Error };
   const extraHeaders = replyHeaders(inReplyTo, references);
+  // The safe name again rather than the owner's original: this is the copy that reaches another
+  // provider's parser, and the content is handed over exactly as it arrived, already base64.
+  const wireAttachments: EmailAttachment[] = files.map((f) => ({
+    disposition: "attachment",
+    filename: f.safeName,
+    type: f.input.type,
+    content: f.input.content,
+  }));
   // Last, after every policy has been checked: "this server cannot send" must never be the
   // reason given for a message that was refused because it should not have been sent at all.
   if (!env.EMAIL) {
@@ -236,6 +344,7 @@ export async function sendOutbound(
       ...(lists.cc.length > 0 ? { cc: lists.cc } : {}),
       ...(lists.bcc.length > 0 ? { bcc: lists.bcc } : {}),
       ...(req.replyTo ? { replyTo: req.replyTo } : {}),
+      ...(wireAttachments.length > 0 ? { attachments: wireAttachments } : {}),
       ...(Object.keys(extraHeaders).length > 0 ? { headers: extraHeaders } : {}),
     });
   } catch (err) {
@@ -346,11 +455,19 @@ function fail(code: string, message: string): SendResult {
  * arrived on (or was sent from), and the recipient is whoever the message itself named —
  * `Reply-To` first, because that is the address its author asked for answers, then `From`.
  * Taking either from the client would let a crafted row aim a reply at somebody who never
- * appears in the conversation.
+ * appears in the conversation. Files are the exception, and the harmless one: a reply carries
+ * whatever the owner attaches to it, under the same size and count rules as a new compose.
  */
 export async function sendReply(
   parentId: string,
-  req: { text: string; html?: string; subject?: string; fromName?: string; cc?: string[] },
+  req: {
+    text: string;
+    html?: string;
+    subject?: string;
+    fromName?: string;
+    cc?: string[];
+    attachments?: ComposeAttachment[];
+  },
   env: Env,
   db: D1Database,
   bucket: R2Bucket,
@@ -386,6 +503,7 @@ export async function sendReply(
       html: req.html,
       fromName: req.fromName,
       replyToMessageId: parentId,
+      attachments: req.attachments,
     },
     env,
     db,

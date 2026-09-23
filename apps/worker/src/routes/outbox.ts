@@ -34,6 +34,7 @@ export const outboxRoute = new Hono<AppEnv>()
         fromName: input.fromName,
         replyTo: input.replyTo,
         replyToMessageId: input.replyToMessageId,
+        attachments: input.attachments,
       },
       c.env,
       c.env.DB,

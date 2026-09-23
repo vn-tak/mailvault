@@ -1,20 +1,60 @@
 import { z } from "zod";
 
 /**
- * Sending. The ceilings here are Cloudflare's, not ours, and they are quoted so a
+ * Sending. Most of these ceilings are Cloudflare's, not ours, and they are quoted so a
  * rejected compose can say which one was hit instead of passing an upstream error
- * through untranslated.
+ * through untranslated. The ones that are ours say so.
  */
 export const SEND_LIMITS = {
   /** Combined to + cc + bcc, as one message. */
   maxRecipients: 50,
   /** Subject is capped by Email Sending at 998 characters. */
   maxSubjectChars: 998,
-  /** Whole message including body, measured in UTF-8 bytes. */
+  /** Whole message including body and attachments, measured in UTF-8 bytes. */
   maxTotalBytes: 5 * 1024 * 1024,
   /** Our own guard on how many addresses one person may compose at once. */
   maxDraftAddresses: 50,
+  /** Our own guard on how many files one message may carry. Cloudflare counts bytes, not files. */
+  maxAttachments: 8,
 } as const;
+
+/**
+ * Base64 writes four characters for every three bytes, and no single file can be bigger than the
+ * whole message that carries it — so that is the ceiling on the encoded form. It is a bound on
+ * the request, not the rule: the Worker measures the assembled message and refuses on that.
+ */
+const maxAttachmentChars = Math.ceil(SEND_LIMITS.maxTotalBytes / 3) * 4;
+
+const Base64Content = z
+  .string()
+  .min(1)
+  .max(maxAttachmentChars)
+  .regex(/^[A-Za-z0-9+/]*={0,2}$/, "Expected base64");
+
+/**
+ * A file to send with a message. `content` is the file's bytes in base64, because that is the
+ * only form a JSON request can carry — and the form the sending binding takes directly. The
+ * Worker decodes it to keep its own copy of what left, and refuses the compose when the
+ * assembled message would be bigger than one message is allowed to be.
+ */
+export const ComposeAttachmentSchema = z.object({
+  filename: z.string().trim().min(1).max(240),
+  /**
+   * A MIME type as the browser reported it, syntax-checked so it cannot write a header line of
+   * its own. A file whose type nobody recognises arrives as an empty string and is treated as
+   * opaque bytes.
+   */
+  type: z
+    .string()
+    .trim()
+    .max(120)
+    .regex(/^$|^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/)
+    .transform((v) => v || "application/octet-stream"),
+  content: Base64Content,
+});
+export type ComposeAttachment = z.infer<typeof ComposeAttachmentSchema>;
+
+const AttachmentList = z.array(ComposeAttachmentSchema).max(SEND_LIMITS.maxAttachments).optional();
 
 const AddressList = z.array(z.string().trim().min(3).max(254)).max(SEND_LIMITS.maxDraftAddresses);
 
@@ -37,6 +77,7 @@ export const ComposeInputSchema = z.object({
   replyTo: z.string().trim().min(3).max(254).optional(),
   /** Mail id this compose answers. Sets In-Reply-To/References and joins its thread. */
   replyToMessageId: z.string().min(1).optional(),
+  attachments: AttachmentList,
 });
 export type ComposeInput = z.infer<typeof ComposeInputSchema>;
 
@@ -52,6 +93,7 @@ export const ReplyInputSchema = z.object({
   fromName: z.string().max(120).optional(),
   /** Extra recipients to bring in, beyond the one the message came from. */
   cc: AddressList.optional(),
+  attachments: AttachmentList,
 });
 export type ReplyInput = z.infer<typeof ReplyInputSchema>;
 
