@@ -34,13 +34,13 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Vietnamese interface with an English fallback, chosen in Settings and remembered (also for the new-mail notification) | ✅ E2E at 412px |
 | Interface redesign: graphite + paper themes, self-hosted Manrope/JetBrains Mono, icon nav, sender monograms, authentication rail per row, skeletons, motion | ✅ 27 E2E + AA contrast guard |
 | Interaction model: ⌘K / `/` command palette, two-pane inbox with j/k/e, one-tap OTP copy from the row, new-mail toast | ✅ 7 E2E |
-| Sending: compose to anybody or answer a message from its alias, conversations kept in one thread, per-domain Email Sending behind an explicit DMARC confirmation | ✅ 32 send tests, 4 E2E |
+| Sending: compose to anybody or answer a message from its alias, **with files sent and kept**, conversations kept in one thread, per-domain Email Sending behind an explicit DMARC confirmation | ✅ 47 send tests, 5 E2E |
 | Reads like a mailbox: one row per conversation, replies that quote what they answer, `c`/`r` shortcuts, recipients completed from your own correspondence, one-click unsubscribe for aligned senders only | ✅ 9 + 5 E2E |
 | Worked over like a mailbox: multi-select with shift ranges, bulk read/star/file/delete, a star of your own, counts per tab and mailbox, `from:` `to:` `has:` `is:` `in:` `after:` `before:` in search | ✅ 32 + 7 E2E |
 | Delivery reported per address: a send to three people shows which one bounced, from Email Sending's own queue events | ✅ consumer tested through `worker.queue` |
 | Frontend structure: `components/mail/*` for the parts of a mail screen, `lib/*` for the decisions (which tab asks for what, what a selection holds, which aliases may sign), mailboxes in the rail as navigation | ✅ 15 unit + 51 E2E |
-| Unit + integration tests (339 passing: worker 239, web 100) | ✅ Green |
-| Playwright E2E (51 passing across desktop and 412px, live workerd + local D1/R2) | ✅ Green |
+| Unit + integration tests (354 passing: worker 254, web 100) | ✅ Green |
+| Playwright E2E (52 passing across desktop and 412px, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
 See [`DEPLOYMENT.md`](./DEPLOYMENT.md): the implementation receipt records the state at
@@ -176,7 +176,7 @@ state-changing methods, the `x-mailvault: 1` header + same-origin (CSRF).
 | POST | `/api/messages/bulk` | Read / unread / star / unstar / archive / unarchive / delete a selection (up to 200 ids) |
 | GET | `/api/messages/:id` | Detail with sanitized HTML, codes, links, attachments, and per-address delivery state |
 | PATCH | `/api/messages/:id/read` | Set read flag |
-| POST | `/api/outbox` | Compose a new message from one of your active aliases |
+| POST | `/api/outbox` | Compose a new message from one of your active aliases, with up to 8 files (5 MiB for the whole message) |
 | GET | `/api/outbox/capabilities` | Which domains may sign mail, and today's remaining budget |
 | POST | `/api/messages/:id/reply` | Answer a message from the alias it arrived on (recipient read from the stored headers) |
 | GET | `/api/threads/:id` | Every message of one conversation, received and sent, oldest first |

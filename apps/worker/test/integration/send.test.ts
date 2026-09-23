@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ExecutionContext } from "@cloudflare/workers-types";
+import { SEND_LIMITS } from "@mailvault/shared";
 import type { Env } from "../../src/env";
 import worker from "../../src/index";
 import { newId, nowIso } from "../../src/lib/util";
@@ -405,6 +406,157 @@ describe("replying inside a conversation", () => {
     expect(res.status).toBe(201);
     expect(sent[0].to).toEqual(["billing@shop.example"]);
     expect(sent[0].from).toBe(aliasAddress);
+  });
+});
+
+describe("sending files along with a message", () => {
+  /** What the compose screen sends: the file's bytes as base64, plus its name and type. */
+  function file(filename: string, bytes: Uint8Array, type = "text/plain") {
+    return { filename, type, content: Buffer.from(bytes).toString("base64") };
+  }
+  const asBytes = (s: string) => new TextEncoder().encode(s);
+
+  async function composeWith(payload: Record<string, unknown>) {
+    const res = await worker.fetch(
+      req("/api/outbox", { method: "POST", headers: H, body: JSON.stringify({ fromAddress: aliasAddress, to: ["a@b.example"], text: "see attached", ...payload }) }),
+      TEST_ENV,
+      CTX,
+    );
+    return { res, body: await j(res) };
+  }
+
+  /** The base64 of one entity, read up to the next delimiter rather than to the end. */
+  function decodeEntity(raw: string, from: number): string {
+    const next = raw.indexOf("\r\n--", from);
+    return decodeTextPart(raw.slice(from, next < 0 ? undefined : next));
+  }
+
+  it("keeps its own copy of the file, and serves it back through the authenticated route", async () => {
+    const body = asBytes("Tổng: 1.500.000đ");
+    const { res, body: outcome } = await composeWith({ subject: "Invoice", attachments: [file("invoice.txt", body)] });
+    expect(res.status).toBe(201);
+
+    const stored = await row(outcome.id);
+    expect(stored.has_attachments).toBe(1);
+    expect(stored.attachment_count).toBe(1);
+
+    // The binding is handed the file in the shape the runtime documents, base64 and all.
+    expect(sent[0].attachments).toHaveLength(1);
+    expect(sent[0].attachments[0]).toMatchObject({ disposition: "attachment", filename: "invoice.txt", type: "text/plain" });
+    expect(Buffer.from(sent[0].attachments[0].content, "base64").toString("utf8")).toBe("Tổng: 1.500.000đ");
+
+    const detail = await j(await worker.fetch(req(`/api/messages/${outcome.id}`), TEST_ENV, CTX));
+    expect(detail.attachments[0]).toMatchObject({ filename: "invoice.txt", contentType: "text/plain", size: body.byteLength });
+
+    const dl = await worker.fetch(req(detail.attachments[0].downloadPath), TEST_ENV, CTX);
+    expect(dl.status).toBe(200);
+    expect(dl.headers.get("content-disposition")).toContain("attachment; filename=");
+    expect(dl.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await dl.text()).toBe("Tổng: 1.500.000đ");
+  });
+
+  it("stores the record of a file message as multipart, so the download is the whole mail", async () => {
+    const { res, body: outcome } = await composeWith({ attachments: [file("notes.txt", asBytes("one\nthree"))] });
+    const raw = await (await BUCKET.get((await row(outcome.id)).raw_r2_key))!.text();
+    expect(res.status).toBe(201);
+    expect(raw).toContain("Content-Type: multipart/mixed;");
+    expect(raw).toContain('Content-Disposition: attachment; filename="notes.txt"');
+    expect(decodeEntity(raw, raw.indexOf("Content-Type: text/plain"))).toBe("see attached");
+    expect(decodeEntity(raw, raw.indexOf("Content-Disposition"))).toBe("one\nthree");
+    // The size the row reports is the whole record, which is what a quota is counted in.
+    expect((await row(outcome.id)).raw_size).toBe(new TextEncoder().encode(raw).byteLength);
+  });
+
+  it("keeps the owner's file name in the record and a safe one on the wire", async () => {
+    const original = "Hoá đơn tháng 9.pdf.txt";
+    const { body: outcome } = await composeWith({ attachments: [file(original, asBytes("x"))] });
+    const [att] = (await DB.prepare(`SELECT * FROM attachments WHERE message_id = ?1`).bind(outcome.id).all<any>()).results;
+    expect(att.filename).toBe(original);
+    expect(att.safe_filename).toMatch(/^[A-Za-z0-9._-]+$/);
+    expect(att.safe_filename.endsWith(".txt")).toBe(true);
+    const raw = await (await BUCKET.get((await row(outcome.id)).raw_r2_key))!.text();
+    expect(raw).toContain(`filename="${att.safe_filename}"`);
+    expect(sent[0].attachments[0].filename).toBe(att.safe_filename);
+  });
+
+  it("will not let a file name write a header of its own", async () => {
+    const { body: outcome } = await composeWith({ subject: "Real subject", attachments: [file("x\r\nX-Injected: yes.txt", asBytes("y"))] });
+    const raw = await (await BUCKET.get((await row(outcome.id)).raw_r2_key))!.text();
+    expect(raw).not.toMatch(/^X-Injected:/m);
+    expect(raw.match(/^Subject:/gm)).toHaveLength(1);
+    expect(raw.match(/filename=/g)).toHaveLength(1);
+  });
+
+  it("says so when a file did not arrive as readable bytes", async () => {
+    const { res, body } = await composeWith({ attachments: [{ filename: "half.txt", type: "text/plain", content: "A" }] });
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe("BAD_ATTACHMENT");
+    expect(sent).toHaveLength(0);
+    expect((await DB.prepare(`SELECT count(*) AS n FROM messages WHERE direction = 'OUT'`).first<any>()).n).toBe(0);
+  });
+
+  it("refuses a file that alone cannot fit inside one message", async () => {
+    // The request may carry a file of up to a whole message's size — the shape cannot tell that
+    // one file and three small ones apart — so this is the assembled message saying no.
+    const { res, body } = await composeWith({ attachments: [file("big.bin", new Uint8Array(SEND_LIMITS.maxTotalBytes + 1))] });
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe("TOO_LARGE");
+    expect(sent).toHaveLength(0);
+    expect((await DB.prepare(`SELECT count(*) AS n FROM attachments`).first<any>()).n).toBe(0);
+  });
+
+  it("measures the whole message, not each part, against the ceiling", async () => {
+    // Three files of 1.9 MB each: every one of them could be sent alone, and the assembled
+    // message cannot. The refusal has to come before anything is written down.
+    const big = new Uint8Array(1_900_000).fill(7);
+    const { res, body } = await composeWith({
+      attachments: [file("a.bin", big, "application/octet-stream"), file("b.bin", big, "application/octet-stream"), file("c.bin", big, "application/octet-stream")],
+    });
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe("TOO_LARGE");
+    expect(body.error.message).toMatch(/5\.0 MB/);
+    expect(sent).toHaveLength(0);
+    expect((await DB.prepare(`SELECT count(*) AS n FROM messages WHERE direction = 'OUT'`).first<any>()).n).toBe(0);
+    expect((await DB.prepare(`SELECT count(*) AS n FROM attachments`).first<any>()).n).toBe(0);
+  });
+
+  it("refuses more files than one message may carry", async () => {
+    const tiny = new Uint8Array([1, 2, 3]);
+    const { res, body } = await composeWith({ attachments: Array.from({ length: SEND_LIMITS.maxAttachments + 1 }, (_, i) => file(`f${i}.bin`, tiny, "application/octet-stream")) });
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("takes files on a reply too, through the same rules", async () => {
+    const parentId = await seedIncoming();
+    const res = await worker.fetch(
+      req(`/api/messages/${parentId}/reply`, { method: "POST", headers: H, body: JSON.stringify({ text: "here you go", attachments: [file("proof.txt", asBytes("done"))] }) }),
+      TEST_ENV,
+      CTX,
+    );
+    expect(res.status).toBe(201);
+    const outcome = await j(res);
+    expect(sent[0].attachments[0].content).toBe(Buffer.from("done", "utf8").toString("base64"));
+    const detail = await j(await worker.fetch(req(`/api/messages/${outcome.id}`), TEST_ENV, CTX));
+    expect(detail.attachments.map((a: any) => a.filename)).toEqual(["proof.txt"]);
+  });
+
+  it("finds sent mail by the fact that it carries a file", async () => {
+    await composeWith({ attachments: [file("one.txt", asBytes("1"))] });
+    await composeWith({ subject: "no files" });
+    const found = await j(await worker.fetch(req("/api/messages?direction=out&q=has:attachment"), TEST_ENV, CTX));
+    expect(found.items).toHaveLength(1);
+    expect(found.items[0].attachmentCount).toBe(1);
+  });
+
+  it("deletes the stored file with the message", async () => {
+    const { body: outcome } = await composeWith({ attachments: [file("gone.txt", asBytes("bye"))] });
+    const key = (await DB.prepare(`SELECT r2_key FROM attachments WHERE message_id = ?1`).bind(outcome.id).first<any>()).r2_key;
+    expect(await BUCKET.get(key)).toBeTruthy();
+    const res = await worker.fetch(req(`/api/messages/${outcome.id}`, { method: "DELETE", headers: { "x-mailvault": "1" } }), TEST_ENV, CTX);
+    expect(res.status).toBe(200);
+    expect(await BUCKET.get(key)).toBeNull();
   });
 });
 

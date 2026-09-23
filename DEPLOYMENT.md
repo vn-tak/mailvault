@@ -279,8 +279,8 @@ of this system, so this addendum records the difference.
     `wrangler queues create mail-delivery-events`. The handler dispatches on `batch.queue`, so
     a batch is never guessed at from its shape.
   - **The event subscription is an account resource, not part of a deploy**, and it needs
-    wrangler 4 (`wrangler queues subscription create …`), while this project pins wrangler 3
-    for deploys. Create it once per sending domain:
+    wrangler 4 (`wrangler queues subscription create …`) — which is what this project pins, see
+    *Toolchain: wrangler 3 → 4* below. Create it once per sending domain:
 
     ```bash
     npx wrangler@4 queues subscription create mail-delivery-events \
@@ -297,6 +297,25 @@ of this system, so this addendum records the difference.
   - Tab badges come from `GET /api/messages/counters`, counted over the whole mailbox. On a
     handset they are hidden, because five tabs carrying counts no longer share their line with
     the mailbox picker, and a third line of filters is what `mailboxes.spec.ts` exists to catch.
+
+- **Sending files with a message** (this round):
+  - **No migration.** The `attachments` table and the `has_attachments` / `attachment_count`
+    columns were built for received mail; a send now writes them with its own rows, so a sent
+    message's files are listed, downloaded and deleted by the code that already does that for
+    an inbound one.
+  - A compose carries each file as base64 in the JSON body. The Worker decodes it once, puts the
+    bytes in the private bucket, and hands the *same* base64 to the `send_email` binding — so the
+    copy that left and the copy kept cannot drift apart. The `.eml` record is the assembled
+    `multipart/mixed` message, which is why `raw_size` on a sent row now reads as the whole
+    message rather than its text.
+  - Two ceilings, from different places. **8 files** per message is ours, a shape guard.
+    **5 MiB** for the assembled message is Cloudflare's, measured on the bytes that would go —
+    base64 adds a third, so the practical single-file limit is nearer 3.7 MB. A compose over
+    either is refused before a row, an object or a send.
+  - The local runtime accepts a file whose `content` is a base64 string; an `ArrayBuffer` does not
+    serialize through the simulator. That is why the E2E attaches for real instead of asserting a
+    stub, and it is a constraint worth knowing before anyone changes the payload shape.
+  - Nothing new to create: no queue, no secret, no DNS. Deploy is the same command.
 
 ## Why it was `DEPLOYMENT_BLOCKED_CREDENTIALS`
 
@@ -335,6 +354,12 @@ npx playwright install chromium      # once
 pnpm build:web
 pnpm test:e2e
 ```
+
+The seed is applied when that server **starts**, not between specs, so a run against a
+reused `localhost:8787` inherits whatever the last run left in local D1. Measured: a second
+full run on one server failed `ui.spec.ts`'s phone menu test, which archives a seeded alias
+and so expects to find it active. Restart the dev server (or drop the port to Playwright)
+before reading a repeat failure as a regression — CI is unaffected, it boots its own.
 
 Verified locally with `wrangler 4.136.x` + its workerd, using `wrangler.dev.jsonc`
 (`compatibility_date: 2025-07-18`, `DEV_AUTH_BYPASS=true`, `ENVIRONMENT=development`).

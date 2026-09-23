@@ -978,6 +978,41 @@ tr:last-child td { border-bottom: 0; }
 .composer-foot { align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .composer-foot .row-end { margin-left: auto; }
 
+/* The picker stays the browser's own — it is what brings "take a photo" on a phone — so only
+   its button is brought into the design system, where the operating system's grey would sit on
+   a dark surface looking like a control that belongs to something else. */
+.composer-files input[type="file"] { cursor: pointer; }
+.composer-files input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.composer-files input[type="file"]::file-selector-button:hover { border-color: var(--accent); }
+
+/* One row per file: the name is what identifies it and the size is what the send limit is
+   counted against, so both are shown and the name is the one that wraps. */
+.file-list { list-style: none; display: grid; gap: 6px; margin-top: var(--space-1); }
+.file-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 6px 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  font-size: var(--text-sm);
+}
+.file-list .file-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.file-list .faint { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--text-xs); }
+
+.field-hint.is-error { color: var(--danger); }
+
 /* The conversation count rides the subject line: it is a property of the thread, not of
    the sender, and it is what stops three-message traffic reading as one loose message. */
 .msg-thread-count {

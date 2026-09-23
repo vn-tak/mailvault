@@ -288,6 +288,17 @@ composes from the owner's mail client rather than from anything MailVault sends.
   filename (directories, control chars, path traversal and a restrictive charset are
   stripped; extension preserved), plus `X-Content-Type-Options: nosniff` and
   `Cache-Control: private, no-store`. Dangerous types are never inlined.
+- **Sent mail keeps its files too.** They arrive in the compose request as base64, are decoded
+  once, and are stored as the bytes that left — under the same key scheme and the same
+  authenticated route as received attachments. The `.eml` record is the assembled
+  `multipart/mixed` message, so downloading a sent message returns the whole of it.
+- A filename is the one part of a file its sender chooses, and it is written into MIME headers on
+  the way out. The wire copy and the R2 key use `sanitizeFilename()`; the row keeps the owner's
+  original name for display. A name carrying CRLF therefore cannot add a header line, which
+  `test/integration/send.test.ts` asserts against the stored record rather than in a unit test.
+- Size is judged on the assembled message, not part by part: base64 adds a third to every file and
+  the platform's 5 MiB ceiling counts bodies, headers and files together. A compose that would not
+  fit is refused before a row, an object or a send — so a refusal leaves nothing behind.
 
 ## 8. Alias safety — refuse unknown mail
 
@@ -360,6 +371,11 @@ a chain of refusals, each with its own reason code that the UI translates.
   with `direction='OUT'`), then updated with what the transport said. A send that succeeds
   while the database is unhappy cannot produce mail the owner sent and never sees again; a
   send that fails leaves a record marked `FAILED` with the reason.
+- **Files are sent, and kept.** A compose may carry up to 8 files, base64 in the request; each is
+  decoded once, written to R2 beside the message, and recorded in `attachments`, so it reads back
+  through the same authenticated download route as received mail (§7). The bytes handed to the
+  binding and the bytes in the `.eml` record are the same ones, and both carry the sanitized
+  filename — a name is sender-chosen text that reaches a header.
 - **Per-domain opt-in, with a visible consequence.** Sending is refused unless
   `domains.sending_status='ENABLED'`, and only an explicit owner action sets it. That action
   shows the exact DNS records Cloudflare's read-only preview says it will write, because
@@ -541,8 +557,11 @@ length, pagination limits (≤200), filter enums, etc. Validation failures retur
 
 ## 12. What is deliberately out of scope in V1
 
-- Inbound attachments larger than the platform's own ceiling, and **outbound** attachments
-  (compose writes bodies only; the 5 MiB total limit is a per-message fact the UI states).
+- Inbound attachments larger than the platform's own per-message ceiling — such a message never
+  reaches the Worker, and the size is refused at the edge rather than half-stored. (Outbound files
+  are supported, counted against the same ceiling: see §7.)
+- Inline images in a sent message (`cid:` references inside the HTML). Files travel as
+  attachments, which is what the receiving client can be relied on to show.
 - Multi-user tenancy and per-user authorization (single owner behind Access).
 - Retry-on-bounce and suppression lists of MailVault's own making: a refusal is reported, and
   the account-level suppression list under Email Sending is what enforces it.
