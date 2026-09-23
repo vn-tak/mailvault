@@ -14,6 +14,12 @@ import { useAsync } from "./useAsync";
 export interface SendableAlias {
   address: string;
   label: string | null;
+  /**
+   * Where a message from this alias actually leaves. Equal to `address` unless the domain was
+   * pointed at one of its zone's sending subdomains, in which case the local part carries over
+   * and answers come back to `address`.
+   */
+  sendingAddress: string;
 }
 
 export interface Outbox {
@@ -28,10 +34,19 @@ export function useOutbox(): Outbox {
   const aliasPage = useAsync(() => api.listAliases(), []);
 
   const aliases = useMemo(() => {
-    const sendable = new Set((caps.data?.domains ?? []).filter((d) => d.canSend).map((d) => d.domainId));
+    const sendable = new Map(
+      (caps.data?.domains ?? []).filter((d) => d.canSend).map((d) => [d.domainId, d.sendingVia]),
+    );
     return (aliasPage.data?.items ?? [])
       .filter((a) => a.status === "ACTIVE" && sendable.has(a.domainId))
-      .map((a) => ({ address: a.address, label: a.label }));
+      .map((a) => {
+        const via = sendable.get(a.domainId) ?? null;
+        return {
+          address: a.address,
+          label: a.label,
+          sendingAddress: via ? `${a.address.slice(0, a.address.lastIndexOf("@"))}@${via}` : a.address,
+        };
+      });
   }, [aliasPage.data, caps.data]);
 
   return {

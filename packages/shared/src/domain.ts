@@ -47,11 +47,17 @@ export const DomainSchema = z.object({
   /** How this domain handles mail whose sender failed authentication. */
   authPolicy: z.nativeEnum(AuthPolicy).default(AuthPolicy.Warn),
   /**
-   * Whether Email Sending is onboarded for this domain, i.e. whether it may be used as a
-   * `From`. Tracked apart from the receiving state because the two have separate DNS
-   * records and separate owner confirmations.
+   * Whether Email Sending is onboarded for the name this domain sends under — `sendingVia`
+   * when one is set, the domain itself otherwise. Tracked apart from the receiving state
+   * because the two have separate DNS records and separate owner confirmations.
    */
   sendingStatus: z.nativeEnum(SendingStatus).default(SendingStatus.Unknown),
+  /**
+   * The Email Sending name this domain's mail leaves as, when it is not the domain's own.
+   * Aliases stay on `name` — that is where mail is received and answered — while the sending
+   * records, including the DMARC policy, sit on a subdomain nobody else uses.
+   */
+  sendingVia: z.string().nullable().default(null),
   /** Cloudflare's sending-subdomain tag, kept so the state can be re-read and undone. */
   sendingTag: z.string().nullable().default(null),
   sendingCheckedAt: z.string().nullable().default(null),

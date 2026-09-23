@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { SendingStatus, type SendingPreview } from "@mailvault/shared";
+import { SendingStatus, SetSendingViaInputSchema, type SendingPreview } from "@mailvault/shared";
 import type { AppEnv } from "../app-env";
 import { domainDenylist } from "../env";
-import { getDomainByZoneId, listDomains, setDomainSending } from "../db/domains";
+import { getDomainByZoneId, listDomains, setDomainSending, setDomainSendingVia } from "../db/domains";
 import { log } from "../lib/logging";
 import { nowIso } from "../lib/util";
 import { AppError, badRequest } from "../lib/errors";
@@ -17,6 +17,15 @@ const EnableBody = z.object({ allowDmarcTakeover: z.boolean().default(false) });
 
 /** Codes that mean "a DMARC record already exists here", from Cloudflare's own preview. */
 const DMARC_CODES = new Set(["dmarc.multiple", "dmarc.incompatible"]);
+
+/**
+ * The Email Sending name this domain's mail goes out under — a chosen subdomain when the owner
+ * picked one, the domain itself otherwise. Cloudflare onboards sending per name inside a zone,
+ * so this is the name every sending question has to be asked about.
+ */
+function sendingName(domain: { name: string; sendingVia: string | null }): string {
+  return domain.sendingVia ?? domain.name;
+}
 
 async function stateOf(client: CloudflareClient, zoneId: string, name: string) {
   const rows = await client.listSendingDomains(zoneId);
@@ -36,17 +45,18 @@ async function stateOf(client: CloudflareClient, zoneId: string, name: string) {
 async function previewDomainSending(
   client: CloudflareClient,
   db: D1Database,
-  domain: { id: string; cloudflareZoneId: string; name: string },
+  domain: { id: string; cloudflareZoneId: string; name: string; sendingVia: string | null },
 ): Promise<SendingPreview> {
-  const preview = await client.previewSending(domain.cloudflareZoneId, domain.name);
+  const target = sendingName(domain);
+  const preview = await client.previewSending(domain.cloudflareZoneId, target);
   const conflicts = preview.errors.filter((e) => !!e.existing || (e.multiple?.length ?? 0) > 0 || DMARC_CODES.has(e.code));
   const dmarcConflict = preview.errors.some(
     (e) => DMARC_CODES.has(e.code) || (e.code.startsWith("dmarc.") && (!!e.existing || (e.multiple?.length ?? 0) > 0)),
   );
-  const alreadyEnabled = (await stateOf(client, domain.cloudflareZoneId, domain.name)).status === SendingStatus.Enabled;
+  const alreadyEnabled = (await stateOf(client, domain.cloudflareZoneId, target)).status === SendingStatus.Enabled;
   const result: SendingPreview = {
     domainId: domain.id,
-    domainName: domain.name,
+    domainName: target,
     alreadyEnabled,
     records: preview.records.map((r) => ({
       name: r.name,
@@ -82,19 +92,77 @@ export const sendingRoute = new Hono<AppEnv>()
   .post("/api/sending/refresh", async (c) => {
     const client = cfClient(c.env);
     const domains = await listDomains(c.env.DB);
-    const out: { domain: string; status: string; error?: string }[] = [];
+    const out: { domain: string; via: string; status: string; error?: string }[] = [];
     for (const d of domains) {
+      const via = sendingName(d);
       try {
-        const state = await stateOf(client, d.cloudflareZoneId, d.name);
+        const state = await stateOf(client, d.cloudflareZoneId, via);
         await setDomainSending(c.env.DB, d.id, { sendingStatus: state.status, sendingTag: state.tag });
-        out.push({ domain: d.name, status: state.status });
+        out.push({ domain: d.name, via, status: state.status });
       } catch (err) {
         const message = err instanceof CloudflareApiError ? err.message : "check failed";
-        out.push({ domain: d.name, status: SendingStatus.Unknown, error: message });
+        out.push({ domain: d.name, via, status: SendingStatus.Unknown, error: message });
       }
     }
     log.info("sending_refreshed", { actor: actorOf(c).email, domains: out.length });
     return c.json({ items: out });
+  })
+
+  /**
+   * Every Email Sending name this zone has, enabled or not.
+   *
+   * Read live rather than stored: the list is Cloudflare's, it is small, and a cached copy would
+   * be exactly the kind of stale fact that makes an owner enable a name twice.
+   */
+  .get("/api/domains/:id/sending/names", async (c) => {
+    const { id: zoneId } = ZoneIdParam.parse({ id: c.req.param("id") });
+    const domain = await getDomainByZoneId(c.env.DB, zoneId);
+    if (!domain) throw badRequest("Unknown domain");
+    try {
+      const rows = await cfClient(c.env).listSendingDomains(domain.cloudflareZoneId);
+      return c.json({
+        items: rows
+          .map((r) => ({ name: r.name, enabled: !!r.enabled, tag: r.tag ?? null }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      });
+    } catch (err) {
+      throw asApiError(err);
+    }
+  })
+
+  /**
+   * Point a domain's mail at one of its zone's sending names.
+   *
+   * This writes nothing at Cloudflare — it only decides which name the other routes in this file
+   * ask about, and which address a compose leaves from. The chosen name has to live inside this
+   * zone, because a sending identity belongs to the zone whose DNS signs for it.
+   */
+  .put("/api/domains/:id/sending-via", async (c) => {
+    const { id: zoneId } = ZoneIdParam.parse({ id: c.req.param("id") });
+    const { name } = await readJson(c, SetSendingViaInputSchema);
+    const domain = await getDomainByZoneId(c.env.DB, zoneId);
+    if (!domain) throw badRequest("Unknown domain");
+
+    const apex = domain.name.toLowerCase();
+    const target = name?.trim().toLowerCase() ?? null;
+    if (target && target !== apex && !target.endsWith(`.${apex}`)) {
+      throw badRequest(`${target} is not a name inside ${domain.name}.`);
+    }
+    // Choosing the apex by its own name is the same decision as choosing nothing.
+    const via = target && target !== apex ? target : null;
+
+    await setDomainSendingVia(c.env.DB, domain.id, via);
+    let status: SendingStatus = SendingStatus.Unknown;
+    try {
+      status = (await stateOf(cfClient(c.env), domain.cloudflareZoneId, via ?? domain.name)).status;
+      await setDomainSending(c.env.DB, domain.id, { sendingStatus: status, sendingTag: null });
+    } catch (err) {
+      // The choice stands even when Cloudflare cannot be reached right now; the next refresh
+      // fills the state in. Refusing here would leave the owner with a half-made decision.
+      log.warn("sending_via_state_unread", { zoneId, error: err instanceof Error ? err.message : "check failed" });
+    }
+    log.info("domain_sending_via_set", { actor: actorOf(c).email, domain: domain.name, via: via ?? domain.name, status });
+    return c.json({ domainId: domain.id, sendingVia: via, sendingStatus: status });
   })
 
   .get("/api/domains/:id/sending", async (c) => {
@@ -134,6 +202,7 @@ export const sendingRoute = new Hono<AppEnv>()
     }
 
     const client = cfClient(c.env);
+    const target = sendingName(domain);
     // Read the ground truth first and act on it, not on what the last request said: the
     // checkbox only means anything if the conflict it refers to is still there.
     const preview = await previewDomainSending(client, c.env.DB, domain);
@@ -141,7 +210,7 @@ export const sendingRoute = new Hono<AppEnv>()
       throw new AppError(
         409,
         "DMARC_CONFLICT",
-        `${domain.name} already has a DMARC record. Enabling sending would change it, and that policy covers every sender using this domain.`,
+        `${target} already has a DMARC record. Enabling sending would change it, and that policy covers every sender using this domain.`,
         { records: preview.records, issues: preview.issues },
       );
     }
@@ -151,9 +220,9 @@ export const sendingRoute = new Hono<AppEnv>()
     }
 
     try {
-      const row = await client.enableSending(domain.cloudflareZoneId, domain.name);
+      const row = await client.enableSending(domain.cloudflareZoneId, target);
       await setDomainSending(c.env.DB, domain.id, { sendingStatus: SendingStatus.Enabled, sendingTag: row.tag });
-      log.info("domain_sending_enabled", { actor: actorOf(c).email, zoneId, domain: domain.name, tookOverDmarc: preview.dmarcConflict });
+      log.info("domain_sending_enabled", { actor: actorOf(c).email, zoneId, domain: target, tookOverDmarc: preview.dmarcConflict });
       return c.json({ domainId: domain.id, sendingStatus: SendingStatus.Enabled, alreadyEnabled: false, records: preview.records }, 201);
     } catch (err) {
       const mapped = asApiError(err);

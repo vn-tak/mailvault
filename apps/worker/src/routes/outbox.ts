@@ -72,6 +72,8 @@ export const outboxRoute = new Hono<AppEnv>()
         name: d.name,
         mailStatus: d.mailStatus,
         sendingStatus: d.sendingStatus,
+        /** The name mail actually leaves under, when it is not the domain's own. */
+        sendingVia: d.sendingVia,
         canSend: d.sendingStatus === "ENABLED",
       })),
     });

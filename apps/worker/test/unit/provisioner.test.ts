@@ -26,6 +26,7 @@ const row: DomainRow = {
   conflict_details_json: null,
   auth_policy: AuthPolicy.Warn,
   sending_status: SendingStatus.Unknown,
+  sending_via: null,
   sending_tag: null,
   sending_checked_at: null,
   last_checked_at: null,

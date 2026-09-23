@@ -668,6 +668,7 @@ export function Domains() {
         <SendingDialog
           domain={sendingFor}
           onClose={() => setSendingFor(null)}
+          onChanged={reload}
           onDone={(message) => {
             setSendingFor(null);
             setNotice(message);
@@ -712,18 +713,41 @@ function SendingDialog({
   domain,
   onClose,
   onDone,
+  onChanged,
   onError,
 }: {
   domain: Domain;
   onClose: () => void;
   onDone: (message: string) => void;
+  /** The chosen sending name landed; re-read the list without closing this dialog. */
+  onChanged: () => void;
   onError: (message: string) => void;
 }) {
-  const { data: preview, error, loading } = useAsync(() => api.sendingPreview(domain.cloudflareZoneId), [domain.cloudflareZoneId]);
+  // The dialog's own copy, because `domain` is a snapshot: after a choice lands the list
+  // refetches but this prop does not, and a stale name here would preview the wrong identity.
+  const [via, setVia] = useState<string | null>(domain.sendingVia);
+  const { data: preview, error, loading } = useAsync(() => api.sendingPreview(domain.cloudflareZoneId), [domain.cloudflareZoneId, via]);
+  const { data: names } = useAsync(() => api.sendingNames(domain.cloudflareZoneId), [domain.cloudflareZoneId]);
   const [confirmDmarc, setConfirmDmarc] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const blocked = !!preview?.dmarcConflict && !confirmDmarc;
+  // The zone's other sending names, which is how a domain reaches an identity that is already
+  // onboarded without anybody writing a DMARC policy at its apex.
+  const others = (names?.items ?? []).filter((n) => n.name.toLowerCase() !== domain.name.toLowerCase());
+
+  /** Point this domain's mail at one of its zone's sending names. Writes no DNS. */
+  async function chooseVia(chosen: string) {
+    setBusy(true);
+    try {
+      await api.setSendingVia(domain.cloudflareZoneId, chosen || null);
+      setVia(chosen || null);
+      onChanged();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : t("dom.sendingViaFailed"));
+    }
+    setBusy(false);
+  }
 
   async function enable() {
     setBusy(true);
@@ -731,7 +755,7 @@ function SendingDialog({
       // The route decides that a DMARC takeover needs the passkey; the page only reacts to
       // the 403 and replays the call, so a gate added later cannot be missed here.
       const r = await withStepUp(() => api.enableSending(domain.cloudflareZoneId, !!preview?.dmarcConflict));
-      onDone(t(r.alreadyEnabled ? "dom.sendingAlreadyOn" : "dom.sendingEnabledDone", { domain: domain.name }));
+      onDone(t(r.alreadyEnabled ? "dom.sendingAlreadyOn" : "dom.sendingEnabledDone", { domain: preview?.domainName ?? domain.name }));
     } catch (err) {
       onError(err instanceof Error ? err.message : t("dom.sendingNeedsPermission"));
       setBusy(false);
@@ -744,11 +768,25 @@ function SendingDialog({
       {error && <ErrorBanner message={error} />}
       {preview && (
         <>
+          {others.length > 0 ? (
+            <div className="field">
+              <label htmlFor="sending-via">{t("dom.sendingVia")}</label>
+              <select id="sending-via" value={via ?? ""} disabled={busy} onChange={(e) => void chooseVia(e.target.value)}>
+                <option value="">{domain.name}</option>
+                {others.map((n) => (
+                  <option key={n.name} value={n.name}>
+                    {n.name} · {t(n.enabled ? "dom.sendingEnabled" : "dom.sendingDisabled")}
+                  </option>
+                ))}
+              </select>
+              <div className="field-hint">{t("dom.sendingViaHint")}</div>
+            </div>
+          ) : null}
           {preview.alreadyEnabled ? (
-            <div className="banner ok">{t("dom.sendingAlreadyOn")}</div>
+            <div className="banner ok">{t("dom.sendingAlreadyOnVia", { domain: preview.domainName })}</div>
           ) : (
             <>
-              <p className="muted">{t("dom.enableSendingBody", { domain: domain.name })}</p>
+              <p className="muted">{t("dom.enableSendingBody", { domain: preview.domainName })}</p>
               <ul className="record-list mono">
                 {preview.records.map((r) => (
                   <li key={`${r.type}:${r.name}`}>
@@ -757,13 +795,13 @@ function SendingDialog({
                   </li>
                 ))}
               </ul>
-              <div className="banner">{t("dom.enableSendingNote", { domain: domain.name })}</div>
+              <div className="banner">{t("dom.enableSendingNote", { domain: preview.domainName })}</div>
               {preview.dmarcConflict ? (
                 <>
-                  <div className="banner error">{t("dom.dmarcConflict", { domain: domain.name })}</div>
+                  <div className="banner error">{t("dom.dmarcConflict", { domain: preview.domainName })}</div>
                   <label className="row checkbox-row">
                     <input type="checkbox" checked={confirmDmarc} onChange={(e) => setConfirmDmarc(e.target.checked)} />
-                    <span>{t("dom.dmarcConfirm", { domain: domain.name })}</span>
+                    <span>{t("dom.dmarcConfirm", { domain: preview.domainName })}</span>
                   </label>
                 </>
               ) : null}

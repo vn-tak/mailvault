@@ -38,8 +38,9 @@ Workers Static Assets for the SPA, and Cloudflare Access for authentication.
 | Reads like a mailbox: one row per conversation, replies that quote what they answer, `c`/`r` shortcuts, recipients completed from your own correspondence, one-click unsubscribe for aligned senders only | ✅ 9 + 5 E2E |
 | Worked over like a mailbox: multi-select with shift ranges, bulk read/star/file/delete, a star of your own, counts per tab and mailbox, `from:` `to:` `has:` `is:` `in:` `after:` `before:` in search | ✅ 32 + 7 E2E |
 | Delivery reported per address: a send to three people shows which one bounced, from Email Sending's own queue events | ✅ consumer tested through `worker.queue` |
+| Sends under a name of its own choosing: a domain may send through an onboarded subdomain of the same zone, so the DMARC policy lands where nothing else sends and answers still come back to the alias | ✅ 9 integration tests |
 | Frontend structure: `components/mail/*` for the parts of a mail screen, `lib/*` for the decisions (which tab asks for what, what a selection holds, which aliases may sign), mailboxes in the rail as navigation | ✅ 15 unit + 51 E2E |
-| Unit + integration tests (354 passing: worker 254, web 100) | ✅ Green |
+| Unit + integration tests (364 passing: worker 264, web 100) | ✅ Green |
 | Playwright E2E (52 passing across desktop and 412px, live workerd + local D1/R2) | ✅ Green |
 | Deployed + receiving real mail on 32 of 36 owner domains (4 excluded by config) | ✅ Live |
 
@@ -182,6 +183,8 @@ state-changing methods, the `x-mailvault: 1` header + same-origin (CSRF).
 | GET | `/api/threads/:id` | Every message of one conversation, received and sent, oldest first |
 | POST | `/api/sending/refresh` | Re-read each domain's Email Sending state from Cloudflare (read-only) |
 | GET/POST | `/api/domains/:id/sending[/preview]` | What enabling sending would write; enabling itself needs an explicit confirmation |
+| GET | `/api/domains/:id/sending/names` | The zone's Email Sending names, enabled or not, read live from Cloudflare |
+| PUT | `/api/domains/:id/sending-via` | Which of those names this domain's mail leaves under — writes no DNS, and clears the remembered sending status |
 | DELETE | `/api/messages/:id` | Delete a message (+ its R2 objects) |
 | GET | `/api/messages/:mid/attachments/:aid` | Authenticated attachment download (`Content-Disposition`, `nosniff`) |
 | GET | `/api/push/public-key` \| `/status` | VAPID public key + subscription count (never the endpoints) |

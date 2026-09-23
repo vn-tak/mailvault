@@ -35,6 +35,7 @@ export function toDomain(row: DomainRow): Domain {
     conflictDetails: parseJson<ConflictDetails | null>(row.conflict_details_json, null),
     authPolicy: row.auth_policy,
     sendingStatus: row.sending_status,
+    sendingVia: row.sending_via ?? null,
     sendingTag: row.sending_tag ?? null,
     sendingCheckedAt: row.sending_checked_at ?? null,
     lastCheckedAt: row.last_checked_at,

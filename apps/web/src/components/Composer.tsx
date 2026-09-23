@@ -3,6 +3,7 @@ import { api, type ApiClientError } from "../lib/api";
 import { formatBytes, fullTime } from "../lib/format";
 import { SEND_LIMITS, type MessageDetail, type RecipientSuggestion, type SendOutcome } from "@mailvault/shared";
 import { t } from "../lib/i18n";
+import type { SendableAlias } from "../lib/useOutbox";
 import { Modal } from "./ui";
 
 /** A reason to refuse the send button, phrased in the interface language. */
@@ -241,7 +242,7 @@ export function Composer({
   onSent,
 }: {
   replyTo?: MessageDetail | null;
-  sendableAliases: { address: string; label: string | null }[];
+  sendableAliases: SendableAlias[];
   remaining: number;
   /** The server has no way to send at all — said once, up front, instead of on Submit. */
   bindingMissing?: boolean;
@@ -270,6 +271,11 @@ export function Composer({
   }, [replyTo]);
 
   const recipientCount = splitAddresses(to).length + splitAddresses(cc).length;
+  // The address the message really leaves under. It is the alias itself unless the domain was
+  // pointed at one of its zone's sending subdomains, and the owner is told either way.
+  const leavesAs = (address: string) => sendableAliases.find((a) => a.address === address)?.sendingAddress ?? address;
+  const leaving = leavesAs(isReply ? replyTo.aliasAddress : from);
+  const throughSubdomain = leaving !== (isReply ? replyTo.aliasAddress : from);
   const total = wireSize(text, files);
   const overBudget = total > SEND_LIMITS.maxTotalBytes;
   const canSend =
@@ -337,7 +343,11 @@ export function Composer({
           <div className="field">
             <label>{t("composer.answerTo")}</label>
             <div className="composer-static mono">{otherParty}</div>
-            <div className="field-hint">{t("composer.fromRow", { alias: replyTo.aliasAddress })}</div>
+            <div className="field-hint">
+              {throughSubdomain
+                ? t("composer.leavesVia", { sending: leaving, alias: replyTo.aliasAddress })
+                : t("composer.fromRow", { alias: replyTo.aliasAddress })}
+            </div>
           </div>
         ) : (
           <>
@@ -346,13 +356,18 @@ export function Composer({
               {sendableAliases.length === 0 ? (
                 <div className="composer-static">{t("composer.noAliases")}</div>
               ) : (
-                <select id="compose-from" value={from} onChange={(e) => setFrom(e.target.value)}>
-                  {sendableAliases.map((a) => (
-                    <option key={a.address} value={a.address}>
-                      {a.label ? `${a.label} — ${a.address}` : a.address}
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <select id="compose-from" value={from} onChange={(e) => setFrom(e.target.value)}>
+                    {sendableAliases.map((a) => (
+                      <option key={a.address} value={a.address}>
+                        {a.label ? `${a.label} — ${a.address}` : a.address}
+                      </option>
+                    ))}
+                  </select>
+                  {throughSubdomain ? (
+                    <div className="field-hint">{t("composer.leavesVia", { sending: leaving, alias: from })}</div>
+                  ) : null}
+                </>
               )}
             </div>
             <RecipientField id="compose-to" label={t("composer.to")} hint="someone@example.com" value={to} onPick={setTo} />
