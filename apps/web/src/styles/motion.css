@@ -14,8 +14,14 @@
  * A whole view swapping in, so tab changes have a beat of continuity. Deliberately short:
  * this one runs on every navigation, and a page that takes 400ms to arrive feels sluggish
  * even when the data is already there.
+ *
+ * Opacity only, and that is not a style choice: any `transform` on an element makes it the
+ * containing block for `position: fixed` descendants, and the view holds two of them — every
+ * dialog backdrop and the bulk-action bar. A lifted page therefore gave a fixed backdrop the
+ * height of the *page* rather than the viewport, which pushed each sheet's primary button
+ * below the fold and out of reach of a thumb. The lift is 4px; the bug was the whole form.
  */
-@keyframes page-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 

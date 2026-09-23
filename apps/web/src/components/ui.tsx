@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { MailStatus } from "@mailvault/shared";
 import { t } from "../lib/i18n";
 import { ArtMailbox, ArtSearch, ArtAlias, ArtDomain } from "./Icons";
@@ -213,6 +214,14 @@ export function CopyButton({ text, label, small }: { text: string; label?: strin
   );
 }
 
+/**
+ * The one overlay that is not a child of the screen it was opened from.
+ *
+ * A dialog covers the whole window, so living inside a view's DOM makes it inherit that view's
+ * stacking and layout — and any ancestor that animates, transforms or filters quietly becomes
+ * the containing block of its `position: fixed` backdrop. Mounting on `document.body` removes
+ * the whole class of problem, and keeps a sheet above the bottom navigation instead of under it.
+ */
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -220,7 +229,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="row spread">
@@ -231,7 +240,8 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
         </div>
         <div className="mt">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
