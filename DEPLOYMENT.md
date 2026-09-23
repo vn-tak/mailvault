@@ -317,6 +317,24 @@ of this system, so this addendum records the difference.
     stub, and it is a constraint worth knowing before anyone changes the payload shape.
   - Nothing new to create: no queue, no secret, no DNS. Deploy is the same command.
 
+- **Sending through a subdomain of the same domain** (this round):
+  - Migration `0012_sending_via.sql` adds `domains.sending_via`. **Apply it remotely before
+    deploying** (`pnpm db:migrate:remote`); without it the new choice cannot be saved.
+  - Why it exists: Cloudflare onboards Email Sending per *name* inside a zone, and the name that
+    carries the DMARC policy does not have to be the name that receives mail. `send.omnipos.tech`
+    has been onboarded since 2026-09-22 while `omnipos.tech` has not, and enabling the apex would
+    write a domain-wide `_dmarc` over a domain whose other senders MailVault knows nothing about.
+    The choice is what closes that gap without a DNS write.
+  - `PUT /api/domains/:zoneId/sending-via` records the choice and **deliberately clears** the
+    remembered `sending_status`: the old verdict described a different name. `GET
+    /api/domains/:zoneId/sending/names` lists the zone's sending names live, because a cached
+    list is how somebody ends up enabling the same name twice.
+  - A send then leaves as `<local>@<chosen name>` with `Reply-To` on the alias that receives —
+    both derived by the Worker from the alias row and the domain row, never from the request.
+    `POST /api/sending/refresh`, the preview and the enable flow all ask about the chosen name.
+  - Nothing here changes a receiving record, and nothing runs on load: the field is only ever set
+    by an explicit `PUT`.
+
 ## Why it was `DEPLOYMENT_BLOCKED_CREDENTIALS`
 
 At implementation time the build could not be deployed here because the required, secret,

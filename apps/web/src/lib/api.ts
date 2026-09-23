@@ -180,7 +180,19 @@ export const api = {
 
   sendingPreview: (zoneId: string) =>
     request<SendingPreview>(`/domains/${encodeURIComponent(zoneId)}/sending`),
-  refreshSending: () => request<{ items: { domain: string; status: string; error?: string }[] }>("/sending/refresh", mutation()),
+  refreshSending: () =>
+    request<{ items: { domain: string; via: string; status: string; error?: string }[] }>("/sending/refresh", mutation()),
+  /** Every Email Sending name inside this zone, enabled or not. */
+  sendingNames: (zoneId: string) =>
+    request<{ items: { name: string; enabled: boolean; tag: string | null }[] }>(
+      `/domains/${encodeURIComponent(zoneId)}/sending/names`,
+    ),
+  /** Which name this domain's mail leaves under. `null` puts it back to the domain itself. */
+  setSendingVia: (zoneId: string, name: string | null) =>
+    request<{ domainId: string; sendingVia: string | null; sendingStatus: string }>(
+      `/domains/${encodeURIComponent(zoneId)}/sending-via`,
+      mutation({ name }, "PUT"),
+    ),
   enableSending: (zoneId: string, allowDmarcTakeover: boolean) =>
     request<{ domainId: string; sendingStatus: string; alreadyEnabled: boolean }>(
       `/domains/${encodeURIComponent(zoneId)}/sending`,
@@ -226,7 +238,14 @@ export interface OutboxCapabilities {
   sent: number;
   remaining: number;
   maxRecipients: number;
-  domains: { domainId: string; name: string; mailStatus: string; sendingStatus: string; canSend: boolean }[];
+  domains: {
+    domainId: string;
+    name: string;
+    mailStatus: string;
+    sendingStatus: string;
+    sendingVia: string | null;
+    canSend: boolean;
+  }[];
 }
 
 export interface SemanticStatus {

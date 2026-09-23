@@ -5,7 +5,6 @@ import {
   SendingStatus,
   SendStatus,
   type ComposeAttachment,
-  type Domain,
   type SendOutcome,
 } from "@mailvault/shared";
 import type { Env } from "../env";
@@ -174,6 +173,14 @@ export async function sendOutbound(
     );
   }
 
+  // The alias authorises the send; the *sending name* is what Cloudflare signed for. When the
+  // domain sends through one of its zone's subdomains, the local part carries over unchanged —
+  // it came from the owner's own alias row, so there is nothing here for a request to choose —
+  // and the answer is pointed back at the address that actually receives.
+  const via = domain.sendingVia;
+  const sendingAddress = via ? `${splitAddress(from).local}@${via}` : from;
+  const replyTo = req.replyTo ?? (via ? from : undefined);
+
   const seen = new Set<string>();
   const lists: { to: string[]; cc: string[]; bcc: string[] } = { to: [], cc: [], bcc: [] };
   for (const key of ["to", "cc", "bcc"] as const) {
@@ -223,18 +230,18 @@ export async function sendOutbound(
   // and every file with base64's third added on top.
   const rawBytes = new TextEncoder().encode(
     buildOutboundMime({
-      from,
+      from: sendingAddress,
       fromName: req.fromName,
       to: lists.to,
       cc: lists.cc,
       bcc: lists.bcc,
-      replyTo: req.replyTo,
+      replyTo,
       subject,
       text: req.text,
       html: req.html,
       // Our own id: Email Sending assigns the final Message-ID on the wire, so this is
       // the composed record rather than a transcript of the bytes that left.
-      messageId: `${messageId}@${domain.name}`,
+      messageId: `${messageId}@${via ?? domain.name}`,
       date: new Date(sentAt),
       inReplyTo,
       references,
@@ -280,9 +287,9 @@ export async function sendOutbound(
     aliasId: alias.id,
     providerMessageId: null,
     dedupeKey: `out|${messageId}`,
-    envelopeFrom: from,
+    envelopeFrom: sendingAddress,
     envelopeTo: [...lists.to, ...lists.cc, ...lists.bcc].join(", "),
-    headerFrom: req.fromName ? `${req.fromName} <${from}>` : from,
+    headerFrom: req.fromName ? `${req.fromName} <${sendingAddress}>` : sendingAddress,
     headerTo: [...lists.to, ...lists.cc].join(", "),
     subject: subject.slice(0, 500),
     preview,
@@ -304,7 +311,7 @@ export async function sendOutbound(
     threadRootId: threadRoot,
     inReplyTo,
     references,
-    replyTo: req.replyTo ?? null,
+    replyTo: replyTo ?? null,
     cc: lists.cc.length > 0 ? lists.cc.join(", ") : null,
     sendStatus: SendStatus.Queued,
     sendError: null,
@@ -342,14 +349,14 @@ export async function sendOutbound(
   }
   try {
     response = await dispatch(env.EMAIL, {
-      from: req.fromName ? { email: from, name: req.fromName } : from,
+      from: req.fromName ? { email: sendingAddress, name: req.fromName } : sendingAddress,
       to: lists.to,
       subject,
       text: req.text,
       ...(req.html ? { html: req.html } : {}),
       ...(lists.cc.length > 0 ? { cc: lists.cc } : {}),
       ...(lists.bcc.length > 0 ? { bcc: lists.bcc } : {}),
-      ...(req.replyTo ? { replyTo: req.replyTo } : {}),
+      ...(replyTo ? { replyTo } : {}),
       ...(wireAttachments.length > 0 ? { attachments: wireAttachments } : {}),
       ...(Object.keys(extraHeaders).length > 0 ? { headers: extraHeaders } : {}),
     });
@@ -436,18 +443,6 @@ async function setSendResult(
   if (error && (status === SendStatus.Failed || status === SendStatus.Suppressed)) {
     await failAllRecipients(db, id, status, error);
   }
-}
-
-/** Which of the owner's domains may be used as a `From` right now, and why not. */
-export async function sendingDomains(db: D1Database, domains: Domain[]): Promise<Record<string, { canSend: boolean; reason: string | null }>> {
-  const out: Record<string, { canSend: boolean; reason: string | null }> = {};
-  for (const d of domains) {
-    out[d.id] =
-      d.sendingStatus === SendingStatus.Enabled
-        ? { canSend: true, reason: null }
-        : { canSend: false, reason: "sending_not_enabled" };
-  }
-  return out;
 }
 
 function fail(code: string, message: string): SendResult {

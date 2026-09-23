@@ -168,3 +168,32 @@ export const EnableSendingInputSchema = z.object({
   allowDmarcTakeover: z.boolean().default(false),
 });
 export type EnableSendingInput = z.infer<typeof EnableSendingInputSchema>;
+
+/**
+ * One Email Sending name inside a zone, as Cloudflare reports it. A zone can hold several, and
+ * each carries its own `cf-bounce` records and its own DMARC policy — which is the whole reason
+ * a domain may prefer to send through a subdomain rather than through itself.
+ */
+export const SendingNameSchema = z.object({
+  name: z.string(),
+  enabled: z.boolean(),
+  /** Cloudflare's id for the row, kept so state can be re-read and undone. */
+  tag: z.string().nullable().default(null),
+});
+export type SendingName = z.infer<typeof SendingNameSchema>;
+
+/**
+ * Which name a domain's mail leaves under. `null` puts it back to sending as the domain itself.
+ * Choosing a name writes no DNS and changes no receiving record; it only decides which
+ * already-onboarded (or about-to-be) sending identity the compose screen may use.
+ */
+export const SetSendingViaInputSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(4)
+    .max(254)
+    .regex(/^[A-Za-z0-9.-]+$/)
+    .nullable(),
+});
+export type SetSendingViaInput = z.infer<typeof SetSendingViaInputSchema>;

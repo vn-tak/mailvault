@@ -30,6 +30,7 @@ function domain(over: Partial<Domain> = {}): Domain {
     conflictDetails: null,
     authPolicy: AuthPolicy.Warn,
     sendingStatus: SendingStatus.Unknown,
+    sendingVia: null,
     sendingTag: null,
     sendingCheckedAt: null,
     lastCheckedAt: null,

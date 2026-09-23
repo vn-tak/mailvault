@@ -26,6 +26,7 @@ export interface DomainRow {
   conflict_details_json: string | null;
   auth_policy: AuthPolicy;
   sending_status: SendingStatus;
+  sending_via: string | null;
   sending_tag: string | null;
   sending_checked_at: string | null;
   last_checked_at: string | null;

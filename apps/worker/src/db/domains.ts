@@ -86,6 +86,26 @@ export async function setDomainSending(
     .run();
 }
 
+/**
+ * Choose which Email Sending name this domain's mail leaves under, and forget what was believed
+ * about the previous one.
+ *
+ * The reset is the point: `sending_status` describes the chosen name, so carrying over the old
+ * name's verdict would let a domain read as sendable when the identity it now sends through has
+ * never been looked at. `null` returns to sending as the domain itself.
+ */
+export async function setDomainSendingVia(db: D1Database, id: string, name: string | null): Promise<void> {
+  const now = nowIso();
+  await db
+    .prepare(
+      `UPDATE domains
+       SET sending_via = ?2, sending_status = 'UNKNOWN', sending_tag = NULL, sending_checked_at = NULL, updated_at = ?3
+       WHERE id = ?1`,
+    )
+    .bind(id, name, now)
+    .run();
+}
+
 export interface ProvisionPatch {
   mailStatus?: MailStatus;
   routingStatus?: RoutingStatus;

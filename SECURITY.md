@@ -389,6 +389,14 @@ a chain of refusals, each with its own reason code that the UI translates.
 - **Budget is counted locally.** Cloudflare's `/email/sending/limits` counter was measured to
   lag (three sends left it unchanged), so the daily ceiling (`MAX_SENDS_PER_DAY`, default 50)
   is enforced against `messages` rows, not against that endpoint.
+- **A domain may send through one of its own subdomains, and that is a choice, not a default.**
+  Email Sending is onboarded per name inside a zone, so `send.example.com` can be signed for while
+  `example.com` is not. Choosing it writes no DNS and changes no receiving record — it moves the
+  DMARC policy Email Sending insists on onto a name nothing else sends from. The wire address is
+  then `<local>@send.example.com` with `Reply-To` on the alias that actually receives, both derived
+  from the alias row and the domain row and never accepted from the request, so a compose cannot
+  aim its own sending identity. Changing the choice clears the remembered sending status, because
+  the verdict that was true of the old name says nothing about the new one.
 - Nothing is sent on load, on a schedule, or by a webhook. There is no automatic reply,
   no vacation responder, and no forwarding to a third party anywhere in the send path.
 
