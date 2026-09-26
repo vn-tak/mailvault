@@ -27,13 +27,9 @@
 /* The palette has no phone trigger by design: a handset has a tab bar and a search field,
    and a third way to type the same query is not "tinh gọn". */
 .rail-search { display: none; }
-/* The rail's identity block and its live-status foot are desktop furniture: on a phone the
-   fixed bar is a tab bar and nothing else may sit inside it. */
-.sidebar .spacer, .rail-foot { display: none; }
 .brand-mark { display: grid; place-content: center; width: 30px; height: 30px; border-radius: 9px; color: var(--accent-ink); background: linear-gradient(150deg, var(--accent), var(--accent-dim)); box-shadow: 0 4px 14px -4px var(--accent-glow); }
 .brand-text { display: grid; line-height: 1.1; }
 .brand-text b { font-size: var(--text-lg); font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
-.brand-text span { font-size: var(--text-2xs); font-weight: 700; letter-spacing: var(--track-eyebrow); text-transform: uppercase; color: var(--faint); }
 
 .nav { display: flex; flex-direction: row; flex: 1; gap: 2px; padding: 5px; }
 .nav a {
@@ -336,7 +332,7 @@
     height: 100dvh;
     flex-direction: column;
     align-items: stretch;
-    gap: var(--space-3);
+    gap: var(--space-2);
     padding: var(--space-3) var(--space-2);
     background: var(--surface);
     border-right: 1px solid var(--border);
@@ -363,8 +359,6 @@
   }
   .rail-search:hover { color: var(--text); border-color: var(--border-strong); }
   .rail-search kbd { margin-left: auto; }
-  .sidebar .spacer { display: block; margin-top: auto; }
-  .rail-foot { display: grid; }
   /* `flex: 1` is a phone rule that makes the bar fill the strip; on a rail it would stretch
      the nav down the whole column and push the mailbox list off the end of it. */
   .nav { flex: 0 0 auto; flex-direction: column; gap: 3px; padding: 0; }
@@ -373,9 +367,9 @@
     flex: 0 0 auto;
     flex-direction: row;
     justify-content: flex-start;
-    gap: 11px;
-    min-height: 42px;
-    padding: 9px 11px;
+    gap: 10px;
+    min-height: 38px;
+    padding: 8px 10px;
     font-size: var(--text-base);
     font-weight: 700;
     text-align: left;
@@ -390,8 +384,6 @@
     margin: -10px 0 0 0;
     border-radius: 0 3px 3px 0;
   }
-  .rail-foot { display: grid; gap: 6px; padding: var(--space-2) 8px 0; border-top: 1px solid var(--border-soft); font-size: var(--text-2xs); color: var(--faint); }
-
   .page { padding: var(--space-4); }
   .toolbar--sticky { position: static; background: none; backdrop-filter: none; margin: 0 0 var(--space-2); padding: 0; border-bottom: 0; }
   .modal-backdrop { align-items: center; padding: var(--space-3); }

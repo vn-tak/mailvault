@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, matchRoute, useRoute } from "./lib/router";
-import { connectLive, useLiveStatus } from "./lib/live";
+import { connectLive } from "./lib/live";
 import { t, useLang } from "./lib/i18n";
 import { useTheme } from "./lib/theme";
 import { IconAlias, IconGauge, IconGlobe, IconInbox, IconSearch, IconSliders, VaultMark } from "./components/Icons";
@@ -53,7 +53,6 @@ export function App() {
   const { path, query } = useRoute();
   useLang();
   useTheme();
-  const live = useLiveStatus();
   const [palette, setPalette] = useState(false);
   // The mailboxes are one screen's sub-navigation, not a global section, so they appear in
   // the rail only while that screen is on screen.
@@ -88,7 +87,6 @@ export function App() {
           </span>
           <span className="brand-text">
             <b>MailVault</b>
-            <span>{t("brand.tag")}</span>
           </span>
         </div>
         <button className="rail-search" onClick={() => setPalette(true)}>
@@ -108,16 +106,6 @@ export function App() {
           })}
         </nav>
         {onInbox ? <MailboxRail current={query.get("domain") ?? undefined} /> : null}
-        <div className="spacer" />
-        {/* The socket is the only thing that makes "it refreshes itself" true, so its state
-            is stated rather than assumed. */}
-        <div className="rail-foot">
-          <span className="row" style={{ gap: 7 }}>
-            <span className={`live-dot ${live === "live" ? "" : live === "connecting" ? "idle" : "warn"} ${live === "live" ? "is-pulsing" : ""}`} />
-            {t(live === "live" ? "live.on" : live === "connecting" ? "live.connecting" : "live.off")}
-          </span>
-          <span>{t("live.hint")}</span>
-        </div>
       </aside>
       <main className="main">
         <Route />

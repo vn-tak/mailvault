@@ -23,7 +23,6 @@ const STORAGE_KEY = "mailvault-lang";
 type Dict = Record<string, string>;
 
 export const en: Dict = {
-  "brand.tag": "Private domain mail",
   "nav.menu": "Main sections",
   "nav.dashboard": "Dashboard",
   "nav.domains": "Domains",
@@ -64,10 +63,6 @@ export const en: Dict = {
   "common.dash": "—",
   "common.error": "Something went wrong",
 
-  "live.on": "Listening",
-  "live.connecting": "Connecting…",
-  "live.off": "Not updating",
-  "live.hint": "This tab refreshes itself when mail arrives.",
 
   "theme.system": "Device",
   "theme.graphite": "Graphite",
@@ -94,7 +89,6 @@ export const en: Dict = {
   "dash.checking": "Checking…",
   "dash.domainsReceive": "of {n} domains receive mail",
   "dash.aliases": "aliases",
-  "dash.unread": "unread",
   "dash.stored": "stored",
   "dash.unitUnread": "unread",
   "dash.unitStored": "messages kept",
@@ -637,7 +631,6 @@ export const en: Dict = {
 };
 
 export const vi: Dict = {
-  "brand.tag": "Thư tên miền riêng",
   "nav.menu": "Các mục chính",
   "nav.dashboard": "Tổng quan",
   "nav.domains": "Tên miền",
@@ -678,10 +671,6 @@ export const vi: Dict = {
   "common.dash": "—",
   "common.error": "Đã xảy ra lỗi",
 
-  "live.on": "Đang theo dõi",
-  "live.connecting": "Đang kết nối…",
-  "live.off": "Không cập nhật",
-  "live.hint": "Tab này tự làm mới khi có thư mới.",
 
   "theme.system": "Theo máy",
   "theme.graphite": "Than chì",
@@ -708,7 +697,6 @@ export const vi: Dict = {
   "dash.checking": "Đang kiểm tra…",
   "dash.domainsReceive": "trên {n} tên miền đang nhận thư",
   "dash.aliases": "bí danh",
-  "dash.unread": "chưa đọc",
   "dash.stored": "đã lưu",
   "dash.unitUnread": "thư chưa đọc",
   "dash.unitStored": "thư đã lưu",

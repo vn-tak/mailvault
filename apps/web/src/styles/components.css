@@ -748,34 +748,26 @@ tr:last-child td { border-bottom: 0; }
 
 /* ── Mailboxes ─────────────────────────────────────────────────────────── */
 
-/* One domain, one box. The dashboard's leading content, because "where is my code from X"
-   is asked per domain, not across all of them. */
-.mailboxes { display: grid; gap: var(--space-1); grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); }
+/*
+ * One mailbox per line. The cards gave a single domain a quarter of the screen and left the
+ * rest of it empty; with several they wrapped into a grid whose numbers had to be compared
+ * sideways. A mailbox is a place you go, so it reads as a list of places.
+ */
+.mailboxes { display: grid; }
 .mailbox {
-  position: relative;
-  display: grid;
-  gap: 5px;
-  padding: 12px var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
   color: inherit;
   text-align: left;
-  box-shadow: var(--shadow-1), var(--edge);
-  overflow: hidden;
-  transition: transform var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+  transition: background-color var(--dur-1) var(--ease-out);
 }
-.mailbox::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--accent), transparent 70%);
-  opacity: 0;
-  transition: opacity var(--dur-2) var(--ease-out);
-}
-.mailbox:hover { text-decoration: none; border-color: var(--border-strong); background: var(--surface-2); transform: translateY(-1px); }
-.mailbox:hover::before { opacity: 1; }
+.mailbox:last-child { border-bottom: 0; }
+.mailbox:hover { text-decoration: none; background: var(--surface-2); }
 .mailbox-name { font-weight: 750; font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .mailbox-facts { display: flex; gap: 4px 12px; flex-wrap: wrap; font-size: var(--text-2xs); font-weight: 600; color: var(--muted); }
 
