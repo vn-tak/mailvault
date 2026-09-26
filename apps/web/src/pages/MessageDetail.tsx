@@ -5,12 +5,15 @@ import { Link, navigate } from "../lib/router";
 import { useAsync } from "../lib/useAsync";
 import { useOutbox } from "../lib/useOutbox";
 import { formatBytes, fullTime, senderName } from "../lib/format";
+import { htmlHasContent } from "../lib/bodies";
+import { insightsOpen } from "../lib/insights";
 import { t } from "../lib/i18n";
 import { MessageHtml } from "../components/MessageHtml";
 import { TextBody } from "../components/TextBody";
-import { ConfirmDialog, ErrorBanner, Loading, Monogram } from "../components/ui";
+import { ConfirmDialog, ErrorBanner, Loading, Menu } from "../components/ui";
 import { Composer } from "../components/Composer";
-import { AuthBanner, CodeCard, LinkCard, sortCodes, sortLinks } from "../components/mail/MailInsights";
+import { AuthBanner, AuthDetail, CodeCard, LinkCard, sortCodes, sortLinks } from "../components/mail/MailInsights";
+import { Fold } from "../components/mail/Fold";
 import { DeliveryReport } from "../components/mail/DeliveryReport";
 import { UnsubscribeCard, parseUnsubscribe } from "../components/mail/UnsubscribeCard";
 import { AuthVerdict, BulkMessageAction, MessageDirection } from "@mailvault/shared";
@@ -18,10 +21,11 @@ import { AuthVerdict, BulkMessageAction, MessageDirection } from "@mailvault/sha
 /**
  * One message, read.
  *
- * The screen is assembled from parts that each answer one question — who sent this and where
- * it landed, what it holds for you (a code, a link, a way out), what happened after it left,
- * and the body — because the order they appear in is the app's argument: the useful thing
- * about a message is usually what it contains for you, not the HTML it arrived in.
+ * The order on the screen is the argument: what the message says comes before anything that
+ * explains it. So — who sent it and when, the verdict about that sender in one line, any code
+ * it holds (the reason this mailbox exists), the body, the files, and only then the panels that
+ * answer a question the owner sometimes asks: where do these links go, what was checked, did my
+ * send arrive. Those fold, and whether they start folded is the owner's choice in Settings.
  */
 export function MessageDetail({
   id,
@@ -96,6 +100,12 @@ export function MessageDetail({
   const hidingSecrets = !!data && data.authVerdict === AuthVerdict.Spoofed && !revealSpoofed;
   const sent = data?.direction === MessageDirection.Out;
   const canReply = !!data?.aliasAddress && outbox.aliases.some((a) => a.address === data.aliasAddress);
+  // Mail stored before authentication existed has nothing to report; saying "not verified"
+  // every time would train the owner to ignore the real warning.
+  const showAuth = !!data && (!!data.auth || data.authVerdict === AuthVerdict.Spoofed);
+  // An HTML part with nothing renderable in it is not a body: the text part answers for it.
+  const html = data?.htmlBody && htmlHasContent(data.htmlBody) ? data.htmlBody : null;
+  const insights = insightsOpen();
 
   async function toggleRead() {
     if (!data) return;
@@ -135,7 +145,8 @@ export function MessageDetail({
     <div className={pane ? "pane-body" : "page"}>
       {pane ? (
         <div className="pane-bar">
-          <span className="eyebrow">{t("msg.body")}</span>
+          {/* No "MESSAGE" label above the subject: the subject is the label, and the pane is
+              already inside a screen that says what it is. */}
           <button className="ghost small" aria-label={t("common.close")} onClick={onClose}>
             ✕
           </button>
@@ -152,85 +163,65 @@ export function MessageDetail({
 
       {data && (
         <>
-          <div className="card">
-            <div className="detail-head">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="subject-head">
-                  <Monogram name={senderName(data.headerFrom, data.envelopeFrom)} large />
-                  <div style={{ minWidth: 0 }}>
-                    <h1 style={{ marginBottom: 6 }}>{data.subject || t("inbox.noSubject")}</h1>
-                    <div className="subject-meta">
-                      <span className="who">
-                        {sent ? t("msg.youSent") : senderName(data.headerFrom, data.envelopeFrom)}
-                        {/* Your own alias is not a header worth unpicking; on received mail the
-                            address behind the display name is the thing worth reading. */}
-                        {!sent && <span className="addr"> · {data.envelopeFrom}</span>}
-                      </span>
-                      {/* The alias is said once, on the last line. A `To:` that only repeats it
-                          is the same address twice on one screen, which is how this header used
-                          to read; it stays when it says more than the alias does. */}
-                      {data.headerTo && (sent || data.headerTo !== data.aliasAddress) ? (
-                        <span>
-                          {t("msg.to")} <span className="addr">{data.headerTo}</span>
-                        </span>
-                      ) : null}
-                      <span>
-                        {fullTime(data.receivedAt)}
-                        {data.aliasLabel ? ` · ${data.aliasLabel}` : ""}{" "}
-                        {sent
-                          ? t("msg.sentFrom", { address: data.aliasAddress })
-                          : t("msg.arrivedAt", { address: data.aliasAddress })}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="row wrap actions-cell">
-                <button
-                  className="small primary"
-                  onClick={() => setReplying(true)}
-                  disabled={!canReply}
-                  title={canReply ? undefined : t("composer.noAliases")}
-                >
-                  {t("msg.reply")}
-                </button>
-                <button className="small" onClick={toggleRead}>
-                  {t(data.isRead ? "msg.markUnread" : "msg.markRead")}
-                </button>
-                <button className="small" aria-pressed={data.starred} onClick={() => void toggleStar()} title={t("msg.starHint")}>
-                  {t(data.starred ? "msg.unstar" : "msg.star")}
-                </button>
-                <button className="small danger" onClick={() => setConfirmDelete(true)}>
-                  {t("msg.delete")}
-                </button>
-              </div>
+          {/* The message first: who and what it says in two lines, the actions in one row, and
+              nothing else on the screen until the body has been read. */}
+          <header className="mail-head">
+            <h1>{data.subject || t("inbox.noSubject")}</h1>
+            <div className="mail-meta">
+              <span className="who">{sent ? t("msg.youSent") : senderName(data.headerFrom, data.envelopeFrom)}</span>
+              {/* Your own alias is not a header worth unpicking; on received mail the address
+                  behind the display name is the thing worth reading. */}
+              {!sent && <span className="addr">{data.envelopeFrom}</span>}
+              <span>{fullTime(data.receivedAt)}</span>
+              {/* The alias is said once. A `To:` that only repeats it is the same address twice
+                  on one screen, so it stays only when it says more than the alias does. */}
+              <span>
+                {sent
+                  ? t("msg.sentFrom", { address: data.aliasAddress })
+                  : t("msg.arrivedAt", { address: data.aliasAddress })}
+                {data.aliasLabel ? ` · ${data.aliasLabel}` : ""}
+              </span>
+              {data.headerTo && (sent || data.headerTo !== data.aliasAddress) ? (
+                <span>
+                  {t("msg.to")} <span className="addr">{data.headerTo}</span>
+                </span>
+              ) : null}
             </div>
-          </div>
+            <div className="row wrap mail-actions">
+              <button
+                className="small primary"
+                onClick={() => setReplying(true)}
+                disabled={!canReply}
+                title={canReply ? undefined : t("composer.noAliases")}
+              >
+                {t("msg.reply")}
+              </button>
+              <button className="small" onClick={toggleRead}>
+                {t(data.isRead ? "msg.markUnread" : "msg.markRead")}
+              </button>
+              <Menu
+                small
+                label={t("common.more")}
+                items={[
+                  { label: t(data.starred ? "msg.unstar" : "msg.star"), onSelect: () => void toggleStar() },
+                  { label: t("msg.delete"), onSelect: () => setConfirmDelete(true), danger: true },
+                ]}
+              />
+            </div>
+          </header>
 
           {data.parseDegraded && <div className="banner error mt">{t("msg.degraded")}</div>}
 
-          {/* Our own outgoing mail has no external sender to authenticate: Email Sending
-              signs it with this domain's own key, so a verdict banner would only confuse. */}
-          {!sent ? <AuthBanner verdict={data.authVerdict} auth={data.auth ?? null} /> : null}
-
-          {!sent && data.listUnsubscribe ? (
-            data.authVerdict === AuthVerdict.Trusted ? (
-              <UnsubscribeCard
-                url={parseUnsubscribe(data.listUnsubscribe).url}
-                mailto={parseUnsubscribe(data.listUnsubscribe).mailto}
-                oneClick={data.oneClickUnsubscribe}
-              />
-            ) : (
-              <div className="banner mt">
-                <span className="muted">{t("msg.unsubscribeHidden")}</span>
-              </div>
-            )
+          {/* Our own outgoing mail has no external sender to authenticate: Email Sending signs
+              it with this domain's own key, so a verdict banner would only confuse. */}
+          {!sent && showAuth ? (
+            <div className="mt">
+              <AuthBanner verdict={data.authVerdict} />
+            </div>
           ) : null}
 
-          {sent ? <DeliveryReport status={data.sendStatus} error={data.sendError} recipients={data.recipients} /> : null}
-
-          {/* Says why this mail is where it is, in the words the rule had at the time —
-              so an archive still explains itself after the rule is edited or deleted. */}
+          {/* Says why this mail is where it is, in the words the rule had at the time — so an
+              archive still explains itself after the rule is edited or deleted. */}
           {data.appliedRuleNote && (
             <div className="banner mt">
               <span className="muted">{t("msg.filedAuto", { note: data.appliedRuleNote })}</span>{" "}
@@ -250,60 +241,26 @@ export function MessageDetail({
             </div>
           ) : null}
 
+          {/* A code is the reason the mailbox exists, so it is neither folded nor sent below
+              the body: it is the first thing after the verdict, and one tap from being copied. */}
           {codes.length > 0 && !hidingSecrets && (
-            <div className="mt">
-              <h2>{t("msg.codes")}</h2>
-              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-                {codes.map((c, i) => (
-                  <CodeCard key={`${c.value}-${i}`} code={c} />
-                ))}
-              </div>
+            <div className="code-strip mt" role="group" aria-label={t("msg.codes")}>
+              {codes.map((c, i) => (
+                <CodeCard key={`${c.value}-${i}`} code={c} />
+              ))}
             </div>
           )}
 
-          {links.length > 0 && !hidingSecrets && (
-            <div className="mt">
-              <h2>{t("msg.links")}</h2>
-              <div className="stack">
-                {links.map((l, i) => (
-                  <LinkCard key={`${l.url}-${i}`} link={l} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {data.attachments.length > 0 && (
-            <div className="mt">
-              <h2>{t("msg.attachments")}</h2>
-              <div className="stack">
-                {data.attachments.map((a) => (
-                  <div key={a.id} className="attach">
-                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {a.filename}
-                    </span>
-                    <span className="faint" style={{ fontSize: 12 }}>
-                      {a.contentType} · {formatBytes(a.size)}
-                    </span>
-                    {/* Authenticated same-origin download; never a public URL. */}
-                    <a className="small" href={attachmentHref(data.id, a.id)} rel="noreferrer" style={{ textDecoration: "none" }}>
-                      {t("msg.download")}
-                    </a>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="mt">
-            <div className="row spread wrap" style={{ marginBottom: 8 }}>
-              <h2 style={{ margin: 0 }}>{t("msg.body")}</h2>
-              <div className="row wrap" style={{ justifyContent: "flex-end", fontSize: 12 }}>
-                {data.htmlBody && (
+          <section className="mail-body mt">
+            <div className="row spread wrap body-bar">
+              <h2>{t("msg.body")}</h2>
+              <div className="row wrap body-tools">
+                {html && (
                   <button className="small ghost" onClick={() => setShowText((s) => !s)}>
                     {t(showText ? "msg.showHtml" : "msg.showPlain")}
                   </button>
                 )}
-                {data.htmlBody && !remoteImages && (
+                {html && !remoteImages && (
                   <button className="small" onClick={() => setRemoteImages(true)}>
                     {t("msg.loadImages")}
                   </button>
@@ -316,22 +273,87 @@ export function MessageDetail({
               </div>
             </div>
 
-            {remoteImages && data.htmlBody && (
-              <div className="banner" style={{ marginBottom: 10 }}>
-                {t("msg.imagesWarn")}
-              </div>
-            )}
+            {remoteImages && html && <div className="banner">{t("msg.imagesWarn")}</div>}
 
-            {showText || !data.htmlBody ? (
+            {/* An HTML part with nothing renderable in it is a tall white box, not a message:
+                the text part answers for it, and if there is none the screen says so. */}
+            {showText || !html ? (
               data.textBody ? (
                 <TextBody text={data.textBody} />
               ) : (
                 <p className="muted">{t("msg.noBody")}</p>
               )
             ) : (
-              <MessageHtml html={data.htmlBody} />
+              <MessageHtml html={html} />
             )}
-          </div>
+          </section>
+
+          {data.attachments.length > 0 && (
+            <section className="mt">
+              <h2>{t("msg.attachments")}</h2>
+              <div className="stack">
+                {data.attachments.map((a) => (
+                  <div key={a.id} className="attach">
+                    <span className="file-name">{a.filename}</span>
+                    <span className="faint file-size">
+                      {a.contentType} · {formatBytes(a.size)}
+                    </span>
+                    {/* Authenticated same-origin download; never a public URL. */}
+                    <a className="small" href={attachmentHref(data.id, a.id)} rel="noreferrer">
+                      {t("msg.download")}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Everything that explains the message rather than being it. */}
+          {links.length > 0 && !hidingSecrets && (
+            <div className="mt">
+              <Fold title={t("msg.links")} count={links.length} open={insights}>
+                <div className="stack">
+                  {links.map((l, i) => (
+                    <LinkCard key={`${l.url}-${i}`} link={l} />
+                  ))}
+                </div>
+              </Fold>
+            </div>
+          )}
+
+          {!sent && data.listUnsubscribe ? (
+            data.authVerdict === AuthVerdict.Trusted ? (
+              <div className="mt">
+                <Fold title={t("msg.unsubscribeTitle")} open={insights}>
+                  <UnsubscribeCard
+                    url={parseUnsubscribe(data.listUnsubscribe).url}
+                    mailto={parseUnsubscribe(data.listUnsubscribe).mailto}
+                    oneClick={data.oneClickUnsubscribe}
+                  />
+                </Fold>
+              </div>
+            ) : (
+              <div className="banner mt">
+                <span className="muted">{t("msg.unsubscribeHidden")}</span>
+              </div>
+            )
+          ) : null}
+
+          {sent ? (
+            <div className="mt">
+              <Fold title={t("msg.deliveryTitle")} count={data.recipients.length} open={insights}>
+                <DeliveryReport status={data.sendStatus} error={data.sendError} recipients={data.recipients} />
+              </Fold>
+            </div>
+          ) : null}
+
+          {!sent && showAuth ? (
+            <div className="mt">
+              <Fold title={t("msg.authTitle")} open={insights}>
+                <AuthDetail verdict={data.authVerdict} auth={data.auth ?? null} />
+              </Fold>
+            </div>
+          ) : null}
         </>
       )}
 

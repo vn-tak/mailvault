@@ -334,30 +334,6 @@ input[type="search"] { appearance: none; -webkit-appearance: none; }
   .tabs button { padding: 0 8px; font-size: var(--text-xs); }
 }
 
-/* ── Monogram ──────────────────────────────────────────────────────────── */
-
-/*
- * A mail list is scanned by sender far more than by subject, and a wall of identical text
- * columns makes that slow. The monogram is generated from the name — no image, no network,
- * nothing that could be spoofed into showing a brand's real logo.
- */
-.mono-avatar {
-  display: grid;
-  place-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--av-ink, var(--text));
-  background: var(--av-bg, var(--surface-2));
-  border: 1px solid var(--av-line, var(--border));
-  flex: none;
-  user-select: none;
-}
-.mono-avatar--lg { width: 46px; height: 46px; border-radius: 14px; font-size: 17px; }
-
 /* ── Message list ──────────────────────────────────────────────────────── */
 
 /*
@@ -664,10 +640,6 @@ th {
 td { padding: 12px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
 tr:last-child td { border-bottom: 0; }
 /* ── Reading surfaces ──────────────────────────────────────────────────── */
-
-/* Reading view: on a phone the actions belong under the addressing, not beside it. */
-.detail-head { display: flex; flex-direction: column; gap: var(--space-2); }
-.detail-head > :first-child { min-width: 0; flex: 1; }
 
 /*
  * An OTP is the only thing in a message worth displaying large, and the only thing worth

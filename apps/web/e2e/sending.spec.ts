@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openFold } from "./fixtures";
 
 /*
  * Sending, checked in the browser.
@@ -58,6 +59,7 @@ test("desktop: composing goes out, and the Sent row is the receipt", async ({ pa
   const pane = page.locator(".mail-pane");
   // The destination the send named is recorded as its own line, waiting for an answer —
   // per-address tracking, proven against the real runtime rather than a stub.
+  await openFold(pane, "Delivery");
   await expect(pane.getByText("Delivery to each address")).toBeVisible();
   await expect(pane.locator(".recip-status li")).toHaveCount(1);
   await expect(pane.locator(".recip-status .addr")).toHaveText(recipient);

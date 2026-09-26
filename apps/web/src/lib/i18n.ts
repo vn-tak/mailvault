@@ -176,6 +176,9 @@ export const en: Dict = {
   "msg.showAnyway": "Show anyway ({n})",
   "msg.codes": "Codes",
   "msg.links": "Verification links",
+  "msg.authTitle": "How the sender was checked",
+  "msg.deliveryTitle": "Delivery",
+  "msg.unsubscribeTitle": "Unsubscribe",
   "msg.attachments": "Attachments",
   "msg.download": "Download",
   "msg.body": "Message",
@@ -409,6 +412,12 @@ export const en: Dict = {
   "set.themeTitle": "Light or dark",
   "set.themeHint": "It follows your device unless you choose here. Nothing else changes — same mail, same controls, nothing stored about the choice.",
   "set.themeLabel": "Appearance",
+  "set.insightsTitle": "Details beside a message",
+  "set.insightsHint":
+    "The links a message carries, how its sender was checked, how a send was delivered. The message itself and any code in it are always shown; this only decides whether those start open.",
+  "set.insightsLabel": "Message details",
+  "set.insightsFold": "Fold them",
+  "set.insightsOpen": "Keep them open",
   "set.themeNow": "Showing",
   "set.notifTitle": "Notifications",
   "set.notifIntro":
@@ -596,7 +605,6 @@ export const en: Dict = {
 
   "msg.star": "Star",
   "msg.unstar": "Remove star",
-  "msg.starHint": "A star is only ever yours: no rule sets it and no rule clears it",
   "msg.sentFrom": "· sent from {address}",
   "msg.deliveryPerAddress": "Delivery to each address",
   "msg.noDeliveryYet": "No receiving server has answered for these addresses yet.",
@@ -781,6 +789,9 @@ export const vi: Dict = {
   "msg.showAnyway": "Vẫn hiển thị ({n})",
   "msg.codes": "Mã",
   "msg.links": "Liên kết xác minh",
+  "msg.authTitle": "Cách kiểm tra người gửi",
+  "msg.deliveryTitle": "Tình trạng giao thư",
+  "msg.unsubscribeTitle": "Hủy nhận thư",
   "msg.attachments": "Tệp đính kèm",
   "msg.download": "Tải về",
   "msg.body": "Nội dung",
@@ -1014,6 +1025,12 @@ export const vi: Dict = {
   "set.themeTitle": "Sáng hay tối",
   "set.themeHint": "Mặc định theo máy của bạn, trừ khi bạn chọn ở đây. Không có gì khác thay đổi — vẫn là thư đó, vẫn các nút đó, và không lưu gì về lựa chọn này ra ngoài máy.",
   "set.themeLabel": "Giao diện",
+  "set.insightsTitle": "Chi tiết kèm theo thư",
+  "set.insightsHint":
+    "Các liên kết trong thư, cách kiểm tra người gửi, tình trạng giao thư. Nội dung thư và mã trong thư luôn hiển thị; tùy chọn này chỉ quyết định các mục kia có mở sẵn hay không.",
+  "set.insightsLabel": "Chi tiết thư",
+  "set.insightsFold": "Gập lại",
+  "set.insightsOpen": "Luôn mở sẵn",
   "set.themeNow": "Đang hiển thị",
   "set.notifTitle": "Thông báo",
   "set.notifIntro":
@@ -1200,7 +1217,6 @@ export const vi: Dict = {
 
   "msg.star": "Đánh dấu",
   "msg.unstar": "Bỏ đánh dấu",
-  "msg.starHint": "Dấu sao chỉ do bạn đặt: không quy tắc nào tự thêm hay tự bỏ",
   "msg.sentFrom": "· gửi từ {address}",
   "msg.deliveryPerAddress": "Tình trạng giao đến từng địa chỉ",
   "msg.noDeliveryYet": "Chưa có máy chủ nào trả lời về những địa chỉ này.",

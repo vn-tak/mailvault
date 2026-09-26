@@ -171,13 +171,7 @@
 }
 .pane-body { padding: var(--space-3); }
 .pane-body > :first-child { margin-top: 0; }
-.pane-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: var(--space-2); }
-/* The pane is a column of its own: the addressing has to stay one or two lines, and the
-   actions go under it rather than competing with the subject for width. */
-.mail-pane h1 { font-size: var(--text-h2); }
-.mail-pane .subject-meta { font-size: var(--text-xs); }
-.mail-pane .detail-head { flex-direction: column; align-items: flex-start; gap: var(--space-1); }
-.mail-pane .actions-cell { justify-content: flex-start; }
+.pane-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: var(--space-1); }
 .mail-pane .card { box-shadow: none; }
 
 /* ── Message view ──────────────────────────────────────────────────────── */
@@ -197,18 +191,82 @@
 .ribbon.trusted { color: var(--ok); border-color: var(--ok-line); background: var(--ok-tint); }
 .ribbon.unverified { color: var(--warn); border-color: var(--warn-line); background: var(--warn-tint); }
 .ribbon.spoofed { color: var(--danger); border-color: var(--danger-line); background: var(--danger-tint); }
-.ribbon .detail { font-weight: 600; color: var(--muted); font-family: var(--font-mono); font-size: var(--text-2xs); overflow-wrap: anywhere; }
-
-.subject-head { display: flex; gap: 12px; align-items: flex-start; }
-.subject-head h1 { letter-spacing: -0.028em; }
-.subject-meta { display: grid; gap: 3px; font-size: var(--text-sm); color: var(--muted); min-width: 0; }
-.subject-meta .who { color: var(--text); font-weight: 750; font-size: var(--text-base); }
-.subject-meta .addr { font-size: var(--text-xs); color: var(--faint); }
-
-/* The ribbon reads as one statement: a mark, a verdict, then the evidence under it. */
+/* The ribbon reads as one statement: a mark, then the verdict in the same colour as the mark. */
 .ribbon .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; flex: none; }
-.ribbon-body { display: grid; gap: 2px; min-width: 0; }
 .ribbon .head { font-weight: 800; }
+
+/*
+ * The reading header is what the message is, in as few lines as that takes: the subject, one
+ * wrapped line of who/when/where, one row of actions. The monogram it used to lead with said
+ * nothing the sender name did not, and the four buttons beside it competed with the subject.
+ */
+/* The subject is one step below a page title: it is the largest thing here, but the pane and
+   the page already say what screen this is, and a 30px heading spent two lines of a phone. */
+.mail-head h1 { margin: 0 0 5px; font-size: var(--text-h2); letter-spacing: -0.028em; }
+.mail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.mail-meta .who { color: var(--text); font-weight: 750; font-size: var(--text-base); }
+.mail-meta .addr { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--faint); overflow-wrap: anywhere; }
+.mail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: var(--space-2); }
+
+/* A code is the payload, so it is a strip of cards at the top rather than a section to find. */
+.code-strip { display: flex; flex-wrap: wrap; gap: 10px; }
+.code-strip .code-card { flex: 1 1 220px; }
+
+.body-bar { margin-bottom: 8px; }
+.body-bar h2 { margin: 0; }
+.attach .file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach .file-size { font-size: var(--text-xs); }
+
+/*
+ * What a message carries that is not the message: the links, the evidence behind the verdict,
+ * how a send was delivered. One row each, and the row says what is inside before it opens.
+ */
+.fold { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px var(--space-2);
+  font-weight: 700;
+  font-size: var(--text-sm);
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+}
+.fold > summary::-webkit-details-marker { display: none; }
+/* The chevron is the affordance, so it is drawn rather than left to the UA marker — which
+   Safari puts outside the box and a screen reader may or may not announce. */
+.fold > summary::after {
+  content: "›";
+  margin-left: auto;
+  font-size: var(--text-base);
+  color: var(--faint);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.fold[open] > summary::after { transform: rotate(90deg); }
+.fold > summary:hover { background: var(--surface-2); }
+.fold-n {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+.fold-body { display: grid; gap: 10px; padding: 0 var(--space-2) var(--space-2); }
+.mono-note { margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); overflow-wrap: anywhere; }
 
 /* ── Settings ──────────────────────────────────────────────────────────── */
 

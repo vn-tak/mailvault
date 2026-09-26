@@ -95,23 +95,33 @@ function outcomeLabel(auth: MessageAuth | null): string {
     : `${parts.join("  ")}  ${t("msg.authNoVouch")}`;
 }
 
-export function AuthBanner({ verdict, auth }: { verdict: AuthVerdict; auth: MessageAuth | null }) {
-  // Mail stored before authentication existed has nothing to report; saying "not
-  // verified" every time would train the owner to ignore the real warning.
-  if (!auth && verdict !== AuthVerdict.Spoofed) return null;
+/**
+ * The one-line verdict. What it was measured against is `AuthDetail`, which sits folded under
+ * the message: the conclusion belongs where a reader can see it without asking, the evidence
+ * belongs where they can ask.
+ */
+export function AuthBanner({ verdict }: { verdict: AuthVerdict }) {
   const head =
     verdict === AuthVerdict.Trusted ? "msg.authTrusted" : verdict === AuthVerdict.Spoofed ? "msg.authSpoofed" : "msg.authUnverified";
   const cls = verdict === AuthVerdict.Trusted ? "trusted" : verdict === AuthVerdict.Spoofed ? "spoofed" : "unverified";
   return (
-    <div className={`ribbon ${cls} mt`} role="status">
+    <div className={`ribbon ${cls}`} role="status">
       <span className="dot" aria-hidden="true" />
-      <span className="ribbon-body">
-        <span className="head">{t(head)}</span>
-        <span className="detail">{outcomeLabel(auth)}</span>
-        {verdict === AuthVerdict.Spoofed && auth?.reasons.length ? (
-          <span className="detail">{t("msg.authWhy", { reasons: auth.reasons.join("; ") })}</span>
-        ) : null}
-      </span>
+      <span className="head">{t(head)}</span>
+    </div>
+  );
+}
+
+/** What the verdict was computed from, in the same words as its colour. */
+export function AuthDetail({ verdict, auth }: { verdict: AuthVerdict; auth: MessageAuth | null }) {
+  return (
+    <div className="stack">
+      <p className="mono-note">{outcomeLabel(auth)}</p>
+      {verdict === AuthVerdict.Spoofed && auth?.reasons.length ? (
+        <p className="muted" style={{ margin: 0 }}>
+          {t("msg.authWhy", { reasons: auth.reasons.join("; ") })}
+        </p>
+      ) : null}
     </div>
   );
 }

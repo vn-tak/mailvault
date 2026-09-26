@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { resetSeededAlias, resetSeededMail, SEEDED_ALIAS_ADDRESS } from "./fixtures";
+import { openFold, resetSeededAlias, resetSeededMail, SEEDED_ALIAS_ADDRESS } from "./fixtures";
 
 /*
  * Layout contract for the phone build. These assert the things that silently break a
@@ -153,6 +153,7 @@ const STRESS_MSG = "00000000-0000-4000-8000-0000000000m5";
 
 test("phone: a folded magic link, a tracking wrapper and an ASCII table all read cleanly @mobile", async ({ page }) => {
   await page.goto(`/#/messages/${STRESS_MSG}`);
+  await openFold(page, "Verification links");
   const cards = page.locator(".link-card");
   await expect(cards).toHaveCount(4);
 
