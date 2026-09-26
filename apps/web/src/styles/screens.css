@@ -393,11 +393,21 @@
 
   /* Wide enough for the three facts that matter to sit on one line: what it is, where
      mail goes to it, how much has arrived. */
-  .entity-id { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto; align-items: baseline; column-gap: 18px; row-gap: 2px; }
+  .entity-id { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto; align-items: baseline; column-gap: 18px; row-gap: 2px; }
   .entity-title { grid-column: 1; grid-row: 1; }
   .entity-addr { grid-column: 2; grid-row: 1; }
   .entity-facts { grid-column: 3; grid-row: 1; justify-content: flex-end; }
-  .entity-note { grid-column: 1 / -1; grid-row: 2; }
+  /* Wide enough for the owner's sentence about the alias to earn its line — one, clamped. */
+  .entity-note {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .entity.is-open .entity-note { display: block; -webkit-line-clamp: unset; line-clamp: unset; }
   .entity-summary { gap: 16px; }
   /* ── Mailboxes in the rail ────────────────────────────────────────────────
    * A mailbox is a place, not a filter, so it sits under Inbox where the eye

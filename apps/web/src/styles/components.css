@@ -490,28 +490,28 @@ input[type="search"] { appearance: none; -webkit-appearance: none; }
 /* ── Entity rows (aliases, domains) ────────────────────────────────────── */
 
 /*
- * One entity per block. The row's identity is always on screen and its actions are folded
- * until the row is engaged: five full-size buttons per alias made the list of things
- * busier than the things. One markup for both lists and both widths.
+ * One entity per line, and its actions folded until the line is engaged: five full-size
+ * buttons per alias made the list of things busier than the things. On a phone the identity
+ * and its counts share two lines — name and status, then address and how much has arrived —
+ * because four lines per alias meant three aliases per screen. One markup for both lists.
  */
-.entity { border-bottom: 1px solid var(--border-soft); padding: 12px var(--space-2); transition: background-color var(--dur-1) var(--ease-out); }
+.entity { border-bottom: 1px solid var(--border-soft); padding: 10px var(--space-2); transition: background-color var(--dur-1) var(--ease-out); }
 .entity:last-child { border-bottom: 0; }
 .entity:is(:hover, .is-open) { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
 .entity-summary { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 10px; cursor: pointer; }
-.entity-id { min-width: 0; display: grid; gap: 3px; }
-.entity-title { display: flex; align-items: baseline; gap: 10px; justify-content: space-between; }
+.entity-id { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.entity-title { flex: 1 1 100%; display: flex; align-items: baseline; gap: 10px; justify-content: space-between; }
 .entity-name { font-weight: 750; letter-spacing: -0.01em; min-width: 0; overflow-wrap: anywhere; }
 .entity-addr { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+/* The note is the owner's own sentence about an alias: worth its space when the row is open,
+   not worth a third of every row when it is not. */
 .entity-note {
+  flex: 1 1 100%;
   color: var(--faint);
   font-size: var(--text-sm);
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: none;
 }
-.entity.is-open .entity-note { display: block; -webkit-line-clamp: unset; line-clamp: unset; }
+.entity.is-open .entity-note { display: block; }
 .entity-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--text-2xs); font-weight: 600; color: var(--muted); }
 .entity-toggle {
   flex: 0 0 auto;

@@ -186,7 +186,6 @@ export const en: Dict = {
   "msg.noBody": "This message has no readable body.",
 
   "dom.title": "Domains",
-  "dom.eyebrow": "Synced from Cloudflare",
   "dom.sync": "↻ Sync from Cloudflare",
   "dom.preflightAll": "Preflight all",
   "dom.verify": "Verify delivery",
@@ -300,7 +299,6 @@ export const en: Dict = {
   "alias.noSenders": "Nothing has arrived yet.",
 
   "aliases.title": "Aliases",
-  "aliases.eyebrow": "Pinned first",
   "aliases.search": "Search address, label or note…",
   "aliases.active": "Active",
   "aliases.archived": "Archived",
@@ -352,9 +350,8 @@ export const en: Dict = {
   "lp.reserved": "“{v}” is reserved for system addresses",
 
   "rule.title": "Rules",
-  "rule.introA":
-    "New mail that matches is filed for you. Filing takes it out of the inbox list — it is still there under ",
-  "rule.introB": ", and no rule can delete anything.",
+  "rule.intro": "Files matching mail out of the list you are reading. Nothing is deleted — it stays under Filed.",
+  "rule.newTitle": "New rule",
   "rule.sender": "Sender domain",
   "rule.subject": "Subject contains",
   "rule.tag": "Tag (optional)",
@@ -793,7 +790,6 @@ export const vi: Dict = {
   "msg.noBody": "Thư này không có nội dung nào đọc được.",
 
   "dom.title": "Tên miền",
-  "dom.eyebrow": "Đồng bộ từ Cloudflare",
   "dom.sync": "↻ Đồng bộ từ Cloudflare",
   "dom.preflightAll": "Kiểm tra tất cả",
   "dom.verify": "Kiểm tra nhận thư",
@@ -907,7 +903,6 @@ export const vi: Dict = {
   "alias.noSenders": "Chưa có thư nào tới.",
 
   "aliases.title": "Bí danh",
-  "aliases.eyebrow": "Ưu tiên đã ghim",
   "aliases.search": "Tìm địa chỉ, nhãn hoặc ghi chú…",
   "aliases.active": "Đang dùng",
   "aliases.archived": "Đã lưu trữ",
@@ -959,9 +954,8 @@ export const vi: Dict = {
   "lp.reserved": "“{v}” được dành riêng cho địa chỉ của hệ thống",
 
   "rule.title": "Quy tắc",
-  "rule.introA":
-    "Thư mới khớp điều kiện sẽ được xếp giúp bạn. Xếp chỉ rút thư khỏi danh sách đang xem — thư vẫn nằm ở mục ",
-  "rule.introB": ", và không quy tắc nào được xoá thư.",
+  "rule.intro": "Đưa thư khớp điều kiện ra khỏi danh sách bạn đang xem. Không thư nào bị xoá — tất cả vẫn ở mục Đã xếp.",
+  "rule.newTitle": "Quy tắc mới",
   "rule.sender": "Tên miền người gửi",
   "rule.subject": "Chủ đề chứa",
   "rule.tag": "Nhãn (không bắt buộc)",

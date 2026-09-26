@@ -212,10 +212,7 @@ export function Aliases({ openNew }: { openNew: boolean }) {
   return (
     <div className="page">
       <div className="page-head">
-        <div>
-          <span className="eyebrow">{t("aliases.eyebrow")}</span>
-          <h1>{t("aliases.title")}</h1>
-        </div>
+        <h1>{t("aliases.title")}</h1>
         <div className="actions">
           <button className="primary" onClick={() => setShowNew(true)}>
             {t("dash.newAlias")}
