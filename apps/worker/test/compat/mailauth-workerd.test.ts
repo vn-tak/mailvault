@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
-import { dkimVerify } from "mailauth";
+import { dkimVerify } from "mailauth/lib/dkim/verify";
 import ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
