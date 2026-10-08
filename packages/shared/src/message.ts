@@ -102,6 +102,7 @@ export const MessageSummarySchema = z.object({
   subject: z.string().nullable(),
   preview: z.string().nullable(),
   receivedAt: z.string(),
+  headerDate: z.string().nullable().optional(),
   isRead: z.boolean(),
   /** The owner's own mark. No rule, filter or provider ever sets it. */
   starred: z.boolean().default(false),

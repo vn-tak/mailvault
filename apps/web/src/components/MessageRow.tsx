@@ -103,7 +103,9 @@ export function MsgItem({
         >
           {/* Outgoing mail is addressed *to* somebody; naming the peer as the sender would
               read as "this person wrote to me", so the row says who it went to instead. */}
-          <span className="msg-sender">{sent ? `${t("msg.toPrefix")} ${m.headerTo || m.aliasAddress}` : sender}</span>
+          <span className="msg-sender">
+            {sent ? `${t("msg.toPrefix")} ${m.headerTo || m.aliasAddress}` : sender}
+          </span>
           <span className="msg-subject">
             {m.threadCount && m.threadCount > 1 ? (
               // The badge is the conversation's size, so a row that stands for three messages
@@ -116,18 +118,28 @@ export function MsgItem({
           </span>
           <span className="msg-line">
             <span className="msg-alias">{sent ? m.aliasAddress : arrivalLabel(m, scoped)}</span>
-            {m.preview ? <span className="msg-preview">{m.preview}</span> : null}
+            {m.preview && (sent || m.authVerdict === AuthVerdict.Trusted) ? (
+              <span className="msg-preview">{m.preview}</span>
+            ) : null}
             <span className="msg-badges">
               {sent && m.sendStatus ? (
-                <span className={`pill ${sendPill(m.sendStatus)}`}>{t(`send.status.${m.sendStatus}`)}</span>
+                <span className={`pill ${sendPill(m.sendStatus)}`}>
+                  {t(`send.status.${m.sendStatus}`)}
+                </span>
               ) : null}
-              {!sent && m.authVerdict === AuthVerdict.Spoofed ? (
-                // Never echo a forger's payload in the list — the detail view explains it.
+              {!sent && m.authVerdict !== AuthVerdict.Trusted ? (
+                // Unverified sender content must not be echoed as trusted inbox data.
                 <span className="pill error">{t("inbox.unverified")}</span>
               ) : null}
-              {m.ruleTag ? <span className="badge" title={t("inbox.filedTag")}>{m.ruleTag}</span> : null}
+              {m.ruleTag ? (
+                <span className="badge" title={t("inbox.filedTag")}>
+                  {m.ruleTag}
+                </span>
+              ) : null}
               {m.attachmentCount > 0 ? (
-                <span className="badge" title={t("inbox.nAttachments", { n: m.attachmentCount })}>📎 {m.attachmentCount}</span>
+                <span className="badge" title={t("inbox.nAttachments", { n: m.attachmentCount })}>
+                  📎 {m.attachmentCount}
+                </span>
               ) : null}
             </span>
           </span>
@@ -152,12 +164,12 @@ export function MsgItem({
               {m.starred ? "★" : "☆"}
             </button>
           ) : null}
-          {/* Getting the code is this app's main job; opening the message to reach it is a
-              round trip the row can skip. A forged code stays hidden, as in the detail. */}
-          {m.authVerdict !== AuthVerdict.Spoofed && !sent && m.primaryCode ? <CodeChip code={m.primaryCode} /> : null}
+          {/* A code is shown inline only after the inbound sender is authenticated. */}
+          {m.authVerdict === AuthVerdict.Trusted && !sent && m.primaryCode ? (
+            <CodeChip code={m.primaryCode} />
+          ) : null}
         </span>
       </div>
     </li>
   );
 }
-

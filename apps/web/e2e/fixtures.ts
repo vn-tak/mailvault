@@ -75,3 +75,20 @@ export async function resetSeededFlags(page: Page, starred: string[]) {
     }
   }, { all: SEEDED_MAILS, keep: starred, unread: SEEDED_UNREAD });
 }
+
+/** A local-only grant fixture for cleanup; route enforcement is tested separately. */
+export async function deleteTestMessage(page: Page, id: string | null) {
+  const { randomBytes, createHash } = await import("node:crypto");
+  const { execFileSync } = await import("node:child_process");
+  const token = randomBytes(32).toString("hex");
+  const hash = createHash("sha256").update(token).digest("hex");
+  const now = new Date().toISOString();
+  const expires = new Date(Date.now() + 60_000).toISOString();
+  execFileSync("pnpm", ["--filter", "@mailvault/worker", "exec", "wrangler", "d1", "execute", "mail-vault-db", "--local", "--config", "wrangler.dev.jsonc", "--command",
+    `INSERT INTO step_up_grants(token_hash,created_at,expires_at) VALUES('${hash}','${now}','${expires}')`], { stdio: "pipe" });
+  const status = await page.evaluate(async ({ messageId, grant }) => {
+    const res = await fetch(`/api/messages/${messageId}`, { method: "DELETE", headers: { "x-mailvault": "1", "x-mailvault-stepup": grant } });
+    return res.status;
+  }, { messageId: id, grant: token });
+  if (status !== 202 && status !== 200) throw new Error(`cleanup ${id}: ${status}`);
+}

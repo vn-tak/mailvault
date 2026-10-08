@@ -1,3 +1,4 @@
+import { withStepUp } from "../lib/passkeys";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { navigate, useRoute } from "../lib/router";
@@ -44,12 +45,23 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
   const openId = wide ? route.get("open") : null;
 
   const query = useMemo(
-    () => queryFor(view, { q: search, aliasId, domainId, offset, limit: PAGE, threaded: grouped && !search }),
+    () =>
+      queryFor(view, {
+        q: search,
+        aliasId,
+        domainId,
+        offset,
+        limit: PAGE,
+        threaded: grouped && !search,
+      }),
     [view, search, aliasId, domainId, offset, grouped],
   );
 
   const { data, error, loading, reload } = useAsync(() => api.listMessages(query), [query]);
-  const { data: counters, reload: reloadCounters } = useAsync(() => api.messageCounters(domainId), [domainId]);
+  const { data: counters, reload: reloadCounters } = useAsync(
+    () => api.messageCounters(domainId),
+    [domainId],
+  );
   const outbox = useOutbox();
   // The rail carries the mailbox list on a wide screen, so the page only asks for the domains
   // its own phone picker is going to draw.
@@ -58,7 +70,11 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
   const mailboxes = useMemo(
     () =>
       selectableMailboxes(
-        (domains.data?.items ?? []).map((d) => ({ domainId: d.id, name: d.name, mailStatus: d.mailStatus })),
+        (domains.data?.items ?? []).map((d) => ({
+          domainId: d.id,
+          name: d.name,
+          mailStatus: d.mailStatus,
+        })),
         domainId,
       ),
     [domains.data, domainId],
@@ -130,7 +146,9 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
       setBusy(true);
       setBulkError(null);
       try {
-        await api.bulkMessages(selection.ids, action);
+        await (action === BulkMessageAction.Delete
+          ? withStepUp(() => api.bulkMessages(selection.ids, action))
+          : api.bulkMessages(selection.ids, action));
         selection.clear();
         setConfirmDelete(false);
         reload();
@@ -147,7 +165,10 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
     async (m: MessageSummary) => {
       setBulkError(null);
       try {
-        await api.bulkMessages([m.id], m.starred ? BulkMessageAction.Unstar : BulkMessageAction.Star);
+        await api.bulkMessages(
+          [m.id],
+          m.starred ? BulkMessageAction.Unstar : BulkMessageAction.Star,
+        );
         reload();
       } catch (e) {
         setBulkError(e instanceof Error ? e.message : t("bulk.failed"));
@@ -164,7 +185,8 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
       const start = dir === 1 ? from + 1 : from - 1;
       const candidates = forward.filter((i) => (dir === 1 ? i > start - 1 : i < start + 1));
       const nextUnread = candidates.find((i) => !items[i]?.isRead);
-      const idx = nextUnread ?? candidates.find((i) => items[i]) ?? (dir === 1 ? 0 : items.length - 1);
+      const idx =
+        nextUnread ?? candidates.find((i) => items[i]) ?? (dir === 1 ? 0 : items.length - 1);
       const target = items[idx];
       if (target) openMessage(target.id);
     },
@@ -197,7 +219,12 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
         return;
       }
       const el = document.activeElement;
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement
+      )
+        return;
       if (items.length === 0) return;
       const idx = items.findIndex((m) => m.id === openId);
       const key = e.key.toLowerCase();
@@ -313,10 +340,18 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
               {t("inbox.showing", { from: offset + 1, to: Math.min(offset + PAGE, total), total })}
             </span>
             <div className="row">
-              <button className="small" disabled={!hasPrev} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
+              <button
+                className="small"
+                disabled={!hasPrev}
+                onClick={() => setOffset(Math.max(0, offset - PAGE))}
+              >
                 {t("inbox.newer")}
               </button>
-              <button className="small" disabled={!hasNext} onClick={() => setOffset(offset + PAGE)}>
+              <button
+                className="small"
+                disabled={!hasNext}
+                onClick={() => setOffset(offset + PAGE)}
+              >
                 {t("inbox.older")}
               </button>
             </div>
@@ -409,6 +444,7 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
               onClose={() => openMessage(null)}
               onOpenMessage={openMessage}
               onRead={(id) => void markRead(id, true, true)}
+              onDeleted={reload}
             />
           </div>
         </div>
@@ -428,4 +464,3 @@ export function Inbox({ aliasId, domainId }: { aliasId?: string; domainId?: stri
     </div>
   );
 }
-

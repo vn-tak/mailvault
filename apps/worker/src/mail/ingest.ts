@@ -5,10 +5,27 @@ import { sanitizeFilename } from "../lib/filename";
 import { log } from "../lib/logging";
 import { findActiveAliasByAddress } from "../db/aliases";
 import { getDomainById } from "../db/domains";
-import { fileByRule, listEnabledRules, recordRuleHits } from "../db/rules";
+import { isMessageDeletionTombstoned } from "../db/deletions";
+import { listEnabledRules } from "../db/rules";
 import { applyRules, NO_RULES, type AppliedRules } from "./rules";
-import { insertMessage, insertAttachments, dedupeKeyExists, indexMessage, findThreadRoot } from "../db/messages";
+import { insertMessage, findThreadRoot } from "../db/messages";
 import type { InsertMessageInput, InsertAttachmentInput } from "../db/messages";
+import {
+  completeIngest,
+  markInboundStagingCommitted,
+  commitIngestRules,
+  findIngestByDedupeKey,
+  findIngestById,
+  isIngestDeletionBlocked,
+  ingestCoreComplete,
+  reconcileIngestCore,
+  beginInboundStaging,
+  isInboundStagingWritable,
+  finishInboundStaging,
+  abandonInboundStaging,
+  discardInboundStaging,
+  unreferencedIngestKeys,
+} from "../db/ingest";
 import {
   buildRawKey,
   buildParsedKey,
@@ -26,6 +43,7 @@ import { extractOtp } from "./otp";
 import { extractLinks } from "./links";
 import { buildPreview, stripHtmlToText } from "./preview";
 import { normalizeLookupAddress, splitAddress } from "./normalize";
+import { indexIfEnabled, semanticEnabled } from "../lib/semantic";
 
 export type IngestResult =
   | { status: "stored"; messageId: string; verdict: AuthVerdict }
@@ -54,13 +72,28 @@ export interface IngestJob {
   envelopeTo: string;
 }
 
+const INBOUND_STAGING_LEASE_MS = 5 * 60 * 1000;
+
+class InboundStagingFenced extends Error {
+  constructor() {
+    super("inbound_staging_fenced");
+  }
+}
+
+async function deletedIngestDuplicate(job: IngestJob, env?: Env): Promise<IngestResult> {
+  if (env?.VECTORIZE) await env.VECTORIZE.deleteByIds([job.messageId]);
+  log.info("mail_delete_tombstone_duplicate", { messageId: job.messageId });
+  return { status: "duplicate" };
+}
+
 /** The staged record: everything the commit needs, read back from R2 by key. */
 interface StagedParse {
   subject: string | null;
   from: string | null;
   to: string | null;
   cc: string | null;
-  date: string;
+  receivedAt: string;
+  headerDate: string | null;
   messageId: string | null;
   inReplyTo: string | null;
   references: string[];
@@ -73,6 +106,34 @@ interface StagedParse {
   rawSize: number;
   authResults: string[];
   attachments: InsertAttachmentInput[];
+}
+
+async function ingestRecordCoreComplete(
+  record: NonNullable<Awaited<ReturnType<typeof findIngestById>>>,
+  db: D1Database,
+  bucket: R2Bucket,
+): Promise<boolean> {
+  const [raw, parsedObject] = await Promise.all([
+    bucket.head(record.rawKey),
+    getObject(bucket, record.parsedKey),
+  ]);
+  if (!raw || !parsedObject) return false;
+  let staged: StagedParse;
+  try {
+    staged = await parsedObject.json<StagedParse>();
+  } catch {
+    return false;
+  }
+  if (
+    !Array.isArray(staged.attachments) ||
+    staged.attachments.some((attachment) => !attachment.id)
+  ) {
+    return false;
+  }
+  for (const attachment of staged.attachments) {
+    if (!(await bucket.head(attachment.r2Key))) return false;
+  }
+  return ingestCoreComplete(db, record, staged.attachments);
 }
 
 export type StageResult =
@@ -89,7 +150,10 @@ interface Rejectable {
 }
 
 /** Read a raw MIME stream into a bounded buffer; bail (without buffering) past the cap. */
-async function readCapped(stream: ReadableStream<Uint8Array>, cap: number): Promise<Uint8Array | null> {
+async function readCapped(
+  stream: ReadableStream<Uint8Array>,
+  cap: number,
+): Promise<Uint8Array | null> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -137,6 +201,7 @@ export async function stageEmail(
   db: D1Database,
   bucket: R2Bucket,
 ): Promise<StageResult> {
+  const receivedAt = nowIso();
   const recipient = normalizeLookupAddress(message.to);
   const { valid } = splitAddress(message.to);
   if (!valid || !recipient) {
@@ -171,9 +236,31 @@ export async function stageEmail(
   // Dedupe key binds the envelope recipient to content so identical bodies BCC'd to
   // different aliases stay separate, while the same event redelivered dedupes.
   const dedupeKey = await sha256Hex(`${recipient}|${rawHex}`);
-  if (await dedupeKeyExists(db, dedupeKey)) {
-    log.info("mail_duplicate", { aliasId: alias.id });
+  if (await isMessageDeletionTombstoned(db, dedupeKey)) {
+    log.info("mail_delete_tombstone_duplicate", { aliasId: alias.id });
     return { status: "duplicate", result: { status: "duplicate" } };
+  }
+  const existing = await findIngestByDedupeKey(db, dedupeKey);
+  if (existing) {
+    if (existing.status === "COMMITTED" && (await ingestRecordCoreComplete(existing, db, bucket))) {
+      log.info("mail_duplicate", { aliasId: alias.id });
+      return { status: "duplicate", result: { status: "duplicate" } };
+    }
+    return {
+      status: "staged",
+      keys: [],
+      job: {
+        v: 1,
+        messageId: existing.id,
+        dedupeKey: existing.dedupeKey,
+        domainId: existing.domainId,
+        aliasId: existing.aliasId,
+        rawKey: existing.rawKey,
+        parsedKey: existing.parsedKey,
+        envelopeFrom: existing.envelopeFrom,
+        envelopeTo: existing.envelopeTo,
+      },
+    };
   }
 
   // Parse (malformed must not crash the Worker — section 16).
@@ -189,8 +276,13 @@ export async function stageEmail(
   let replyTo: string | null = null;
   let listUnsubscribe: string | null = null;
   let oneClickUnsubscribe = false;
-  let receivedAt = message.headers.get("date") || nowIso();
-  let parsedAttachments: { filename: string; contentType: string; contentId: string | null; bytes: Uint8Array }[] = [];
+  let headerDate: string | null = null;
+  let parsedAttachments: {
+    filename: string;
+    contentType: string;
+    contentId: string | null;
+    bytes: Uint8Array;
+  }[] = [];
   let authResults: string[] = [];
   let degraded = false;
   try {
@@ -207,12 +299,18 @@ export async function stageEmail(
     replyTo = parsed.replyTo;
     listUnsubscribe = parsed.listUnsubscribe;
     oneClickUnsubscribe = parsed.oneClickUnsubscribe;
-    if (parsed.date) receivedAt = parsed.date;
+    if (parsed.date) {
+      const parsedDate = new Date(parsed.date);
+      if (!Number.isNaN(parsedDate.getTime())) headerDate = parsedDate.toISOString();
+    }
     parsedAttachments = parsed.attachments;
     authResults = parsed.authResults;
   } catch (err) {
     degraded = true;
-    log.warn("mail_parse_failed", { aliasId: alias.id, error: err instanceof Error ? err.message : "parse_error" });
+    log.warn("mail_parse_failed", {
+      aliasId: alias.id,
+      error: err instanceof Error ? err.message : "parse_error",
+    });
     headerTo = message.to;
   }
 
@@ -232,24 +330,57 @@ export async function stageEmail(
   const rawKey = buildRawKey(alias.domainId, alias.id, receivedAt, messageId);
   const parsedKey = buildParsedKey(messageId);
 
-  const writtenKeys: string[] = [rawKey, parsedKey];
-  const attachmentRows: InsertAttachmentInput[] = [];
+  const attachmentRows: InsertAttachmentInput[] = parsedAttachments.map((attachment) => {
+    const id = newId();
+    const safeFilename = sanitizeFilename(attachment.filename);
+    return {
+      id,
+      filename: attachment.filename,
+      safeFilename,
+      contentType: attachment.contentType,
+      size: attachment.bytes.byteLength,
+      r2Key: buildAttachmentKey(messageId, id, safeFilename),
+      contentId: attachment.contentId,
+    };
+  });
+  const writtenKeys = [rawKey, parsedKey, ...attachmentRows.map(({ r2Key }) => r2Key)];
+  const job: IngestJob = {
+    v: 1,
+    messageId,
+    dedupeKey,
+    domainId: alias.domainId,
+    aliasId: alias.id,
+    rawKey,
+    parsedKey,
+    envelopeFrom: message.from,
+    envelopeTo: message.to,
+  };
+  const leaseToken = newId();
+  const manifestStarted = await beginInboundStaging(db, {
+    messageId,
+    dedupeKey,
+    aliasId: alias.id,
+    leaseToken,
+    leaseExpiresAt: new Date(Date.now() + INBOUND_STAGING_LEASE_MS).toISOString(),
+    objectKeys: writtenKeys,
+  });
+  if (!manifestStarted) return { status: "duplicate", result: { status: "duplicate" } };
+
+  const assertWritable = async () => {
+    if (!(await isInboundStagingWritable(db, messageId, leaseToken))) {
+      throw new InboundStagingFenced();
+    }
+  };
   try {
+    await assertWritable();
     await putRaw(bucket, rawKey, bytes);
-    for (const a of parsedAttachments) {
-      const attId = newId();
-      const safe = sanitizeFilename(a.filename);
-      const key = buildAttachmentKey(messageId, attId, safe);
-      await putAttachment(bucket, key, a.bytes, a.contentType);
-      writtenKeys.push(key);
-      attachmentRows.push({
-        filename: a.filename,
-        safeFilename: safe,
-        contentType: a.contentType,
-        size: a.bytes.byteLength,
-        r2Key: key,
-        contentId: a.contentId,
-      });
+    await assertWritable();
+    for (let i = 0; i < parsedAttachments.length; i += 1) {
+      await assertWritable();
+      const source = parsedAttachments[i]!;
+      const key = attachmentRows[i]!.r2Key;
+      await putAttachment(bucket, key, source.bytes, source.contentType);
+      await assertWritable();
     }
     // The staged object is what the commit reads back, so it holds everything the
     // metadata row needs — including the headers the verdict was judged from.
@@ -258,7 +389,8 @@ export async function stageEmail(
       from: headerFrom,
       to: headerTo,
       cc: headerCc,
-      date: receivedAt,
+      receivedAt,
+      headerDate,
       messageId: providerMessageId,
       inReplyTo,
       references,
@@ -273,28 +405,31 @@ export async function stageEmail(
       attachments: attachmentRows,
     };
     await putParsed(bucket, parsedKey, staged);
+    if (!(await finishInboundStaging(db, messageId, leaseToken))) {
+      throw new InboundStagingFenced();
+    }
   } catch (err) {
-    // Nothing is committed and no retry can find these keys, so clean up before the
-    // delivery is attempted again from the top (section 14).
+    if (err instanceof InboundStagingFenced) {
+      await finishInboundStaging(db, messageId, leaseToken).catch(() => false);
+    } else {
+      await abandonInboundStaging(db, messageId, leaseToken).catch(() => {});
+    }
     await deleteKeys(bucket, writtenKeys);
-    log.error("mail_stage_failed", { aliasId: alias.id, error: err instanceof Error ? err.message : "error" });
+    if (err instanceof InboundStagingFenced) {
+      log.info("mail_stage_fenced", { aliasId: alias.id });
+      return { status: "duplicate", result: { status: "duplicate" } };
+    }
+    log.error("mail_stage_failed", {
+      aliasId: alias.id,
+      error: err instanceof Error ? err.message : "error",
+    });
     throw err;
   }
 
   return {
     status: "staged",
     keys: writtenKeys,
-    job: {
-      v: 1,
-      messageId,
-      dedupeKey,
-      domainId: alias.domainId,
-      aliasId: alias.id,
-      rawKey,
-      parsedKey,
-      envelopeFrom: message.from,
-      envelopeTo: message.to,
-    },
+    job,
   };
 }
 
@@ -307,22 +442,43 @@ export async function stageEmail(
  * exactly where they are, so the redelivery works on the same input. Nothing is deleted
  * on failure — that is how a transient database error would turn into a lost message.
  */
-export async function commitIngest(job: IngestJob, db: D1Database, bucket: R2Bucket): Promise<IngestResult> {
+export async function commitIngest(
+  job: IngestJob,
+  db: D1Database,
+  bucket: R2Bucket,
+  env?: Env,
+): Promise<IngestResult> {
+  if (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId)) {
+    return deletedIngestDuplicate(job, env);
+  }
+  let record = await findIngestById(db, job.messageId);
+  if (record?.deletionPending) return deletedIngestDuplicate(job, env);
   const obj = await getObject(bucket, job.parsedKey);
   if (!obj) {
     log.error("mail_commit_missing", { messageId: job.messageId, aliasId: job.aliasId });
     throw new Error("staged_parse_missing");
   }
   const staged = await obj.json<StagedParse>();
+  if (!(await bucket.head(job.rawKey))) throw new Error("staged_raw_missing");
+  for (const attachment of staged.attachments) {
+    if (!(await bucket.head(attachment.r2Key))) throw new Error("staged_attachment_missing");
+  }
 
-  const codes = extractOtp(`${staged.subject ?? ""}\n${staged.text ?? stripHtmlToText(staged.html ?? "")}`);
+  const codes = extractOtp(
+    `${staged.subject ?? ""}\n${staged.text ?? stripHtmlToText(staged.html ?? "")}`,
+  );
   const links = extractLinks(staged.text ?? "", staged.html);
   const preview = buildPreview(staged.text, staged.html);
   const auth = toStoredAuth(
-    assessAuth({ authResults: staged.authResults, headerFrom: staged.from, envelopeFrom: job.envelopeFrom }),
+    assessAuth({
+      authResults: staged.authResults,
+      headerFrom: staged.from,
+      envelopeFrom: job.envelopeFrom,
+    }),
   );
 
-  const insert: InsertMessageInput = {
+  const insert: InsertMessageInput & { headerDate: string | null } = {
+    id: job.messageId,
     domainId: job.domainId,
     aliasId: job.aliasId,
     providerMessageId: staged.messageId,
@@ -342,7 +498,8 @@ export async function commitIngest(job: IngestJob, db: D1Database, bucket: R2Buc
     headerTo: staged.to,
     subject: staged.subject ? staged.subject.slice(0, 500) : null,
     preview,
-    receivedAt: staged.date,
+    receivedAt: staged.receivedAt,
+    headerDate: staged.headerDate,
     rawSize: staged.rawSize,
     rawR2Key: job.rawKey,
     parsedR2Key: job.parsedKey,
@@ -354,21 +511,83 @@ export async function commitIngest(job: IngestJob, db: D1Database, bucket: R2Buc
     auth,
   };
 
-  const insertedId = await insertMessage(db, insert);
-  if (insertedId === null) {
-    // Lost a dedupe race with a concurrent delivery of the same event; the objects we
-    // staged for our own (never written) message id are ours to remove.
-    await deleteKeys(bucket, [job.rawKey, job.parsedKey, ...staged.attachments.map((a) => a.r2Key)]);
+  if (record && record.dedupeKey !== job.dedupeKey) throw new Error("ingest_message_id_conflict");
+  const wasCommitted = record?.status === "COMMITTED";
+  if (wasCommitted && (await ingestCoreComplete(db, record!, staged.attachments))) {
+    await markInboundStagingCommitted(db, job.messageId);
+    return { status: "duplicate" };
+  }
+  if (!record) {
+    if (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId))
+      return deletedIngestDuplicate(job, env);
+    let insertedId: string | null;
+    try {
+      insertedId = await insertMessage(db, insert);
+    } catch (error) {
+      if (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId))
+        return deletedIngestDuplicate(job, env);
+      throw error;
+    }
+    record = await findIngestById(db, job.messageId);
+    if (!record && insertedId === null) record = await findIngestByDedupeKey(db, job.dedupeKey);
+  }
+  if (!record) throw new Error("ingest_message_insert_incomplete");
+  if (
+    record.deletionPending ||
+    (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId))
+  ) {
+    return deletedIngestDuplicate(job, env);
+  }
+  if (record.id !== job.messageId) {
+    if (
+      record.dedupeKey !== job.dedupeKey ||
+      record.status !== "COMMITTED" ||
+      !(await ingestRecordCoreComplete(record, db, bucket))
+    ) {
+      throw new Error("ingest_duplicate_in_progress");
+    }
+    const ownKeys = [
+      job.rawKey,
+      job.parsedKey,
+      ...staged.attachments.map((attachment) => attachment.r2Key),
+    ];
+    const unreferenced = await unreferencedIngestKeys(db, ownKeys);
+    await discardInboundStaging(db, job.messageId);
+    await deleteKeys(bucket, unreferenced);
     log.info("mail_duplicate_race", { aliasId: job.aliasId });
     return { status: "duplicate" };
   }
-  await insertAttachments(db, insertedId, staged.attachments);
-  await indexMessage(db, insertedId, { subject: staged.subject, preview, sender: staged.from });
 
-  // Rules run after the row exists: filing mail is organisation, and a rule that throws
-  // must never cost the owner a message that already arrived.
+  if (wasCommitted) {
+    if (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId))
+      return deletedIngestDuplicate(job, env);
+    await reconcileIngestCore(db, job.messageId, staged.attachments, {
+      subject: staged.subject,
+      preview,
+      sender: staged.from,
+    });
+    if (!(await ingestCoreComplete(db, record, staged.attachments))) {
+      throw new Error("ingest_core_reconciliation_failed");
+    }
+    return { status: "stored", messageId: job.messageId, verdict: auth.verdict };
+  }
+
+  if (record.status !== "SEMANTIC_PENDING") {
+    if (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId))
+      return deletedIngestDuplicate(job, env);
+    await reconcileIngestCore(db, job.messageId, staged.attachments, {
+      subject: staged.subject,
+      preview,
+      sender: staged.from,
+    });
+    record = await findIngestById(db, job.messageId);
+    if (!record) throw new Error("ingest_message_missing_after_core");
+  }
+
   let filed: AppliedRules = NO_RULES;
-  try {
+  if (record.status === "RULES_PENDING") {
+    if (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId))
+      return deletedIngestDuplicate(job, env);
     const rules = await listEnabledRules(db);
     if (rules.length > 0) {
       filed = applyRules(rules, {
@@ -379,20 +598,37 @@ export async function commitIngest(job: IngestJob, db: D1Database, bucket: R2Buc
         hasCode: codes.length > 0,
         hasAttachment: staged.attachments.length > 0,
       });
-      if (filed.ruleId) {
-        await fileByRule(db, insertedId, filed);
-        await recordRuleHits(db, filed.ruleIds);
-      }
     }
-  } catch (err) {
-    log.warn("rule_application_failed", { messageId: insertedId, error: err instanceof Error ? err.message : "error" });
-    filed = NO_RULES;
+    await commitIngestRules(db, job.messageId, filed);
+    record = await findIngestById(db, job.messageId);
+    if (!record) throw new Error("ingest_message_missing_after_rules");
+    if (record.deletionPending) return deletedIngestDuplicate(job, env);
   }
 
+  if (record.status === "SEMANTIC_PENDING") {
+    if (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId))
+      return deletedIngestDuplicate(job, env);
+    const shouldIndex = Boolean(env && (await semanticEnabled(db)));
+    if (
+      shouldIndex &&
+      (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId))
+    ) {
+      return deletedIngestDuplicate(job, env);
+    }
+    if (env && shouldIndex && !(await indexIfEnabled(env, job.messageId)))
+      throw new Error("semantic_index_incomplete");
+    if (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId))
+      return deletedIngestDuplicate(job, env);
+    await completeIngest(db, job.messageId);
+    if (await isIngestDeletionBlocked(db, job.messageId, job.dedupeKey, job.aliasId))
+      return deletedIngestDuplicate(job, env);
+  }
+
+  await markInboundStagingCommitted(db, job.messageId);
   log.info("mail_stored", {
     aliasId: job.aliasId,
     domainId: job.domainId,
-    messageId: insertedId,
+    messageId: job.messageId,
     codes: codes.length,
     links: links.length,
     attachments: staged.attachments.length,
@@ -400,7 +636,7 @@ export async function commitIngest(job: IngestJob, db: D1Database, bucket: R2Buc
     auth: auth.verdict,
     rule: filed.ruleId,
   });
-  return { status: "stored", messageId: insertedId, verdict: auth.verdict };
+  return { status: "stored", messageId: job.messageId, verdict: auth.verdict };
 }
 
 /**
@@ -416,5 +652,5 @@ export async function ingestEmail(
 ): Promise<IngestResult> {
   const staged = await stageEmail(message, env, db, bucket);
   if (staged.status !== "staged") return staged.result;
-  return commitIngest(staged.job, db, bucket);
+  return commitIngest(staged.job, db, bucket, env);
 }
