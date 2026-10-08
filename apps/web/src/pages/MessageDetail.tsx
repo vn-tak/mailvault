@@ -1,3 +1,4 @@
+import { withStepUp } from "../lib/passkeys";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { attachmentHref } from "../lib/api";
@@ -10,7 +11,13 @@ import { MessageHtml } from "../components/MessageHtml";
 import { TextBody } from "../components/TextBody";
 import { ConfirmDialog, ErrorBanner, Loading, Monogram } from "../components/ui";
 import { Composer } from "../components/Composer";
-import { AuthBanner, CodeCard, LinkCard, sortCodes, sortLinks } from "../components/mail/MailInsights";
+import {
+  AuthBanner,
+  CodeCard,
+  LinkCard,
+  sortCodes,
+  sortLinks,
+} from "../components/mail/MailInsights";
 import { DeliveryReport } from "../components/mail/DeliveryReport";
 import { UnsubscribeCard, parseUnsubscribe } from "../components/mail/UnsubscribeCard";
 import { AuthVerdict, BulkMessageAction, MessageDirection } from "@mailvault/shared";
@@ -29,6 +36,7 @@ export function MessageDetail({
   onClose,
   onRead,
   onOpenMessage,
+  onDeleted,
 }: {
   id: string;
   /** Rendered inside the inbox's reading pane rather than as its own screen. */
@@ -38,16 +46,20 @@ export function MessageDetail({
   onRead?: (id: string) => void;
   /** Inside the pane, a thread entry swaps the pane rather than leaving the list. */
   onOpenMessage?: (id: string) => void;
+  onDeleted?: () => void;
 }) {
   const [remoteImages, setRemoteImages] = useState(false);
   const [showText, setShowText] = useState(false);
-  const [revealSpoofed, setRevealSpoofed] = useState(false);
+  const [revealedUnverifiedId, setRevealedUnverifiedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [replying, setReplying] = useState(false);
   const markedRef = useRef<string | null>(null);
 
-  const { data, error, loading, reload } = useAsync(() => api.getMessage(id, remoteImages), [id, remoteImages]);
+  const { data, error, loading, reload } = useAsync(
+    () => api.getMessage(id, remoteImages),
+    [id, remoteImages],
+  );
   /*
    * The conversation, asked for by root rather than by this message: opening any reply
    * has to show the whole thread, including the one you are reading.
@@ -68,7 +80,12 @@ export function MessageDetail({
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || e.key.toLowerCase() !== "r") return;
       const el = document.activeElement;
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement
+      )
+        return;
       if (document.querySelector(".palette, .modal")) return;
       e.preventDefault();
       setReplying(true);
@@ -91,11 +108,13 @@ export function MessageDetail({
 
   const codes = useMemo(() => sortCodes(data?.extractedCodes ?? []), [data]);
   const links = useMemo(() => sortLinks(data?.verificationLinks ?? []), [data]);
-  // A spoofed message's "code" and "verify link" are the payload a phisher wants read,
-  // so they stay hidden until the owner explicitly asks for them.
-  const hidingSecrets = !!data && data.authVerdict === AuthVerdict.Spoofed && !revealSpoofed;
   const sent = data?.direction === MessageDirection.Out;
-  const canReply = !!data?.aliasAddress && outbox.aliases.some((a) => a.address === data.aliasAddress);
+  const revealUnverified = revealedUnverifiedId === id;
+  // Only authenticated inbound mail may surface extracted codes or verification links by default.
+  const hidingSecrets =
+    !!data && !sent && data.authVerdict !== AuthVerdict.Trusted && !revealUnverified;
+  const canReply =
+    !!data?.aliasAddress && outbox.aliases.some((a) => a.address === data.aliasAddress);
 
   async function toggleRead() {
     if (!data) return;
@@ -114,7 +133,10 @@ export function MessageDetail({
     setNotice(null);
     try {
       // The bulk endpoint with one id, rather than a second route for the same flag flip.
-      await api.bulkMessages([data.id], data.starred ? BulkMessageAction.Unstar : BulkMessageAction.Star);
+      await api.bulkMessages(
+        [data.id],
+        data.starred ? BulkMessageAction.Unstar : BulkMessageAction.Star,
+      );
       reload();
     } catch (e) {
       setNotice(e instanceof Error ? e.message : t("bulk.failed"));
@@ -123,7 +145,8 @@ export function MessageDetail({
 
   async function remove() {
     try {
-      await api.deleteMessage(id);
+      await withStepUp(() => api.deleteMessage(id));
+      onDeleted?.();
       navigate("/inbox");
     } catch (e) {
       setNotice(e instanceof Error ? e.message : t("common.deleteFail"));
@@ -142,7 +165,9 @@ export function MessageDetail({
         </div>
       ) : (
         <div className="backrow">
-          <Link className="backlink" to="/inbox">{t("msg.back")}</Link>
+          <Link className="backlink" to="/inbox">
+            {t("msg.back")}
+          </Link>
         </div>
       )}
 
@@ -197,7 +222,12 @@ export function MessageDetail({
                 <button className="small" onClick={toggleRead}>
                   {t(data.isRead ? "msg.markUnread" : "msg.markRead")}
                 </button>
-                <button className="small" aria-pressed={data.starred} onClick={() => void toggleStar()} title={t("msg.starHint")}>
+                <button
+                  className="small"
+                  aria-pressed={data.starred}
+                  onClick={() => void toggleStar()}
+                  title={t("msg.starHint")}
+                >
                   {t(data.starred ? "msg.unstar" : "msg.star")}
                 </button>
                 <button className="small danger" onClick={() => setConfirmDelete(true)}>
@@ -227,7 +257,13 @@ export function MessageDetail({
             )
           ) : null}
 
-          {sent ? <DeliveryReport status={data.sendStatus} error={data.sendError} recipients={data.recipients} /> : null}
+          {sent ? (
+            <DeliveryReport
+              status={data.sendStatus}
+              error={data.sendError}
+              recipients={data.recipients}
+            />
+          ) : null}
 
           {/* Says why this mail is where it is, in the words the rule had at the time —
               so an archive still explains itself after the rule is edited or deleted. */}
@@ -238,14 +274,25 @@ export function MessageDetail({
             </div>
           )}
 
-          {hidingSecrets && (codes.length > 0 || links.length > 0) ? (
+          {hidingSecrets &&
+          (codes.length > 0 ||
+            links.length > 0 ||
+            data.attachments.length > 0 ||
+            data.textBody ||
+            data.htmlBody) ? (
             <div className="banner error mt">
               <div>
                 <strong>{t("msg.secretsHidden")}</strong>
                 {t("msg.secretsHiddenBody")}
               </div>
-              <button className="small danger" style={{ marginTop: 8 }} onClick={() => setRevealSpoofed(true)}>
-                {t("msg.showAnyway", { n: codes.length + links.length })}
+              <button
+                className="small danger"
+                style={{ marginTop: 8 }}
+                onClick={() => setRevealedUnverifiedId(id)}
+              >
+                {t("msg.showAnyway", {
+                  n: Math.max(1, codes.length + links.length + data.attachments.length),
+                })}
               </button>
             </div>
           ) : null}
@@ -253,7 +300,10 @@ export function MessageDetail({
           {codes.length > 0 && !hidingSecrets && (
             <div className="mt">
               <h2>{t("msg.codes")}</h2>
-              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+              <div
+                className="grid"
+                style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+              >
                 {codes.map((c, i) => (
                   <CodeCard key={`${c.value}-${i}`} code={c} />
                 ))}
@@ -272,20 +322,33 @@ export function MessageDetail({
             </div>
           )}
 
-          {data.attachments.length > 0 && (
+          {!hidingSecrets && data.attachments.length > 0 && (
             <div className="mt">
               <h2>{t("msg.attachments")}</h2>
               <div className="stack">
                 {data.attachments.map((a) => (
                   <div key={a.id} className="attach">
-                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
                       {a.filename}
                     </span>
                     <span className="faint" style={{ fontSize: 12 }}>
                       {a.contentType} · {formatBytes(a.size)}
                     </span>
                     {/* Authenticated same-origin download; never a public URL. */}
-                    <a className="small" href={attachmentHref(data.id, a.id)} rel="noreferrer" style={{ textDecoration: "none" }}>
+                    <a
+                      className="small"
+                      href={attachmentHref(data.id, a.id)}
+                      rel="noreferrer"
+                      style={{ textDecoration: "none" }}
+                    >
                       {t("msg.download")}
                     </a>
                   </div>
@@ -294,44 +357,46 @@ export function MessageDetail({
             </div>
           )}
 
-          <div className="mt">
-            <div className="row spread wrap" style={{ marginBottom: 8 }}>
-              <h2 style={{ margin: 0 }}>{t("msg.body")}</h2>
-              <div className="row wrap" style={{ justifyContent: "flex-end", fontSize: 12 }}>
-                {data.htmlBody && (
-                  <button className="small ghost" onClick={() => setShowText((s) => !s)}>
-                    {t(showText ? "msg.showHtml" : "msg.showPlain")}
-                  </button>
-                )}
-                {data.htmlBody && !remoteImages && (
-                  <button className="small" onClick={() => setRemoteImages(true)}>
-                    {t("msg.loadImages")}
-                  </button>
-                )}
-                {remoteImages && (
-                  <button className="small ghost" onClick={() => setRemoteImages(false)}>
-                    {t("msg.hideImages")}
-                  </button>
-                )}
+          {!hidingSecrets && (
+            <div className="mt">
+              <div className="row spread wrap" style={{ marginBottom: 8 }}>
+                <h2 style={{ margin: 0 }}>{t("msg.body")}</h2>
+                <div className="row wrap" style={{ justifyContent: "flex-end", fontSize: 12 }}>
+                  {data.htmlBody && (
+                    <button className="small ghost" onClick={() => setShowText((s) => !s)}>
+                      {t(showText ? "msg.showHtml" : "msg.showPlain")}
+                    </button>
+                  )}
+                  {data.htmlBody && !remoteImages && (
+                    <button className="small" onClick={() => setRemoteImages(true)}>
+                      {t("msg.loadImages")}
+                    </button>
+                  )}
+                  {remoteImages && (
+                    <button className="small ghost" onClick={() => setRemoteImages(false)}>
+                      {t("msg.hideImages")}
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
 
-            {remoteImages && data.htmlBody && (
-              <div className="banner" style={{ marginBottom: 10 }}>
-                {t("msg.imagesWarn")}
-              </div>
-            )}
+              {remoteImages && data.htmlBody && (
+                <div className="banner" style={{ marginBottom: 10 }}>
+                  {t("msg.imagesWarn")}
+                </div>
+              )}
 
-            {showText || !data.htmlBody ? (
-              data.textBody ? (
-                <TextBody text={data.textBody} />
+              {showText || !data.htmlBody ? (
+                data.textBody ? (
+                  <TextBody text={data.textBody} />
+                ) : (
+                  <p className="muted">{t("msg.noBody")}</p>
+                )
               ) : (
-                <p className="muted">{t("msg.noBody")}</p>
-              )
-            ) : (
-              <MessageHtml html={data.htmlBody} />
-            )}
-          </div>
+                <MessageHtml html={data.htmlBody} />
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -362,11 +427,19 @@ export function MessageDetail({
                 />
               );
               return (
-                <li key={m.id} aria-current={current ? "true" : undefined} className={current ? "is-current" : ""}>
+                <li
+                  key={m.id}
+                  aria-current={current ? "true" : undefined}
+                  className={current ? "is-current" : ""}
+                >
                   {/* Same content either way; only the gesture differs, and it is the one the
                       surrounding screen can honour — a pane swaps, a page navigates. */}
                   {onOpenMessage ? (
-                    <button type="button" className="thread-link" onClick={() => onOpenMessage(m.id)}>
+                    <button
+                      type="button"
+                      className="thread-link"
+                      onClick={() => onOpenMessage(m.id)}
+                    >
                       {entry}
                     </button>
                   ) : (

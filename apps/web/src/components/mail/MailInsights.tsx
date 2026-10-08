@@ -1,6 +1,11 @@
 import { CopyButton } from "../ui";
 import { t } from "../../lib/i18n";
-import { AuthVerdict, type ExtractedCode, type MessageAuth, type VerificationLink } from "@mailvault/shared";
+import {
+  AuthVerdict,
+  type ExtractedCode,
+  type MessageAuth,
+  type VerificationLink,
+} from "@mailvault/shared";
 
 /**
  * The two things this mailbox exists to surface — a code and a magic link — and the verdict
@@ -32,7 +37,8 @@ export function CodeCard({ code }: { code: ExtractedCode }) {
       <div>
         <div className="code">{code.value}</div>
         <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
-          {t(code.kind === "numeric" ? "msg.numericCode" : "msg.code")} · {t("msg.codeLength", { n: code.length })}
+          {t(code.kind === "numeric" ? "msg.numericCode" : "msg.code")} ·{" "}
+          {t("msg.codeLength", { n: code.length })}
         </div>
       </div>
       <CopyButton text={code.value} label={t("msg.copyCode")} />
@@ -70,11 +76,22 @@ export function LinkCard({ link }: { link: VerificationLink }) {
       <div className="row wrap" style={{ gap: 8 }}>
         <CopyButton text={target} label={t("msg.copyLink")} />
         {/* Explicit user action only: never auto-followed, never prefetched. */}
-        <a className="small" href={target} target="_blank" rel="noopener noreferrer nofollow" aria-label={t("msg.openAria", { host: displayHost(link) })}>
+        <a
+          className="small"
+          href={target}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          aria-label={t("msg.openAria", { host: displayHost(link) })}
+        >
           {t("msg.open")}
         </a>
         {wrapped && (
-          <a className="small ghost" href={link.url} target="_blank" rel="noopener noreferrer nofollow">
+          <a
+            className="small ghost"
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+          >
             {t("msg.openAsSent")}
           </a>
         )}
@@ -87,7 +104,9 @@ function outcomeLabel(auth: MessageAuth | null): string {
   if (!auth) return t("msg.authNotAssessed");
   const mark = (mech: "spf" | "dkim" | "dmarc", value: string | null) =>
     value ? `${mech}=${value}${auth.alignedPass[mech] ? "*" : ""}` : null;
-  const parts = [mark("spf", auth.spf), mark("dkim", auth.dkim), mark("dmarc", auth.dmarc)].filter(Boolean);
+  const parts = [mark("spf", auth.spf), mark("dkim", auth.dkim), mark("dmarc", auth.dmarc)].filter(
+    Boolean,
+  );
   if (parts.length === 0) return t("msg.authNone");
   const aligned = auth.alignedPass.spf || auth.alignedPass.dkim || auth.alignedPass.dmarc;
   return aligned
@@ -96,18 +115,33 @@ function outcomeLabel(auth: MessageAuth | null): string {
 }
 
 export function AuthBanner({ verdict, auth }: { verdict: AuthVerdict; auth: MessageAuth | null }) {
-  // Mail stored before authentication existed has nothing to report; saying "not
-  // verified" every time would train the owner to ignore the real warning.
-  if (!auth && verdict !== AuthVerdict.Spoofed) return null;
   const head =
-    verdict === AuthVerdict.Trusted ? "msg.authTrusted" : verdict === AuthVerdict.Spoofed ? "msg.authSpoofed" : "msg.authUnverified";
-  const cls = verdict === AuthVerdict.Trusted ? "trusted" : verdict === AuthVerdict.Spoofed ? "spoofed" : "unverified";
+    verdict === AuthVerdict.Trusted
+      ? "msg.authTrusted"
+      : verdict === AuthVerdict.Spoofed
+        ? "msg.authSpoofed"
+        : "msg.authUnverified";
+  const cls =
+    verdict === AuthVerdict.Trusted
+      ? "trusted"
+      : verdict === AuthVerdict.Spoofed
+        ? "spoofed"
+        : "unverified";
   return (
     <div className={`ribbon ${cls} mt`} role="status">
       <span className="dot" aria-hidden="true" />
       <span className="ribbon-body">
         <span className="head">{t(head)}</span>
-        <span className="detail">{outcomeLabel(auth)}</span>
+        <span className="detail">
+          {auth
+            ? outcomeLabel(auth)
+            : verdict === AuthVerdict.Unverified
+              ? t("msg.authAssessmentUnavailable")
+              : outcomeLabel(auth)}
+        </span>
+        {verdict === AuthVerdict.Unverified ? (
+          <span className="detail">{t("msg.authSourceUntrusted")}</span>
+        ) : null}
         {verdict === AuthVerdict.Spoofed && auth?.reasons.length ? (
           <span className="detail">{t("msg.authWhy", { reasons: auth.reasons.join("; ") })}</span>
         ) : null}
