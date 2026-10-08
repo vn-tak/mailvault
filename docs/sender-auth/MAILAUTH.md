@@ -10,10 +10,12 @@ and nothing here certifies production sender authentication, DMARC, SPF, ARC, or
 - Package: `mailauth` **7.1.1**, pinned exactly in `apps/worker/package.json` (no range).
 - License: MIT (upstream `package.json`).
 - Integrity, from `pnpm-lock.yaml`: `sha512-IJKBJgdxVT5pgahdVSWxum3yLlI25SSlIbEXiJAVYICc7rNuTQ9ZklZkArNvx/8bcc5N3cKcQz+AAKrcRNj7kw==`.
-- Engine: upstream requires Node `>=22.19.0`, so the root `engines.node` now says the same.
-  This describes the developer and CI toolchain. CI and deploy run Node 24, and Wrangler 4.136.3
-  already requires `>=22.0.0`. The Worker itself runs on workerd, which is a separate concern
-  covered by the compatibility date and flags below.
+- Engine: upstream requires Node `>=22.19.0`, so the root `engines.node` now says the same, and
+  `.npmrc` sets pnpm `engine-strict=true`, so `pnpm install` refuses an older Node. The earlier key
+  `engine=strict` is not a pnpm setting and enforced nothing. This describes the developer and CI
+  toolchain. CI and deploy run Node 24, and Wrangler 4.136.3 already requires `>=22.0.0`. The
+  Worker itself runs on workerd, which is a separate concern covered by the compatibility date and
+  flags below.
 
 ## Patch
 
