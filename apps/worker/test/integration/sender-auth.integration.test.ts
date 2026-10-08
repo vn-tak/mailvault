@@ -4,6 +4,7 @@ import type { Env } from "../../src/env";
 import { ingestEmail, stageEmail } from "../../src/mail/ingest";
 import worker from "../../src/index";
 import { getTestBindings, type TestBindings } from "./_mf";
+import { createDkimKey, signMessage } from "../compat/dkim-fixtures";
 
 let bindings: TestBindings;
 let env: Env;
@@ -67,6 +68,10 @@ function message(
       "",
     ].join("\r\n"),
   );
+  return envelope(to, raw);
+}
+
+function envelope(to: string, raw: Uint8Array) {
   return {
     from: "bounce@attacker.invalid",
     to,
@@ -144,6 +149,31 @@ describe("sender authentication provenance through Miniflare ingest", () => {
       db,
       bucket,
     );
+
+    expect(result).toMatchObject({ status: "stored", verdict: "UNVERIFIED" });
+    const row = await db
+      .prepare("SELECT auth_verdict FROM messages")
+      .first<{ auth_verdict: string }>();
+    expect(row?.auth_verdict).toBe("UNVERIFIED");
+  });
+
+  it("does not treat a valid DKIM signature in the message as verified evidence", async () => {
+    const to = "dkim-signed@notify.example";
+    await seedAlias(to);
+    const raw = signMessage(createDkimKey("rsa-sha256", "sel", "example.com"), {
+      headers: [
+        "From: Security <security@example.com>",
+        `To: ${to}`,
+        "Subject: Account notification",
+        "Message-ID: <dkim-signed@example.com>",
+        "Date: Fri, 19 Sep 2026 12:00:00 +0000",
+        "MIME-Version: 1.0",
+        "Content-Type: text/plain; charset=utf-8",
+      ],
+      body: "Your verification code is 123456.\r\n",
+    });
+
+    const result = await ingestEmail(envelope(to, new TextEncoder().encode(raw)), env, db, bucket);
 
     expect(result).toMatchObject({ status: "stored", verdict: "UNVERIFIED" });
     const row = await db
