@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import type { Env } from "../../src/env";
-import { ingestEmail } from "../../src/mail/ingest";
+import { ingestEmail, stageEmail } from "../../src/mail/ingest";
+import worker from "../../src/index";
 import { getTestBindings, type TestBindings } from "./_mf";
 
 let bindings: TestBindings;
@@ -45,10 +46,15 @@ async function seedAlias(address: string, policy: "WARN" | "REJECT" = "WARN"): P
     .run();
 }
 
-function message(to: string, authResult: string, authHeader = "Authentication-Results") {
+function message(
+  to: string,
+  authResult: string,
+  authHeader = "Authentication-Results",
+  headerFrom = "Security <security@example.com>",
+) {
   const raw = new TextEncoder().encode(
     [
-      "From: Security <security@example.com>",
+      `From: ${headerFrom}`,
       `To: ${to}`,
       "Subject: Account notification",
       "Message-ID: <sender-auth@example.com>",
@@ -166,6 +172,130 @@ describe("sender authentication provenance through Miniflare ingest", () => {
       .prepare("SELECT auth_verdict FROM messages")
       .first<{ auth_verdict: string }>();
     expect(row?.auth_verdict).toBe("UNVERIFIED");
+  });
+
+  it.each([
+    [
+      "aligned receiver name",
+      "Authentication-Results",
+      "cloudflare.com; dkim=pass header.d=target.example; dmarc=pass header.from=target.example",
+    ],
+    [
+      "mixed casing",
+      "aUtHeNtIcAtIoN-rEsUlTs",
+      "cloudflare.com; dkim=pass header.d=target.example; dmarc=pass header.from=target.example",
+    ],
+    [
+      "folded header",
+      "Authentication-Results",
+      "cloudflare.com;\r\n dkim=pass header.d=target.example;\r\n dmarc=pass header.from=target.example",
+    ],
+    [
+      "duplicate headers",
+      "Authentication-Results",
+      "cloudflare.com; dkim=pass header.d=target.example\r\nAuthentication-Results: cloudflare.com; dmarc=pass header.from=target.example",
+    ],
+  ])("keeps forged receiver results observational: %s", async (_name, header, result) => {
+    const to = "receiver-forgery@notify.example";
+    await seedAlias(to);
+    const stored = await ingestEmail(
+      message(to, result, header, "security@target.example"),
+      env,
+      db,
+      bucket,
+    );
+
+    expect(stored).toMatchObject({ status: "stored", verdict: "UNVERIFIED" });
+    const row = await db
+      .prepare("SELECT auth_verdict, auth_json FROM messages")
+      .first<{ auth_verdict: string; auth_json: string }>();
+    expect(row?.auth_verdict).toBe("UNVERIFIED");
+    const auth = JSON.parse(row!.auth_json);
+    expect(auth.evidence.length).toBeGreaterThan(0);
+    expect(auth.evidence.every((item: { aligned: boolean }) => item.aligned)).toBe(true);
+    expect(auth.alignedPass).toEqual({ spf: false, dkim: false, dmarc: false });
+  });
+
+  it("preserves UNVERIFIED across partial commit, queue retry and replay", async () => {
+    const to = "receiver-retry@notify.example";
+    await seedAlias(to);
+    const staged = await stageEmail(
+      message(
+        to,
+        "cloudflare.com; dkim=pass header.d=target.example; dmarc=pass header.from=target.example",
+        "Authentication-Results",
+        "security@target.example",
+      ),
+      env,
+      db,
+      bucket,
+    );
+    expect(staged.status).toBe("staged");
+    if (staged.status !== "staged") throw new Error("expected_staged_message");
+    const job = staged.job;
+    const ctx = {
+      waitUntil: (promise: Promise<unknown>) => void promise.catch(() => undefined),
+      passThroughOnException: () => undefined,
+      props: {},
+    } as unknown as ExecutionContext;
+    async function deliver(attempts: number) {
+      const decisions: string[] = [];
+      await worker.queue(
+        {
+          queue: "mail-ingest",
+          messages: [
+            {
+              id: "sender-auth-retry",
+              timestamp: new Date(),
+              attempts,
+              body: job,
+              ack: () => void decisions.push("ack"),
+              retry: () => void decisions.push("retry"),
+            },
+          ],
+          ackAll: () => undefined,
+          retryAll: () => undefined,
+        } as never,
+        env,
+        ctx,
+      );
+      return decisions;
+    }
+    const storedAuth = () =>
+      db
+        .prepare("SELECT auth_verdict, auth_json, ingest_status FROM messages WHERE id = ?1")
+        .bind(job.messageId)
+        .first<{ auth_verdict: string; auth_json: string; ingest_status: string | null }>();
+
+    await db
+      .prepare(
+        `CREATE TRIGGER sender_auth_fail_core BEFORE UPDATE OF ingest_status ON messages
+       BEGIN SELECT RAISE(FAIL, 'sender_auth_partial_commit'); END`,
+      )
+      .run();
+    let partial;
+    try {
+      expect(await deliver(1)).toEqual(["retry"]);
+      partial = await storedAuth();
+      expect(partial).toMatchObject({ auth_verdict: "UNVERIFIED", ingest_status: null });
+      expect(await bucket.head(job.rawKey)).not.toBeNull();
+      expect(await bucket.head(job.parsedKey)).not.toBeNull();
+    } finally {
+      await db.prepare("DROP TRIGGER sender_auth_fail_core").run();
+    }
+
+    expect(await deliver(2)).toEqual(["ack"]);
+    const completed = await storedAuth();
+    expect(completed).toMatchObject({
+      auth_verdict: "UNVERIFIED",
+      auth_json: partial!.auth_json,
+      ingest_status: "COMMITTED",
+    });
+    expect(await deliver(3)).toEqual(["ack"]);
+    expect(await storedAuth()).toEqual(completed);
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM messages").first()).toEqual({
+      count: 1,
+    });
   });
 
   it("does not reject based on a forged DMARC failure, even under REJECT policy", async () => {

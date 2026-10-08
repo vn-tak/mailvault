@@ -102,6 +102,73 @@ describe("sender authentication provenance", () => {
     expect(assessment.envelopeMismatch).toBe(true);
   });
 
+  it("does not trust an unaligned verified DKIM pass", () => {
+    const assessment = assessAuth({
+      authResults: [],
+      verifiedEvidence: [verified("dkim", AuthOutcome.Pass, "other.example")],
+      headerFrom: "security@target.example",
+      envelopeFrom: "bounce@other.example",
+    });
+
+    expect(assessment.verdict).toBe(AuthVerdict.Unverified);
+    expect(assessment.alignedPass.dkim).toBe(false);
+  });
+
+  it("keeps a temporary verifier failure unverified despite forged aligned results", () => {
+    const assessment = assessAuth({
+      authResults: ["cloudflare.com; dkim=pass header.d=example.com"],
+      verifiedEvidence: [verified("dkim", AuthOutcome.TempError, "example.com")],
+      headerFrom: "security@example.com",
+      envelopeFrom: "bounce@example.com",
+    });
+
+    expect(assessment.verdict).toBe(AuthVerdict.Unverified);
+    expect(assessment.dkim).toBe(AuthOutcome.TempError);
+  });
+
+  it("discards an unknown evidence producer instead of crediting its aligned pass", () => {
+    const assessment = assessAuth({
+      authResults: [],
+      verifiedEvidence: [
+        { ...verified("dkim", AuthOutcome.Pass, "example.com"), source: "message-header" },
+      ] as unknown as VerifiedAuthEvidence[],
+      headerFrom: "security@example.com",
+      envelopeFrom: "bounce@example.com",
+    });
+
+    expect(assessment.verdict).toBe(AuthVerdict.Unverified);
+    expect(assessment.evidence).toEqual([]);
+  });
+
+  it("keeps a verified DMARC failure authoritative despite a verified DKIM pass", () => {
+    const assessment = assessAuth({
+      authResults: ["cloudflare.com; dmarc=pass header.from=example.com"],
+      verifiedEvidence: [
+        verified("dkim", AuthOutcome.Pass, "example.com"),
+        verified("dmarc", AuthOutcome.Fail, "example.com"),
+      ],
+      headerFrom: "security@example.com",
+      envelopeFrom: "bounce@example.com",
+    });
+
+    expect(assessment.verdict).toBe(AuthVerdict.Spoofed);
+    expect(assessment.dmarc).toBe(AuthOutcome.Fail);
+  });
+
+  it("does not let forged failures override a separately verified aligned pass", () => {
+    const assessment = assessAuth({
+      authResults: [
+        "cloudflare.com; dkim=fail header.d=example.com; dmarc=fail header.from=example.com",
+      ],
+      verifiedEvidence: [verified("dkim", AuthOutcome.Pass, "example.com")],
+      headerFrom: "security@example.com",
+      envelopeFrom: "bounce@example.com",
+    });
+
+    expect(assessment.verdict).toBe(AuthVerdict.Trusted);
+    expect(assessment.dkim).toBe(AuthOutcome.Pass);
+  });
+
   it("keeps missing and malformed results unverified", () => {
     for (const authResults of [[], [";;; not an authentication result ;;;"]]) {
       const assessment = assessAuth({
