@@ -1,9 +1,9 @@
 # mailauth 7.1.1 workerd foundation
 
-This is a runtime foundation, not a verifier. It shows that the pinned, patched `mailauth`
+This is the runtime foundation for DKIM verification. It shows that the pinned, patched `mailauth`
 DKIM verifier runs inside workerd with the production compatibility settings, and that it agrees
-with Node. Inbound mail stays `UNVERIFIED`. Nothing here connects DKIM results to live ingest,
-and nothing here certifies production sender authentication, DMARC, SPF, ARC, or a deployment.
+with Node. The ingest consumer is described in `docs/sender-auth/SENDER_AUTH_V1.md`. Nothing here
+certifies DMARC, SPF, ARC, or a deployment.
 
 ## Pin and provenance
 
@@ -52,9 +52,9 @@ and nothing here certifies production sender authentication, DMARC, SPF, ARC, or
   `compatibility_date` stays at `2026-07-02`.
 - Why: `mailauth` imports `node:dns`, `node:crypto`, `node:buffer`, `node:stream`, `node:net`,
   `node:tls`, `node:https`, `node:fs`, and `node:os`. Without the flag workerd does not provide them.
-- Bundle: the production dry-run output is byte-identical with and without the flag, at
-  1497.96 KiB upload and 313.18 KiB gzip. The bundle has no `process` references and no new
-  `node:` imports, and no polyfill code was added.
+- Bundle, at the foundation stage: the production dry-run output was byte-identical with and
+  without the flag, at 1497.96 KiB upload and 313.18 KiB gzip, because no production code imported
+  `mailauth` yet. The DKIM ingest bundle is measured in `SENDER_AUTH_V1.md`.
 - Globals: with the flag, `Buffer` is defined. The only bundled code that checks for it is
   `@peculiar/utils` base64, which prefers `Buffer` and falls back to `atob`/`btoa`. Both paths return
   the same bytes for input its validator accepts.
@@ -77,11 +77,11 @@ and nothing here certifies production sender authentication, DMARC, SPF, ARC, or
   `Unknown digest: rsa-sha256`, and the guard fails. This shows the test detects a dropped patch.
 - Upstream DKIM suite: the 347 `test/dkim` tests from the 7.1.1 source tree pass 347/347 on the
   unpatched package and 347/347 on the installed patched package, with identical test titles.
-- Fail-closed ingest: `test/integration/sender-auth.integration.test.ts` checks that a forged
-  `Authentication-Results` header and a cryptographically valid DKIM signature both store as
-  `UNVERIFIED`.
+- Ingest: `test/integration/sender-auth.integration.test.ts` checks that a forged
+  `Authentication-Results` header stays `UNVERIFIED`, and that a valid DKIM signature is `TRUSTED`
+  only with a published, aligned key.
 
 ## Not certified
 
-Production sender authentication, DKIM ingest, DMARC, SPF, ARC, and deployment. The next
-verifier PR must add a separate trust path. Until it does, inbound mail stays `UNVERIFIED`.
+SPF, DMARC, ARC, and production deployment. DKIM ingest is certified only as described in
+`docs/sender-auth/SENDER_AUTH_V1.md`.

@@ -1,7 +1,7 @@
 // Test-only Worker. It calls the installed mailauth package, with the pnpm patch applied,
 // inside workerd, so the compatibility claim covers the real dependency rather than a copy.
 // The policy is fixed here: strict parsing, and RSA-SHA1 is refused with a `policy` result.
-import { dkimVerify } from "mailauth";
+import { dkimVerify } from "mailauth/lib/dkim/verify";
 
 interface VerifyRequest {
   message: string;

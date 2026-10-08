@@ -190,19 +190,20 @@ their provenance are stored in `messages.auth_verdict` and `auth_json`.
   such as `cloudflare.com` is not an attestation, and even an aligned `d=`, `header.d=`,
   `header.i=`, or `smtp.mailfrom=` pass is not proof of provenance. These observations are
   retained for explanation but never set `alignedPass` or determine the trust verdict.
-- **No verified sender verdict is currently available to this Worker.** Cloudflare's
+- **Verified DKIM is the only verified sender result.** Cloudflare's
   [Email Workers API](https://developers.cloudflare.com/email-routing/email-workers/)
   documents an `EmailMessage` that exposes envelope addresses, headers, raw MIME, and
   size; it does not document a receiver-authenticated SPF/DKIM/DMARC result. Cloudflare's
   [Postmaster documentation](https://developers.cloudflare.com/email-routing/postmaster/)
-  describes inbound DMARC rejection, but does not expose its result to the Worker. Therefore
-  new inbound messages are `UNVERIFIED` today. We do not infer authentication from transport
-  acceptance or a MIME reporter name.
+  describes inbound DMARC rejection, but does not expose its result to the Worker. MailVault
+  therefore verifies DKIM cryptographically against the raw bytes during staging (see
+  `docs/sender-auth/SENDER_AUTH_V1.md`). SPF and DMARC are not verified here. We do not infer
+  authentication from transport acceptance or a MIME reporter name.
 - **Verdicts require separate verified evidence.** `TRUSTED` requires an independently
-  verified aligned SPF/DKIM/DMARC pass; `SPOOFED` requires an independently verified aligned
-  DMARC failure. No production provider currently supplies such evidence, so raw
-  `dmarc=fail` does not reject delivery. The stored per-domain `OFF`/`WARN`/`REJECT` preference
-  remains, but `REJECT` has no effect until a verified sender result is supplied.
+  verified aligned DKIM pass; `SPOOFED` requires an independently verified aligned DMARC
+  failure. No verified DMARC result is supplied, so raw `dmarc=fail` does not reject
+  delivery. The stored per-domain `OFF`/`WARN`/`REJECT` preference remains, but `REJECT` has
+  no effect until a verified DMARC result is supplied.
 - **Unverified inbound content is withheld, not just labelled.** The inbox hides previews
   and extracted codes; the detail hides the body, codes, links, and attachments behind an
   explicit "Show anyway". Replies require `TRUSTED`. Unsubscribe and push detail are also

@@ -37,7 +37,8 @@ import {
   deleteKeys,
 } from "../storage/r2";
 import { parseMime } from "./parse";
-import { assessAuth } from "./auth";
+import { assessAuth, type VerifiedAuthEvidence } from "./auth";
+import { verifyDkim, type TxtResolver } from "./dkim";
 import { AuthPolicy, AuthVerdict, type MessageAuth } from "@mailvault/shared";
 import { extractOtp } from "./otp";
 import { extractLinks } from "./links";
@@ -70,6 +71,11 @@ export interface IngestJob {
   parsedKey: string;
   envelopeFrom: string;
   envelopeTo: string;
+}
+
+/** DKIM key lookups. Omitted in production, where the Worker's node:dns resolver is used. */
+export interface IngestOptions {
+  resolveTxt?: TxtResolver;
 }
 
 const INBOUND_STAGING_LEASE_MS = 5 * 60 * 1000;
@@ -106,6 +112,8 @@ interface StagedParse {
   rawSize: number;
   authResults: string[];
   attachments: InsertAttachmentInput[];
+  /** Verifier output, judged once at staging. Absent on records staged before DKIM was wired in. */
+  verifiedAuthEvidence?: VerifiedAuthEvidence[];
 }
 
 async function ingestRecordCoreComplete(
@@ -177,9 +185,16 @@ async function readCapped(
   return out;
 }
 
-/** Bounded for D1 storage; the verdict is computed from the full evidence, not this copy. */
+/**
+ * Bounded for D1 storage; the verdict is computed from the full evidence, not this copy. Verifier
+ * results come first, so the bound cannot hide the evidence the verdict rests on.
+ */
 function toStoredAuth(a: ReturnType<typeof assessAuth>): MessageAuth {
-  return { ...a, reasons: a.reasons.map((r) => r.slice(0, 120)), evidence: a.evidence.slice(0, 8) };
+  const evidence = [
+    ...a.evidence.filter((item) => item.source !== "message-header"),
+    ...a.evidence.filter((item) => item.source === "message-header"),
+  ];
+  return { ...a, reasons: a.reasons.map((r) => r.slice(0, 120)), evidence: evidence.slice(0, 8) };
 }
 
 /** The part a rule matches on: who sent it, not who they claim to be in the header. */
@@ -200,6 +215,7 @@ export async function stageEmail(
   env: Env,
   db: D1Database,
   bucket: R2Bucket,
+  options: IngestOptions = {},
 ): Promise<StageResult> {
   const receivedAt = nowIso();
   const recipient = normalizeLookupAddress(message.to);
@@ -316,7 +332,13 @@ export async function stageEmail(
 
   // Judged before anything is stored: a spoofed message must never reach the owner
   // looking like a verified one, and its "code"/"verify link" are what a phisher forges.
-  const auth = assessAuth({ authResults, headerFrom, envelopeFrom: message.from });
+  const verifiedAuthEvidence = await verifyDkim(bytes, { resolveTxt: options.resolveTxt });
+  const auth = assessAuth({
+    authResults,
+    headerFrom,
+    envelopeFrom: message.from,
+    verifiedEvidence: verifiedAuthEvidence,
+  });
   if (auth.verdict === AuthVerdict.Spoofed) {
     const domain = await getDomainById(db, alias.domainId);
     if (domain?.authPolicy === AuthPolicy.Reject) {
@@ -403,6 +425,7 @@ export async function stageEmail(
       rawSize: bytes.byteLength,
       authResults,
       attachments: attachmentRows,
+      verifiedAuthEvidence,
     };
     await putParsed(bucket, parsedKey, staged);
     if (!(await finishInboundStaging(db, messageId, leaseToken))) {
@@ -474,6 +497,8 @@ export async function commitIngest(
       authResults: staged.authResults,
       headerFrom: staged.from,
       envelopeFrom: job.envelopeFrom,
+      // Staged before DKIM verification was wired in: nothing was verified, so nothing is trusted.
+      verifiedEvidence: staged.verifiedAuthEvidence ?? [],
     }),
   );
 
@@ -649,8 +674,9 @@ export async function ingestEmail(
   env: Env,
   db: D1Database,
   bucket: R2Bucket,
+  options: IngestOptions = {},
 ): Promise<IngestResult> {
-  const staged = await stageEmail(message, env, db, bucket);
+  const staged = await stageEmail(message, env, db, bucket, options);
   if (staged.status !== "staged") return staged.result;
   return commitIngest(staged.job, db, bucket, env);
 }
