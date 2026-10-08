@@ -99,6 +99,9 @@ importers:
       postal-mime:
         specifier: ^2.3.2
         version: 2.7.6
+      tldts:
+        specifier: ^6.1.86
+        version: 6.1.86
       zod:
         specifier: ^3.24.1
         version: 3.25.76
