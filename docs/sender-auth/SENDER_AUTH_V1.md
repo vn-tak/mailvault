@@ -74,6 +74,30 @@ using `registrableDomain()` and `domainsAlign()`, so relaxed subdomain alignment
 - When the From domain cannot be established (for example a parse-degraded message), nothing
   aligns, so nothing is `TRUSTED`.
 
+## From binding
+
+- mailauth requires `From` in the signature's `h=` list. A signature that omits it is `neutral` in
+  every mode (`From field not signed`), so a replaced From cannot be vouched for.
+- When a message has two From fields, postal-mime shows the bottom-most one, and DKIM signs the
+  bottom-most one (RFC 6376 section 5.4.2). A From added above the signed one is ignored, and the
+  message stays `TRUSTED` for the signed sender. A From added below it breaks the signature
+  (`fail`). Unit tests cover both cases.
+
+## Open decision: actions on TRUSTED mail read unsigned headers
+
+DKIM covers only the fields in `h=`, so `Reply-To` and `List-Unsubscribe` are unprotected unless the
+sender signs them. Two actions read them for TRUSTED mail:
+
+- Reply: `sendReply` (`apps/worker/src/mail/send.ts`) addresses an inbound parent to `Reply-To`
+  before `From`. `test/integration/send.test.ts` pins that order.
+- Unsubscribe: `MessageDetail` shows the `List-Unsubscribe` link for TRUSTED mail (`UnsubscribeCard`).
+
+Before this change, inbound mail could not reach TRUSTED in production, so neither action was
+reachable for inbound mail. A DKIM-signed message replayed with an added `Reply-To` now verifies as
+TRUSTED, and its reply goes to that unsigned address. The owner has to choose one option: reply to
+the signed `From` for inbound parents, honor `Reply-To` only when an aligned pass covers it, or
+accept the risk and document it.
+
 ## What the verdicts mean
 
 - **TRUSTED**: at least one verified DKIM pass whose `d=` aligns with the header From. No other path
@@ -123,6 +147,14 @@ Nearly all of the delta is mailauth's own DKIM dependency closure. `lib/tools.js
 (with `iconv-lite` and `encoding-japanese`, about 940 KiB unminified), `joi` and `tldts` 7, and the
 verifier requires the `nodemailer` address parser. Trimming that means changing mailauth's require
 graph, which this change does not do.
+
+## Startup and CPU
+
+- Cloudflare's startup limit is 1,000 ms; a Worker that exceeds it fails deployment validation
+  (error 10021). The mailauth DKIM module load measured about 154 ms in Node. It has not been
+  measured in workerd, so the first production deploy is the check.
+- `verifyDkim` on a 20 MiB signed message took about 272 ms in Node, against about 1,829 ms for
+  `parseMime` on the same bytes.
 
 ## Logging
 

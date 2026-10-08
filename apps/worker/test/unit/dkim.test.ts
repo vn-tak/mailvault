@@ -218,6 +218,33 @@ describe("DKIM evidence from the raw message", () => {
     expect(verdictFor(evidence).verdict).toBe(AuthVerdict.Unverified);
   });
 
+  it("an unsigned From above the signed one does not change what is vouched for", async () => {
+    const evidence = await verify(
+      `From: Ceo <ceo@example.com>\r\n${signed(aligned)}`,
+      controlledTxtResolver([aligned]),
+    );
+    expect(outcomes(evidence)).toEqual([AuthOutcome.Pass]);
+    expect(verdictFor(evidence).verdict).toBe(AuthVerdict.Trusted);
+  });
+
+  it("an unsigned From below the signed one breaks the signature", async () => {
+    const raw = signed(aligned).replace("\r\n\r\n", "\r\nFrom: Ceo <ceo@example.com>\r\n\r\n");
+    const evidence = await verify(raw, controlledTxtResolver([aligned]));
+    expect(outcomes(evidence)).toEqual([AuthOutcome.Fail]);
+    expect(verdictFor(evidence).verdict).toBe(AuthVerdict.Unverified);
+  });
+
+  it("a signature that does not cover From is neutral, so it cannot vouch for a sender", async () => {
+    const raw = signMessage(aligned, {
+      headers: headers("joe@example.com"),
+      body,
+      signedHeaders: ["to", "subject", "date"],
+    });
+    const evidence = await verify(raw, controlledTxtResolver([aligned]));
+    expect(outcomes(evidence)).toEqual([AuthOutcome.Neutral]);
+    expect(verdictFor(evidence).verdict).toBe(AuthVerdict.Unverified);
+  });
+
   it("a verified signature cannot align when the From domain is unknown", () => {
     const assessment = assessAuth({
       authResults: [],

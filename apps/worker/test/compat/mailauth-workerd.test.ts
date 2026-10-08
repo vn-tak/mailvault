@@ -4,6 +4,7 @@ import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dkimVerify } from "mailauth/lib/dkim/verify";
+import { verifyDkim } from "../../src/mail/dkim";
 import ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -243,6 +244,43 @@ describe("patched mailauth DKIM verification under workerd", () => {
     const workerd = await verifyInWorkerd(harness!.url, message, dns);
     expect(workerd).toEqual([expected]);
     expect(await verifyInNode(message, dns)).toEqual(workerd);
+  });
+});
+
+describe("production DKIM evidence under workerd", () => {
+  const evidenceOf = (domain: string, outcome: string) => [
+    { mechanism: "dkim", outcome, domain, source: "cryptographic-verifier" },
+  ];
+  const EVIDENCE_CASES = [
+    {
+      name: "a valid aligned RSA-SHA256 signature is pass evidence",
+      message: validRsa,
+      dns: publish(rsa),
+      expected: evidenceOf("example.test", "pass"),
+    },
+    {
+      name: "a bit-flipped signature is fail evidence",
+      message: flipSignatureBit(validRsa),
+      dns: publish(rsa),
+      expected: evidenceOf("example.test", "fail"),
+    },
+    {
+      name: "RSA-SHA1 is permerror evidence",
+      message: signMessage(rsaSha1, { headers, body }),
+      dns: publish(rsaSha1),
+      expected: evidenceOf("example.test", "permerror"),
+    },
+  ];
+
+  it.each(EVIDENCE_CASES)("$name", async ({ message, dns, expected }) => {
+    const response = await httpCall(`${harness!.url}/evidence`, "POST", { message, dns });
+    expect(response.status).toBe(200);
+    const workerd = (JSON.parse(response.body) as { evidence: unknown }).evidence;
+    expect(workerd).toEqual(expected);
+    const node = await verifyDkim(new TextEncoder().encode(message), {
+      resolveTxt: async (name) => dns[name] ?? noRecord(name, "TXT"),
+    });
+    expect(node).toEqual(workerd);
   });
 });
 
